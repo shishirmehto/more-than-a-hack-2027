@@ -44,8 +44,20 @@ def check_codes(codes: NDArray[np.int8], *, allow_x: bool) -> None:
     pred=-1 bleeds into the previous row. Every array that reaches the scorer passes through here
     first (Layout.assemble, score.evaluate, score.write_submission).
     """
-    # TODO: dtype == int8; codes.min() >= 0; codes.max() <= (X if allow_x else D).
-    raise NotImplementedError
+    if not isinstance(codes, np.ndarray) or codes.dtype != np.int8 or codes.ndim != 1:
+        raise ValueError(f"codes must be a 1-D int8 array, got {type(codes).__name__} "
+                         f"{getattr(codes, 'dtype', None)} ndim {getattr(codes, 'ndim', None)}")
+    if codes.size == 0:
+        return
+    top = X if allow_x else D
+    lo, hi = int(codes.min()), int(codes.max())
+    if lo < 0 or hi > top:
+        raise ValueError(f"codes outside 0..{top}: min {lo}, max {hi}")
+
+
+def _freeze(*arrays: NDArray) -> None:
+    for a in arrays:
+        a.setflags(write=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,8 +94,18 @@ class Geometry:
     pitch_m: tuple[float, float]
 
     def __post_init__(self) -> None:
-        # TODO: shape/dtype checks above; setflags(write=False) on all three arrays.
-        pass
+        b, p, t = self.ball_xy, self.players_xy, self.slot_team
+        if b.dtype != np.float32 or b.ndim != 2 or b.shape[1] != 2:
+            raise ValueError(f"ball_xy must be float32 [n, 2], got {b.dtype} {b.shape}")
+        if p.dtype != np.float32 or p.ndim != 3 or p.shape[2] != 2 or p.shape[0] != b.shape[0]:
+            raise ValueError(f"players_xy must be float32 [{b.shape[0]}, S, 2], got {p.dtype} {p.shape}")
+        if t.dtype != np.int8 or t.shape != (p.shape[1],) or t.size == 0:
+            raise ValueError(f"slot_team must be int8 [{p.shape[1]}] with S >= 1, got {t.dtype} {t.shape}")
+        if not np.isin(t, (HOME, AWAY)).all():
+            raise ValueError("slot_team values must be in {0, 1}")
+        if len(self.pitch_m) != 2 or min(self.pitch_m) <= 0:
+            raise ValueError(f"pitch_m must be two positive lengths, got {self.pitch_m}")
+        _freeze(b, p, t)
 
     @property
     def n(self) -> int:
@@ -124,8 +146,20 @@ class Half:
     features: Features | None = None
 
     def __post_init__(self) -> None:
-        # TODO: validate invariants above; freeze arrays.
-        pass
+        tok = self.nearest_team
+        if tok.dtype != np.int8 or tok.ndim != 1:
+            raise ValueError(f"nearest_team must be 1-D int8, got {tok.dtype} ndim {tok.ndim}")
+        if not np.isin(tok, (NO_TEAM, HOME, AWAY)).all():
+            raise ValueError("nearest_team values must be in {-1, 0, 1}")
+        if not 0 <= self.id.kickoff < self.n:
+            raise ValueError(f"kickoff {self.id.kickoff} outside [0, {self.n})")
+        _freeze(tok)
+        f = self.features
+        if f is not None:
+            if f.values.dtype != np.float32 or f.values.shape != (self.n, len(f.names)):
+                raise ValueError(f"features.values must be float32 [{self.n}, {len(f.names)}], "
+                                 f"got {f.values.dtype} {f.values.shape}")
+            _freeze(f.values)
 
     @property
     def n(self) -> int:
@@ -150,8 +184,17 @@ class CleanHalf:
     provenance: Mapping[str, object]
 
     def __post_init__(self) -> None:
-        # TODO: validate; assert not np.isnan(geometry.ball_xy).any().
-        pass
+        check_codes(self.labels, allow_x=False)
+        n = len(self.labels)
+        if self.geometry.n != n:
+            raise ValueError(f"geometry has {self.geometry.n} frames, labels {n}")
+        if not 0 <= self.id.kickoff < n:
+            raise ValueError(f"kickoff {self.id.kickoff} outside [0, {n})")
+        if (self.labels[:self.id.kickoff] != D).any():
+            raise ValueError("labels before kickoff must all be D")
+        if np.isnan(self.geometry.ball_xy).any():
+            raise ValueError("CleanHalf ball has NaN: native NaN must be filled before dropout")
+        _freeze(self.labels)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,18 +215,43 @@ class Layout:
     n_total: int
     blocks: tuple[Block, ...]
 
+    def __post_init__(self) -> None:
+        edge = 0
+        for b in self.blocks:
+            if b.n < 1 or b.origin - edge < GAP_X:
+                raise ValueError(f"block {b} needs n >= 1 and >= {GAP_X} X rows before it "
+                                 f"(previous edge {edge})")
+            edge = b.origin + b.n
+        if self.n_total - edge < GAP_X:
+            raise ValueError(f"n_total {self.n_total} leaves fewer than {GAP_X} X rows after the last block")
+
     @staticmethod
     def synthetic(sizes: Sequence[int], gap: int = GAP_X) -> Layout:
         """gap, then each block followed by gap. n_total = gap + sum(size + gap).
         Raises ValueError if gap < GAP_X: a short gap would let pm.match_transitions pair transitions across halves."""
-        # TODO: origins by running sum; return Layout.
-        raise NotImplementedError
+        if gap < GAP_X:
+            raise ValueError(f"gap {gap} < GAP_X {GAP_X}")
+        blocks, origin = [], gap
+        for size in sizes:
+            blocks.append(Block(origin=origin, n=int(size)))
+            origin += int(size) + gap
+        return Layout(n_total=origin, blocks=tuple(blocks))
 
     def assemble(self, parts: Sequence[NDArray[np.int8]]) -> NDArray[np.int8]:
-        """int8 [n_total] pre-filled with X, each part copied to its block. parts[i].shape == (blocks[i].n,)."""
-        # TODO: out = np.full(n_total, X, np.int8); out[o:o+n] = part; check_codes(out, allow_x=True).
-        raise NotImplementedError
+        """int8 [n_total] pre-filled with X, each part copied to its block. parts[i].shape == (blocks[i].n,).
+        Every part is range-checked before the copy, so a wider dtype cannot wrap into a valid code."""
+        if len(parts) != len(self.blocks):
+            raise ValueError(f"{len(parts)} parts for {len(self.blocks)} blocks")
+        out = np.full(self.n_total, X, dtype=np.int8)
+        for b, part in zip(self.blocks, parts):
+            check_codes(part, allow_x=True)
+            if part.shape != (b.n,):
+                raise ValueError(f"part of shape {part.shape} for a block of {b.n} rows")
+            out[b.origin:b.origin + b.n] = part
+        return out
 
     def cut(self, array: NDArray) -> list[NDArray]:
         """Views of a scorer-length array, one per block. Inverse of assemble."""
-        raise NotImplementedError
+        if array.shape[0] != self.n_total:
+            raise ValueError(f"array has {array.shape[0]} rows, layout {self.n_total}")
+        return [array[b.origin:b.origin + b.n] for b in self.blocks]

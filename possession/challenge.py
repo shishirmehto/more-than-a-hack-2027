@@ -29,7 +29,7 @@ from numpy.typing import NDArray
 import games  # repo-root module, stdlib only; frozen
 
 from . import score  # no cycle: score imports half only
-from .half import D, NO_TEAM, Geometry, Half, HalfId, Layout
+from .half import D, NO_TEAM, Block, Geometry, Half, HalfId, Layout
 
 GAME = games.GAME  # "BAR-ATH"
 
@@ -39,6 +39,8 @@ KICKOFF_ROW: dict[int, int] = {1: 11185, 2: 113742}
 
 BASELINE_RAW = Path(__file__).resolve().parents[1] / "evaluation" / "results" / "baseline_raw.csv"
 
+_CHUNK = 20_000
+
 
 def layout() -> Layout:
     """The real scorer layout: n_total = games.source_frames("tactical") (199,319), blocks from
@@ -47,7 +49,9 @@ def layout() -> Layout:
     (half, first, last) -> Block(origin=first, n=last - first + 1) = (11185, 79467), (110808, 79390).
     Kickoff local index = KICKOFF_ROW[half] - first (0 and 2934).
     """
-    raise NotImplementedError
+    blocks = tuple(Block(origin=first, n=last - first + 1)
+                   for _, first, last in games.half_video_blocks(GAME))
+    return Layout(n_total=games.source_frames("tactical"), blocks=blocks)
 
 
 def nearest_team(g: Geometry) -> NDArray[np.int8]:
@@ -58,31 +62,40 @@ def nearest_team(g: Geometry) -> NDArray[np.int8]:
     -1 where the ball is NaN or no slot is present. Distances in float64 (upcast), chunked over
     frames so peak memory stays ~30 MB at S = 46.
     """
-    # TODO: for chunk in frames(20_000):
-    #           d = ((players[chunk] - ball[chunk, None, :]) ** 2).sum(-1)      # [c, S], NaN propagates
-    #           d = np.where(np.isnan(d), np.inf, d); j = d.argmin(1)
-    #           ok = ~np.isnan(ball[chunk, 0]) & np.isfinite(d[np.arange(c), j])
-    #           out[chunk] = np.where(ok, slot_team[j], NO_TEAM)
-    raise NotImplementedError
+    out = np.full(g.n, NO_TEAM, dtype=np.int8)
+    for lo in range(0, g.n, _CHUNK):
+        ball = g.ball_xy[lo:lo + _CHUNK].astype(np.float64)
+        players = g.players_xy[lo:lo + _CHUNK].astype(np.float64)
+        d = ((players - ball[:, None, :]) ** 2).sum(-1)
+        d = np.where(np.isnan(d), np.inf, d)
+        j = d.argmin(1)
+        ok = ~np.isnan(ball[:, 0]) & np.isfinite(d[np.arange(len(j)), j])
+        out[lo:lo + _CHUNK] = np.where(ok, g.slot_team[j], NO_TEAM)
+    return out
 
 
 def observe(g: Geometry, id: HalfId) -> Half:
     """Geometry -> Half. First implementation: nearest_team only, features=None.
 
     The single place a Half is derived from geometry, for the challenge and for Metrica dev halves
-    alike. Slot-order and slot-count invariant by construction (reduces over slots per frame).
+    alike. Slot-order and slot-count invariant by construction (reduces over slots per frame), up to
+    exact distance ties, which go to the first slot.
     DEFERRED: compute `Features` here (team-paired, ball-free and ball-based columns).
     """
-    # TODO: return Half(id=id, nearest_team=nearest_team(g), features=None)
-    raise NotImplementedError
+    return Half(id=id, nearest_team=nearest_team(g), features=None)
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
            data_dir: str | Path | None = None) -> tuple[Half, Half]:
     """The two decoder inputs for BAR-ATH from the chosen source. THE seam; see module docstring."""
-    # TODO: "baseline_raw" -> _halves_from_baseline_raw(BASELINE_RAW)
-    # TODO: "atd"          -> [observe(g, HalfId(GAME, h, kickoff_h)) for h, g in enumerate(load_geometry(data_dir), 1)]
-    raise NotImplementedError
+    if source == "baseline_raw":
+        return _halves_from_baseline_raw(BASELINE_RAW)
+    if source == "atd":
+        first = {half: first for half, first, _ in games.half_video_blocks(GAME)}
+        g1, g2 = load_geometry(data_dir)
+        return (observe(g1, HalfId(GAME, 1, KICKOFF_ROW[1] - first[1])),
+                observe(g2, HalfId(GAME, 2, KICKOFF_ROW[2] - first[2])))
+    raise ValueError(f"unknown source {source!r}; have 'baseline_raw', 'atd'")
 
 
 def _halves_from_baseline_raw(path: Path) -> tuple[Half, Half]:
@@ -93,11 +106,11 @@ def _halves_from_baseline_raw(path: Path) -> tuple[Half, Half]:
     ball-missing frames are inside live possession. So: D -> NO_TEAM (a mask), H -> HOME, A -> AWAY.
     The decoder never sees the word "D" from this source.
     """
-    # TODO: codes = score.read_codes(path, n_expected=games.source_frames("tactical"))   # one CSV boundary, in score.py
-    # TODO: token = np.where(codes == D, NO_TEAM, codes).astype(int8)  # H=0 -> HOME, A=1 -> AWAY
-    # TODO: for (half, first, last) in games.half_video_blocks(GAME):
-    #           Half(HalfId(GAME, half, KICKOFF_ROW[half] - first), token[first:last + 1].copy())
-    raise NotImplementedError
+    codes = score.read_codes(path, n_expected=games.source_frames("tactical"))
+    token = np.where(codes == D, NO_TEAM, codes).astype(np.int8)
+    h1, h2 = (Half(HalfId(GAME, half, KICKOFF_ROW[half] - first), token[first:last + 1].copy())
+              for half, first, last in games.half_video_blocks(GAME))
+    return h1, h2
 
 
 def load_geometry(data_dir: str | Path | None = None) -> tuple[Geometry, Geometry]:
@@ -109,4 +122,6 @@ def load_geometry(data_dir: str | Path | None = None) -> tuple[Geometry, Geometr
     minutes and gigabytes: not used). Row = frame_id - 1; slice halves by games.half_video_blocks.
     Reuse starter.baseline.team_of_each_track for slot_team (reading starter is fine; editing is not).
     """
-    raise NotImplementedError
+    raise NotImplementedError(
+        "challenge.load_geometry: the ATD parser is not written yet (the gated data is not on disk). "
+        "Use halves('baseline_raw') until it lands; the docstring states what it must return.")

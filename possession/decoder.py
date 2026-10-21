@@ -17,7 +17,7 @@ bakeoff; a labelled proxy, to be re-run on the Metrica dev set):
         (spellF1 0.02 vs 0.35), while at a tuned temper the two were within 0.02.
       "map": exact most-likely segmentation under shifted-geometric durations with a hard minimum
         (`min_poss_frames`, `min_dead_frames`), by prefix sums in O(n K^2). Equal to Viterbi on the
-        expanded chain-state HMM to 7e-14 (bakeoff probe); 0.21 s per 79k-frame half at stride 1.
+        expanded chain-state HMM to 7e-14 (bakeoff probe); 0.17-0.20 s per 79k-frame half at stride 1.
     "marginal" supports only min durations of 1 (a minimum needs the expanded chain; measured worth
     +0.006..0.008 at 1 s and negative from 2 s under posterior decoding, so it is not offered).
   * D remembers who last had the ball (D_after_H, D_after_A). A stoppage then carries the flip prior
@@ -32,13 +32,15 @@ bakeoff; a labelled proxy, to be re-run on the Metrica dev set):
     geometry-derived dev tokens whose errors are bursty.
 
 Decoding runs per half, on blocks of `stride` frames (evidence summed per block, partial last block
-allowed), then upsampled. Measured: K = 4 forward-backward costs 0.31 s per 79k-frame half at stride 1
-and 0.06 s at stride 5, so a 100-config x 3-world x 6-half grid is minutes, not hours.
+allowed), then upsampled. Measured on the baseline_raw halves: K = 4 forward-backward costs 0.17 s per
+79k-frame half at stride 1 and 0.03 s at stride 5, so a 100-config x 3-world x 6-half grid is minutes,
+not hours.
 """
 from __future__ import annotations
 
 import dataclasses
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal, Mapping, Protocol
@@ -46,10 +48,15 @@ from typing import Iterable, Literal, Mapping, Protocol
 import numpy as np
 from numpy.typing import NDArray
 
-from .half import A, D, FPS, H, Half
+from .half import A, D, FPS, H, X, Half
 
 N_STATES = 4  # H, A, D_after_H, D_after_A
 STATE_LABEL = np.array([H, A, D, D], dtype=np.int8)
+_DH, _DA = 2, 3
+
+# Missing-rate clip for Tier0Emission. The floor keeps log(m) finite on a half whose decode window
+# has no missing frame (its pre-kickoff rows may still be missing and are part of loglik's output).
+_M_FLOOR, _M_CAP = 1e-6, 0.98
 
 
 class Emission(Protocol):
@@ -86,18 +93,33 @@ class Tier0Emission:
     alive_share: float = 0.6
 
     def loglik(self, half: Half) -> NDArray[np.float32]:
-        # TODO: seen = half.nearest_team >= 0; r = 1 - seen[kickoff:].mean()
-        # TODO: m_a = min(r / (a0 + (1 - a0) * rho), 0.98); m_d = min(rho * m_a, 0.98)
-        # TODO: ll = empty [n,3]; ll[~seen] = log([m_a, m_a, m_d])
-        #       for t in (HOME, AWAY): ll[tok == t] = log(T[:, t]) + log([1-m_a, 1-m_a, 1-m_d])
-        raise NotImplementedError
+        tok = half.nearest_team
+        r = float((tok[half.id.kickoff:] < 0).mean())
+        rho, a0, q = self.dead_bias, self.alive_share, self.q
+        m_a = min(max(r / (a0 + (1 - a0) * rho), _M_FLOOR), _M_CAP)
+        m_d = min(max(rho * m_a, _M_FLOOR), _M_CAP)
+        seen = np.log([1 - m_a, 1 - m_a, 1 - m_d])
+        table = np.array([                                   # row = token + 1: NO_TEAM, HOME, AWAY
+            np.log([m_a, m_a, m_d]),
+            np.log([q, 1 - q, 0.5]) + seen,
+            np.log([1 - q, q, 0.5]) + seen,
+        ])
+        return table[tok + 1].astype(np.float32)
 
     @staticmethod
     def fit(pairs: Iterable[tuple[Half, NDArray[np.int8]]], base: "Tier0Emission") -> "Tier0Emission":
         """q by counting on graded alive frames with a visible ball (labels in {H, A}, X ignored),
         pooled over teams and halves, Laplace-smoothed (+1/+1). dead_bias and alive_share pass through
         from `base` untouched."""
-        raise NotImplementedError
+        hit = total = 0
+        for half, labels in pairs:
+            tok = half.nearest_team
+            if labels.shape != tok.shape:
+                raise ValueError(f"labels {labels.shape} do not match half {tok.shape}")
+            use = ((labels == H) | (labels == A)) & (tok >= 0)
+            total += int(use.sum())
+            hit += int((tok[use] == labels[use]).sum())  # HOME == H, AWAY == A
+        return dataclasses.replace(base, q=(hit + 1) / (total + 2))
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +131,7 @@ class DecoderParams:
     dead_mean_s:        mean D stretch in seconds.                                              (grid)
     p_dead_after_poss:  P(next segment is D | a possession ends).                               (fit)
     p_flip_after_dead:  P(next possession is the OTHER team | a D stretch ends).                (fit)
-    stride:             frames per decode block. Speed knob: 5 by default, 1 allowed (0.31 s per half).
+    stride:             frames per decode block. Speed knob: 5 by default, 1 allowed (0.17 s per half).
     decode_rule:        "marginal" | "map", see the module docstring.                         (grid)
     min_poss_frames:    hard minimum H/A segment length in frames; "map" only, 1 = none.        (grid)
     min_dead_frames:    hard minimum D segment length in frames; "map" only, 1 = none.          (grid)
@@ -156,23 +178,90 @@ class Decoder:
              block at the start of a half) resolve to the lower label on every machine instead of on
              1-ulp noise.
         """
-        # TODO: ev = self.emission.loglik(half)[kickoff:].astype(float64)
-        # TODO: E = temper * np.add.reduceat(ev, np.arange(0, m, stride), axis=0)        # [nb, 3]
-        # TODO: "marginal": post_blocks = _forward_backward(E, _chain(self.params))      # [nb, 3]
-        #       "map":      labels_blocks = _map(E, self.params); posterior = one-hot of the path
-        # TODO: upsample by repeat(stride)[:m]; prepend D rows for [0, kickoff); argmax of round(., 9)
-        raise NotImplementedError
+        p, kickoff = self.params, half.id.kickoff
+        ev = self.emission.loglik(half)[kickoff:].astype(np.float64)
+        m = ev.shape[0]
+        E = p.temper * np.add.reduceat(ev, np.arange(0, m, p.stride), axis=0)
+        if p.decode_rule == "marginal":
+            post_blocks = _forward_backward(E, _chain(p))
+        else:
+            post_blocks = np.eye(3)[_map(E, p)]
+        post = np.empty((half.n, 3), dtype=np.float64)
+        post[:kickoff] = (0.0, 0.0, 1.0)
+        post[kickoff:] = np.repeat(post_blocks, p.stride, axis=0)[:m]
+        codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
+        return Decoded(codes=codes, posterior=post.astype(np.float32))
 
     def save(self, path: str | Path, provenance: Mapping[str, object]) -> Path:
         """{"emission": {"kind": "tier0", ...}, "params": {...}, "provenance": {...}} with sorted keys
         and fixed float formatting, so the committed file and the submission it produces are both
         byte-stable. Numbers only: no data, no tracking, safe to commit (params/*.json)."""
-        raise NotImplementedError
+        doc = {"emission": {"kind": "tier0", **dataclasses.asdict(self.emission)},
+               "params": dataclasses.asdict(self.params),
+               "provenance": dict(provenance)}
+        path = Path(path)
+        path.write_bytes((json.dumps(doc, sort_keys=True, indent=2) + "\n").encode("ascii"))
+        return path
 
     @staticmethod
     def load(path: str | Path) -> "Decoder":
-        """Boundary: parse + validate ranges (0 < q < 1, 0 < p < 1, temper > 0, stride >= 1)."""
-        raise NotImplementedError
+        """Boundary: parse + validate ranges (0 < q < 1, 0 < p < 1, temper > 0, stride >= 1).
+
+        Every emission and params field must be present: a default filled in silently would let a
+        later change of default alter the submission a committed params file produces. "marginal"
+        requires min_*_frames == 1; "map" requires each mean, in blocks, above its minimum in blocks."""
+        doc = json.loads(Path(path).read_text())
+        if not isinstance(doc, dict) or set(doc) != {"emission", "params", "provenance"}:
+            raise ValueError(f"{path}: expected keys emission, params, provenance")
+        emission = dict(doc["emission"])
+        if emission.pop("kind", None) != "tier0":
+            raise ValueError(f"{path}: emission.kind must be 'tier0'")
+        decoder = Decoder(_strict(Tier0Emission, emission, path), _strict(DecoderParams, doc["params"], path))
+        _validate(decoder, path)
+        return decoder
+
+
+def _strict(cls: type, values: Mapping[str, object], path: str | Path):
+    names = {f.name for f in dataclasses.fields(cls)}
+    if set(values) != names:
+        raise ValueError(f"{path}: {cls.__name__} keys differ: missing {sorted(names - set(values))}, "
+                         f"unknown {sorted(set(values) - names)}")
+    return cls(**values)
+
+
+def _validate(decoder: Decoder, path: str | Path) -> None:
+    e, p = decoder.emission, decoder.params
+
+    def number(name: str, value: object, lo: float, hi: float, *, integer: bool = False,
+               lo_open: bool = True, hi_open: bool = True) -> None:
+        kinds = (int,) if integer else (int, float)
+        ok = isinstance(value, kinds) and not isinstance(value, bool) and math.isfinite(value)
+        ok = ok and (value > lo if lo_open else value >= lo) and (value < hi if hi_open else value <= hi)
+        if not ok:
+            raise ValueError(f"{path}: {name} = {value!r} outside its range")
+
+    number("q", e.q, 0, 1)
+    number("dead_bias", e.dead_bias, 0, math.inf)
+    number("alive_share", e.alive_share, 0, 1, hi_open=False)
+    number("temper", p.temper, 0, math.inf)
+    number("poss_mean_s", p.poss_mean_s, 0, math.inf)
+    number("dead_mean_s", p.dead_mean_s, 0, math.inf)
+    number("p_dead_after_poss", p.p_dead_after_poss, 0, 1)
+    number("p_flip_after_dead", p.p_flip_after_dead, 0, 1)
+    number("stride", p.stride, 1, math.inf, integer=True, lo_open=False)
+    number("min_poss_frames", p.min_poss_frames, 1, math.inf, integer=True, lo_open=False)
+    number("min_dead_frames", p.min_dead_frames, 1, math.inf, integer=True, lo_open=False)
+    if p.decode_rule == "marginal":
+        if (p.min_poss_frames, p.min_dead_frames) != (1, 1):
+            raise ValueError(f"{path}: decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")
+    elif p.decode_rule == "map":
+        for name, mean_s, min_frames in (("poss", p.poss_mean_s, p.min_poss_frames),
+                                         ("dead", p.dead_mean_s, p.min_dead_frames)):
+            if mean_s * FPS / p.stride <= math.ceil(min_frames / p.stride):
+                raise ValueError(f"{path}: decode_rule 'map' needs {name}_mean_s above min_{name}_frames "
+                                 f"in blocks of {p.stride}")
+    else:
+        raise ValueError(f"{path}: decode_rule {p.decode_rule!r} is not 'marginal' or 'map'")
 
 
 def fit(pairs: Iterable[tuple[Half, NDArray[np.int8]]], base: Decoder) -> Decoder:
@@ -187,10 +276,36 @@ def fit(pairs: Iterable[tuple[Half, NDArray[np.int8]]], base: Decoder) -> Decode
     Durations are NOT fitted: Metrica spells are convention-biased (merge_s, ~30% under 2 s) while the
     challenge's are not, so poss_mean_s / dead_mean_s are grid knobs scored across merge_s worlds.
     """
-    # TODO: segments per labelled half via run-length encoding of non-X runs. A segment touching an X
-    #       boundary or the end of a half is truncated: count its transition only if the transition itself
-    #       is observed, so edge runs never bias p_dead_after_poss / p_flip_after_dead.
-    raise NotImplementedError
+    pairs = list(pairs)
+    n_poss = n_poss_to_dead = n_dead = n_flip = 0
+    for _, labels in pairs:
+        for seq in _segment_labels(labels):
+            for a, b in zip(seq, seq[1:]):
+                if a != D:
+                    n_poss += 1
+                    n_poss_to_dead += b == D
+            for a, b, c in zip(seq, seq[1:], seq[2:]):
+                if b == D and a != D and c != D:
+                    n_dead += 1
+                    n_flip += a != c
+    params = dataclasses.replace(base.params,
+                                 p_dead_after_poss=(n_poss_to_dead + 1) / (n_poss + 2),
+                                 p_flip_after_dead=(n_flip + 1) / (n_dead + 2))
+    return Decoder(Tier0Emission.fit(pairs, base.emission), params)
+
+
+def _segment_labels(labels: NDArray[np.int8]) -> list[list[int]]:
+    """The label of each maximal constant segment, one list per maximal non-X stretch. Only adjacent
+    entries of one list are observed transitions; a stretch's first and last segments may be truncated
+    by X or the half's edge, which is why nothing is counted across lists."""
+    graded = np.concatenate(([0], (labels != X).astype(np.int8), [0]))
+    edges = np.flatnonzero(np.diff(graded))
+    out = []
+    for lo, hi in zip(edges[::2], edges[1::2]):
+        w = labels[lo:hi]
+        starts = np.concatenate(([0], np.flatnonzero(w[1:] != w[:-1]) + 1))
+        out.append(w[starts].tolist())
+    return out
 
 
 # --- internals: kept private, exercised through Decoder.decode -----------------------------------------
@@ -209,23 +324,52 @@ def _chain(p: DecoderParams) -> _Chain:
         D_after_H -> D_after_H 1-hd ;  -> H hd*(1-p_flip) ;  -> A hd*p_flip
         A and D_after_A mirror those.
     """
-    raise NotImplementedError
+    hp = min(1.0 / (p.poss_mean_s * FPS / p.stride), 0.5)
+    hd = min(1.0 / (p.dead_mean_s * FPS / p.stride), 0.5)
+    pd, pf = p.p_dead_after_poss, p.p_flip_after_dead
+    trans = np.array([
+        [1 - hp, hp * (1 - pd), hp * pd, 0.0],
+        [hp * (1 - pd), 1 - hp, 0.0, hp * pd],
+        [hd * (1 - pf), hd * pf, 1 - hd, 0.0],
+        [hd * pf, hd * (1 - pf), 0.0, 1 - hd],
+    ])
+    return _Chain(trans=trans, init=np.array([0.5, 0.5, 0.0, 0.0]))
 
 
 def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float64]:
     """Scaled forward-backward on block evidence E [nb, 3] -> label posteriors [nb, 3].
 
     The per-label evidence is broadcast to states through STATE_LABEL. Scaled in the probability
-    domain (K = 4 makes log-domain pointless):
+    domain (K = 4 makes log-domain pointless), with each row's evidence max removed first. The
+    recursions run on Python floats with every sum written out in a fixed order: no BLAS, no numpy
+    reduction whose order could depend on the CPU, so the same bits come out on every machine.
     """
-    # TODO: Ek = exp(E - E.max(axis=1, keepdims=True))[:, STATE_LABEL]              # [nb, 4], row max removed
-    # TODO: alpha[0] = init * Ek[0]; alpha[0] /= alpha[0].sum()
-    #       alpha[t] = (alpha[t-1][:, None] * trans).sum(0) * Ek[t]; alpha[t] /= alpha[t].sum()
-    # TODO: beta[-1] = 1; beta[t] = (trans * (Ek[t+1] * beta[t+1])[None, :]).sum(1); beta[t] /= beta[t].sum()
-    # TODO: gamma = alpha * beta; gamma /= gamma.sum(1, keepdims=True)
-    #       post = stack([gamma[:, 0], gamma[:, 1], gamma[:, 2] + gamma[:, 3]], axis=1)
-    #       (explicit elementwise sums, not `@`: no BLAS path, same bits on every machine)
-    raise NotImplementedError
+    nb = E.shape[0]
+    ek = np.exp(E - E.max(axis=1, keepdims=True))[:, STATE_LABEL].tolist()
+    into = chain.trans.T.tolist()     # into[j] = P(i -> j) for i = 0..3
+    out_of = chain.trans.tolist()     # out_of[i] = P(i -> j) for j = 0..3
+
+    alpha = [None] * nb
+    a = [pi * e for pi, e in zip(chain.init.tolist(), ek[0])]
+    s = a[0] + a[1] + a[2] + a[3]
+    alpha[0] = [x / s for x in a]
+    for t in range(1, nb):
+        p0, p1, p2, p3 = alpha[t - 1]
+        a = [(p0 * c0 + p1 * c1 + p2 * c2 + p3 * c3) * e for (c0, c1, c2, c3), e in zip(into, ek[t])]
+        s = a[0] + a[1] + a[2] + a[3]
+        alpha[t] = [x / s for x in a]
+
+    beta = [None] * nb
+    beta[nb - 1] = [1.0, 1.0, 1.0, 1.0]
+    for t in range(nb - 2, -1, -1):
+        w0, w1, w2, w3 = [e * b for e, b in zip(ek[t + 1], beta[t + 1])]
+        b = [r0 * w0 + r1 * w1 + r2 * w2 + r3 * w3 for r0, r1, r2, r3 in out_of]
+        s = b[0] + b[1] + b[2] + b[3]
+        beta[t] = [x / s for x in b]
+
+    g = np.array(alpha) * np.array(beta)
+    g /= (g[:, 0] + g[:, 1] + g[:, 2] + g[:, 3])[:, None]
+    return np.stack([g[:, 0], g[:, 1], g[:, 2] + g[:, 3]], axis=1)
 
 
 def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
@@ -240,12 +384,83 @@ def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
         t = 0:  V[c] = log_pi[c] + E[0, c]
         t >= 1: cont = V_prev[c] + log c_c + E[t, c]
                 s = t - k_c + 1; new = ent[s][c] + C[t+1, c] - C[s, c]  (s >= 1)
-                take new only if new > cont (ties continue: deterministic, latest switch)
+                take new only if new > cont (a tie keeps the running segment: the earlier switch)
                 ent[t+1][c] = max over predecessors q of V_t[q] + log(1 - c_q) + log T[q -> c]
         end:    best of V at nb-1 and of the right-censored tails ent[s][c] + C[nb, c] - C[s, c].
         back:   hop segment to segment through the stored segment starts and entry predecessors.
 
     Model constants (log tables) are rounded to 1e-12 before use so an ulp of libm drift cannot move a
     near-tie boundary. Port of the bakeoff's probe; selfcheck.map_equals_expanded_viterbi pins it.
+    The first segment has no minimum (it is already under way at the kickoff); the last may be cut
+    short by the end of the half. Ties between states go to the lower state index.
     """
-    raise NotImplementedError
+    nb, K = E.shape[0], N_STATES
+    ll = E[:, STATE_LABEL]
+    C = np.concatenate([np.zeros((1, K)), np.cumsum(ll, axis=0)]).tolist()
+    ll = ll.tolist()
+
+    k = [math.ceil(p.min_poss_frames / p.stride)] * 2 + [math.ceil(p.min_dead_frames / p.stride)] * 2
+    mean = [p.poss_mean_s * FPS / p.stride] * 2 + [p.dead_mean_s * FPS / p.stride] * 2
+    cont_p = [(m - kc) / (m - kc + 1) for m, kc in zip(mean, k)]
+    log_c = [round(math.log(c), 12) for c in cont_p]
+    pd, pf = p.p_dead_after_poss, p.p_flip_after_dead
+    switch_into = [                     # per state c: (predecessor q, P(q -> c | q's segment ends))
+        [(A, 1 - pd), (_DH, 1 - pf), (_DA, pf)],
+        [(H, 1 - pd), (_DA, 1 - pf), (_DH, pf)],
+        [(H, pd)],
+        [(A, pd)],
+    ]
+    entry_w = [[(q, round(math.log(1 - cont_p[q]) + math.log(w), 12)) for q, w in row] for row in switch_into]
+    log_pi = [round(math.log(0.5), 12)] * 2 + [-math.inf] * 2
+
+    ent = [[-math.inf] * K for _ in range(nb + 1)]   # ent[s][c]: best score of a fresh c segment at s
+    ent_from = [[-1] * K for _ in range(nb + 1)]
+    start = [None] * nb                                # start[t][c]: segment start of the best path
+
+    def fill_entry(s: int, V: list[float]) -> None:
+        for c in range(K):
+            best, arg = -math.inf, -1
+            for q, w in entry_w[c]:
+                v = V[q] + w
+                if v > best:
+                    best, arg = v, q
+            ent[s][c], ent_from[s][c] = best, arg
+
+    V = [log_pi[c] + ll[0][c] for c in range(K)]
+    start[0] = [0] * K
+    fill_entry(1, V)
+    for t in range(1, nb):
+        lt, ct1, prev_start = ll[t], C[t + 1], start[t - 1]
+        V_t, row = [0.0] * K, [0] * K
+        for c in range(K):
+            cont = V[c] + log_c[c] + lt[c]
+            s = t - k[c] + 1
+            if s >= 1:
+                new = ent[s][c] + ct1[c] - C[s][c]
+                if new > cont:
+                    V_t[c], row[c] = new, s
+                    continue
+            V_t[c], row[c] = cont, prev_start[c]
+        V, start[t] = V_t, row
+        if t + 1 < nb:
+            fill_entry(t + 1, V)
+
+    best_c = max(range(K), key=lambda c: V[c])
+    best_v, tail = V[best_c], None
+    for c in range(K):
+        for s in range(max(1, nb - k[c] + 1), nb):
+            v = ent[s][c] + C[nb][c] - C[s][c]
+            if v > best_v:
+                best_v, best_c, tail = v, c, s
+
+    labels = np.empty(nb, dtype=np.int8)
+    t, c = nb - 1, best_c
+    if tail is not None:
+        labels[tail:] = STATE_LABEL[c]
+        t, c = tail - 1, ent_from[tail][c]
+    while True:
+        s = start[t][c]
+        labels[s:t + 1] = STATE_LABEL[c]
+        if s == 0:
+            return labels
+        t, c = s - 1, ent_from[s][c]
