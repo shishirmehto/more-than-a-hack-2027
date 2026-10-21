@@ -69,7 +69,7 @@ preds = [model.decode(h).codes for h in halves]   # unchanged
 | `challenge.py` | BAR-ATH: blocks, kickoffs, the tier-0 token, baseline_raw, the ATD seam | `halves(source)`, `layout`, `observe`, `nearest_team` | the "D means missing" translation, the ATD grammar |
 | `metrica/` | the sample data | `fetch`, `load`, `RuleV2` | pinned URLs, sha256, two file formats, label rule v2, native-NaN fill |
 | `dropout.py` | challenge-ification | `challengeify`, `DropoutParams` | rate solving, renewal masks, RNG streams |
-| `decoder.py` | evidence to labels | `Decoder.decode/save/load`, `fit`, `Tier0Emission`, `DecoderParams` | chain, forward-backward, blocks, kickoff, tie rounding |
+| `decoder.py` | evidence to labels | `Decoder.decode/replace/fields/save/load`, `Tier0Emission`, `DecoderParams` | chain, forward-backward, blocks, kickoff, tie rounding, range checks |
 | `bench.py` | scoring problems and the selection protocol | `dev_cases`, `public_case`, `run`, `surface`, `fit_dev`, `paired_delta` | which cases exist, worlds, max-min |
 | `selfcheck.py` | the invariants as runnable checks | `run` | |
 
@@ -82,7 +82,7 @@ This deliberately departs from the grounding's stage-shaped map (`halves / featu
 - `CleanHalf`: `Geometry` with a fully observed ball, plus `labels int8 [n]` in {0,1,2}, plus provenance. Native NaN are filled upstream, so injected dropout is the only missingness a decoder can ever see.
 - `Layout`/`Block`: the only owner of origins. X exists only outside blocks. Invariant: at least 500 X rows before, between and after blocks, so `pm.valid_runs` returns exactly one run per half. The challenge layout is built from `games.half_video_blocks`, the dev layout is `Layout.synthetic`.
 - `Case`: layout, halves, a scorer-length `gt` assembled from labels (derived, never stored twice), provenance.
-- `Decoder`: frozen `(Tier0Emission, DecoderParams)`, serialisable to JSON.
+- `Decoder`: frozen `(Tier0Emission, DecoderParams)`, each range-checked at construction, serialisable to JSON.
 
 Geometry is a separate type from `Half` on purpose. `Half` is what both the tier-0 file (no geometry, ever) and the future ATD path (geometry) can supply. Putting geometry on `Half` as an optional field would be "sometimes geometric", which forces an `if` into the decoder (per `type-system-discipline`, no bags of optional fields). `Half.features` is the one reserved optional and it is always `None` in the first implementation. I keep it because the task asks the shape to show what the ATD must produce. Its contract is in the `Features` docstring.
 
@@ -142,7 +142,7 @@ Every scoring problem is a `Case`, so a decoder is scored by the same two calls 
 | 11 | 0.435 | 0.523 | 0.520 |
 | min over worlds | 0.435 | 0.336 | 0.336 |
 
-Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it costs 0.09 in the dead-heavy world, so the surface is informative and asymmetric. The selection rule is therefore max-min over worlds, ties by mean. Worlds are `merge_s` times `dead_bias` (both unknown for the real match). The `dead_bias` key is the requested ratio. Above roughly 8 the 0.98 per-state cap binds on high-alive halves and the effective ratio saturates (G3, alive share 0.68, at 11 gives about 7; the proxy's 78%-alive truth gave 4.2). The realised rates are recomputed into each case's provenance, so a table never reports a ratio the data did not have. `dead_bias` is never fitted on the dev set, because fitting it there reads back the generator's own setting. Counts-derived parameters (`q`, `p_dead_after_poss`, `p_flip_after_dead`) are fitted by supervised counts with Laplace smoothing, no EM. The grid covers what counts cannot give (alpha, the two mean durations, the belief). Decode costs about 0.06 s per half at stride 5, so the 135-config by 3-world grid is a few minutes (**measured** decode time, grid size by arithmetic). `paired_delta` bootstraps the GT possessions two decoders share before anyone believes a gap under 0.04.
+Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it costs 0.09 in the dead-heavy world, so the surface is informative and asymmetric. The selection rule is therefore max-min over worlds, ties by mean. Worlds are `merge_s` times `dead_bias` (both unknown for the real match). The `dead_bias` key is the requested ratio. Above roughly 8 the 0.98 per-state cap binds on high-alive halves and the effective ratio saturates (G3, alive share 0.68, at 11 gives about 7; the proxy's 78%-alive truth gave 4.2). The realised rates are recomputed into each case's provenance, so a table never reports a ratio the data did not have. `dead_bias` is never fitted on the dev set, because fitting it there reads back the generator's own setting. Nothing else is fitted by counting either. `q`, `p_dead_after_poss` and `p_flip_after_dead` are grid axes like alpha, the two mean durations and the belief, because the counted values lost on the dev objective (see Dev sweeps). Decode costs about 0.06 s per half at stride 5, so the 135-config by 3-world grid is a few minutes (**measured** decode time, grid size by arithmetic). `paired_delta` bootstraps the GT possessions two decoders share before anyone believes a gap under 0.04.
 
 ### Where invariants live
 
@@ -181,7 +181,7 @@ Grafted:
 - From the opus sketch, the event rule as data: `metrica/rule.py` `Trigger`, `DEAD_TRIGGERS`, `NOT_RESTART`, `FALLBACK_RESTART`, `OWNER_KINDS`, `matches`. CHALLENGE-FAULT and the goal-kick fallback are now table rows, not comments.
 - From the opus sketch, a second decode rule on the same 4-state chain: `DecoderParams.decode_rule = "map"` with `min_poss_frames` / `min_dead_frames` (shifted-geometric durations, exact prefix-sum MAP, `decoder._map`). The decoders disagreed and no design argument settles it, so it is a grid axis judged on the dev set. Default stays "marginal".
 - From the opus sketch, the label-blind "transplant" dropout world (`DropoutParams.mode`), which copies a seeded window of the challenge's real mask and keeps its nonstationarity, and the `Case.__post_init__` guard (truth is X outside every block).
-- From the fable sketch, fitting ignores truncated edge runs (`decoder.fit`).
+- From the fable sketch, fitting ignores truncated edge runs (`decoder.fit`). Removed with `decoder.fit` after sweep 3.
 
 Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017), posterior abstention and spell absorption (measured at noise or macroF1-only), the evidence-prior registries and binned naive-Bayes emission (speculative before any feature exists), the npz dev cache (invalidation surface), 46-slot tracklet simulation (needs the gated ATD to calibrate; tier-0 tokens cannot see it). Deferred: an explicit `ball_seen` mask on `Half` (needed once ball-only features exist), the turnover-biased dropout world.
 
@@ -195,7 +195,7 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 - We accept a stationary dropout generator that ignores play and camera in exchange for a bracketing sweep (`dead_bias` 0.75 to 11) that does not pretend to know the real dependence.
 - We accept `hold` fill, which gives a dead ball a stationary position, in exchange for avoiding a constant-velocity dead ball. A ball-speed feature may still read "stationary" as a weak dead cue.
 - We accept block decoding at stride 5 (switches quantised to 5 frames, tolerance in the scorer is 12) in exchange for a 5x faster grid. `stride=1` stays one parameter away.
-- We accept committing fitted numbers (`params/*.json`) derived from external public data in exchange for a submission path that never touches Metrica. The refit needs the fetch.
+- We accept committing selected numbers (`params/*.json`) derived from external public data in exchange for a submission path that never touches Metrica. Re-running the selection needs the fetch.
 - We accept a documented kickoff constant (11185, 113742 from FAQ.md) rather than detecting kickoff. It is public, it is the rule the grader uses, and detection would add error on exactly the 2,934 frames the back-fill trap makes expensive.
 
 ## Alternatives considered
@@ -220,7 +220,7 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 | 3 | as sweep 2 | grid axes | v0 itself | 0.335 / 0.335 |
 
 - **The m0 world contradicts the challenge.** CHALLENGE.md says a touch, a deflection or a won duel without control does not change possession. Raw rule v2 has 33% of spells under 3 s, while m2 and m3 have 16% and 9%, and the public window has 18% (3 of 17). Sweep 1 was selected mostly on m0, so `tier0_v1.json` over-segments. It predicts 23 possessions on the public window against 17, and its spellF1 there is 0.310 against v0's 0.412. Use merge_s 2 or more for dev worlds.
-- **Counted transition probabilities lose to hand-set ones.** The m3 counts give p_dead_after_poss 0.44 and p_flip_after_dead 0.56. Swapping them into v0 costs 0.025 and 0.006 spellF1 on the binding world, measured. The chain is misspecified (tempered, independent emissions), so the maximum-likelihood counts are not the spellF1 optimum. `fit-dev` now accepts `--q`, `--p-dead-after-poss` and `--p-flip-after-dead` as grid axes that override the counts.
+- **Counted transition probabilities lose to hand-set ones.** The m3 counts give p_dead_after_poss 0.44 and p_flip_after_dead 0.56. Swapping them into v0 costs 0.025 and 0.006 spellF1 on the binding world, measured. The chain is misspecified (tempered, independent emissions), so the maximum-likelihood counts are not the spellF1 optimum. `fit-dev` no longer counts, and every chain field is a grid axis that defaults to v0.
 - **Tier-0 has plateaued.** In sweep 3 the top 10 candidates lie within 0.004 of each other, and v0 is interior on every axis. MAP lost to marginal in sweeps 1 and 2. Further gains need a richer emission from the ATD, not chain tuning.
 
 ## Open questions and risks

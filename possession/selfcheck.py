@@ -262,34 +262,18 @@ def marginal_equals_enumeration() -> None:
         assert np.abs(got - brute).max() < 1e-12, (trial, np.abs(got - brute).max())
 
 
-def fit_counts_known_answer() -> None:
-    """decoder.fit on one hand-counted half. Labels D 10 | H 50, D 20, A 30, H 40 | X 10 | A 20: the
-    observed transitions are H->D, D->A, A->H only (H->X and the lone A after X are truncated), so
-    p_dead_after_poss = (1 + 1) / (2 + 2) = 0.5 and p_flip_after_dead = (1 + 1) / (1 + 2) = 2/3.
-    Tokens on the 140 alive frames: 20 missing, 90 correct, 30 wrong, so q = (90 + 1) / (120 + 2).
-    Grid fields and the emission's dead_bias / alive_share come back untouched."""
-    labels = _segments([(D, 10), (H, 50), (D, 20), (A, 30), (H, 40), (X, 10), (A, 20)])
-    tok = _segments([(NO_TEAM, 10),
-                     (HOME, 30), (AWAY, 10), (NO_TEAM, 10),            # H 50
-                     (NO_TEAM, 20),                                     # D 20
-                     (AWAY, 20), (HOME, 10),                            # A 30
-                     (HOME, 25), (AWAY, 5), (NO_TEAM, 10),             # H 40
-                     (HOME, 10),                                        # X 10
-                     (AWAY, 15), (HOME, 5)])                           # A 20
-    base = Decoder(Tier0Emission(q=0.5, dead_bias=3.0, alive_share=0.7),
-                   DecoderParams(temper=0.02, poss_mean_s=4.0, stride=1))
-    got = decoder.fit([(Half(HalfId("fit", 1, 10), tok), labels)], base)
-    assert got.emission == Tier0Emission(q=91 / 122, dead_bias=3.0, alive_share=0.7), got.emission
-    assert got.params == DecoderParams(temper=0.02, poss_mean_s=4.0, stride=1,
-                                       p_dead_after_poss=0.5, p_flip_after_dead=2 / 3), got.params
-
-
 def params_load_guards() -> None:
-    """Decoder.load round-trips params/tier0_v0.json through save byte for byte, and refuses a missing
-    field, an unknown field, q = 1, stride 0, "marginal" with a minimum duration, and "map" whose
-    mean is not above its minimum in blocks; it accepts "map" one block above."""
+    """Decoder.load round-trips params/tier0_v0.json through save byte for byte, and the defaults
+    Decoder(Tier0Emission(), DecoderParams()) are v0 (fit_dev's base). Load refuses a missing field,
+    an unknown field, q = 1, stride 0, "marginal" with a minimum duration, and "map" whose mean is not
+    above its minimum in blocks; it accepts "map" one block above. The range checks are the
+    constructors', so building an out-of-range emission or params raises too."""
     v0 = Decoder.load(PARAMS_V0)
-    assert v0 == Decoder(Tier0Emission(q=0.78, dead_bias=1.0, alive_share=0.6), DecoderParams()), v0
+    assert v0 == Decoder(Tier0Emission(), DecoderParams()), v0
+    assert v0.replace(dead_bias=3.0, temper=0.1).fields() == {**v0.fields(), "dead_bias": 3.0, "temper": 0.1}
+    _raises(ValueError, Tier0Emission, q=1.0)
+    _raises(ValueError, DecoderParams, stride=0)
+    _raises(ValueError, v0.replace, decode_rule="map", poss_mean_s=1.0, min_poss_frames=25)
     text = PARAMS_V0.read_text()
     doc = json.loads(text)
     with tempfile.TemporaryDirectory() as tmp:
@@ -562,7 +546,6 @@ CHECKS: tuple[Callable[[], None], ...] = (
     public_window_crosstab,
     decoder_known_answer,
     marginal_equals_enumeration,
-    fit_counts_known_answer,
     params_load_guards,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,

@@ -30,7 +30,7 @@ ran in 300 s.
 from __future__ import annotations
 
 import itertools
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Literal, Mapping, Sequence
 
@@ -38,7 +38,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from . import challenge, decoder, dropout, metrica, score
+from . import challenge, dropout, metrica, score
 from .decoder import Decoder, DecoderParams, Tier0Emission
 from .half import D, NO_TEAM, X, Half, Layout, check_codes
 from .dropout import DropoutParams
@@ -108,14 +108,6 @@ class Case:
         if (self.gt[~inside] != X).any():
             raise ValueError(f"{self.name}: gt must be X on every row outside the blocks")
         self.gt.setflags(write=False)
-
-    def labels(self) -> list[NDArray[np.int8]]:
-        """gt cut per block: int8 [block.n] in {0..3} (X only for the public case's ungraded frames)."""
-        return self.layout.cut(self.gt)
-
-    def pairs(self) -> list[tuple[Half, NDArray[np.int8]]]:
-        """(half, labels) for decoder.fit."""
-        return list(zip(self.halves, self.labels()))
 
     def predict(self, model: Decoder) -> list[NDArray[np.int8]]:
         """One int8 [block.n] per half: `model.decode(h).codes`. Used for scoring AND for the submission,
@@ -234,14 +226,14 @@ def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequ
     """Generator dead_bias (rows) x decoder dead_bias belief (columns) -> pooled-dev spellF1.
 
     worlds: {dead_bias: dev_cases(DevSpec(dropout=DropoutParams(dead_bias=...)))}. The decoder variant
-    for a column is dataclasses.replace(base, emission=replace(base.emission, dead_bias=belief)).
+    for a column is base.replace(dead_bias=belief).
     The last row is the column's minimum over worlds (the max-min score). This is the lever that
     turns the open question "does the real ATD drop the ball more on dead frames?" into a number per
     decoder choice, until the real ATD can be crossed with Smart Tagging set-piece windows.
     """
     cells = {}
     for belief in beliefs:
-        model = Decoder(replace(base.emission, dead_bias=belief), base.params)
+        model = base.replace(dead_bias=belief)
         cells[belief] = {rho: float(run({f"belief {belief:g}": model}, [pooled(cases)])["spell_f1"].iloc[0])
                          for rho, cases in worlds.items()}
     table = pd.DataFrame(cells)
@@ -250,28 +242,26 @@ def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequ
     return table
 
 
-def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *, reference: Case,
+def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
             base: Decoder = Decoder(Tier0Emission(), DecoderParams()),
             on_row: Callable[[dict[str, object]], None] | None = None) -> tuple[Decoder, pd.DataFrame]:
-    """decoder.fit on the reference case's labels (counts) ONCE, then every candidate of `grids` scored
-    on every world's dev_pooled case; returns (best by max-min, the whole grid table).
+    """Every candidate of `grids` scored on every world's dev_pooled case; returns (best by max-min,
+    the whole grid table). Nothing is counted from the dev labels: in sweeps 2 and 3 the counted
+    transition probabilities lost to hand-set ones (counted p_dead_after_poss 0.44 against 0.25 cost
+    ~0.025 spellF1 on the binding world).
 
-    reference: the pooled case the counts come from (merge_s 0, dead_bias 1, seed 0 by convention).
-               Not refitted per world: robustness to the label convention is what max-min measures.
-    grids:     a union of Cartesian products, one Mapping per sub-grid, so the "marginal" and "map"
-               decode rules can sweep different axes in one table. Keys are DecoderParams fields plus
-               "belief" (Tier0Emission.dead_bias) and "q". Fields a sub-grid omits keep the fitted value;
-               a counted field given as an axis overrides its count, because on the dev objective the
-               counts lose to hand-set values (sweep 2: fitted p_dead_after_poss 0.44 vs 0.25 cost
-               ~0.025 spellF1 on the binding world).
-    on_row:    called with each finished row (progress for long sweeps).
+    grids:  a union of Cartesian products, one Mapping per sub-grid, so the "marginal" and "map"
+            decode rules can sweep different axes in one table. Keys are Decoder.fields() names
+            (dead_bias is the decoder's belief); an axis a sub-grid omits keeps `base`'s value.
+    base:   the decoder every candidate varies. The default equals params/tier0_v0.json
+            (selfcheck.params_load_guards).
+    on_row: called with each finished row (progress for long sweeps).
     The table has one row per candidate, ranked by SELECTION (rank 1 = returned decoder); a world on
     which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies. It is
     written next to the params JSON so a reader can see how flat the optimum is."""
-    fitted = decoder.fit(reference.pairs(), base)
     cases = {name: pooled(world) for name, world in worlds.items()}
     models, rows = [], []
-    for model in _candidates(fitted, grids):
+    for model in _candidates(base, grids):
         spell, n_pred = {}, {}
         for name, case in cases.items():
             preds = case.predict(model)
@@ -283,7 +273,7 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *, refe
             s = score.evaluate(case.layout, case.gt, preds)
             spell[name], n_pred[name] = s.spell_f1, s.n_pred_spells
         values = np.array(list(spell.values()))
-        row = {**_describe(model), **{f"spell_{k}": v for k, v in spell.items()},
+        row = {**model.fields(), **{f"spell_{k}": v for k, v in spell.items()},
                "min": float(values.min()), "mean": float(values.mean()),
                **{f"pred_{k}": v for k, v in n_pred.items()}}
         if on_row is not None:
@@ -297,24 +287,13 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *, refe
     return models[order[0]], table
 
 
-def _candidates(fitted: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
+def _candidates(base: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
     out = []
     for grid in grids:
         keys = list(grid)
         for values in itertools.product(*(grid[k] for k in keys)):
-            cfg = dict(zip(keys, values))
-            emission = replace(fitted.emission, dead_bias=cfg.pop("belief", fitted.emission.dead_bias),
-                               q=cfg.pop("q", fitted.emission.q))
-            out.append(Decoder(emission, replace(fitted.params, **cfg)))
+            out.append(base.replace(**dict(zip(keys, values))))
     return out
-
-
-def _describe(model: Decoder) -> dict[str, object]:
-    p = model.params
-    return {"decode_rule": p.decode_rule, "temper": p.temper, "poss_mean_s": p.poss_mean_s,
-            "dead_mean_s": p.dead_mean_s, "belief": model.emission.dead_bias, "q": model.emission.q,
-            "p_dead_after_poss": p.p_dead_after_poss, "p_flip_after_dead": p.p_flip_after_dead,
-            "min_poss_frames": p.min_poss_frames, "min_dead_frames": p.min_dead_frames}
 
 
 def paired_delta(a: Decoder, b: Decoder, case: Case, *, n_draws: int = 1000, seed: int = 0) -> tuple[float, float, float]:

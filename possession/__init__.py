@@ -13,7 +13,7 @@ Module map (organised by the knowledge each owns, not by pipeline order):
     challenge.py  BAR-ATH: baseline_raw -> Half now, ATD -> Geometry later, the tier-0 token convention
     metrica/      sample data: fetch (pinned), raw parse, label rule v2 -> CleanHalf
     dropout.py    CleanHalf -> Half: block dropout calibrated on the challenge's own mask
-    decoder.py    Emission + 4-state chain, forward-backward, fit, params JSON
+    decoder.py    Emission + 4-state chain, forward-backward, params JSON
     bench.py      Cases, run, surface, fit_dev, paired_delta
     selfcheck.py  the invariants as runnable checks
 """

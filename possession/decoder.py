@@ -43,12 +43,12 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal, Mapping, Protocol
+from typing import Literal, Mapping, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .half import A, D, FPS, H, X, Half
+from .half import A, D, FPS, H, Half
 
 N_STATES = 4  # H, A, D_after_H, D_after_A
 STATE_LABEL = np.array([H, A, D, D], dtype=np.int8)
@@ -83,14 +83,20 @@ class Tier0Emission:
     that the bench scores against every generator world (bench.surface); it is never fitted to the dev
     set, because fitting it there just reads back the generator's own setting.
 
-    q:           P(token == label's team | alive, ball seen). fit() by counting; Metrica 0.79-0.82,
-                 public window 0.778.
+    q:           P(token == label's team | alive, ball seen). Set by hand or the grid; counted on Metrica
+                 it is 0.79-0.82, on the public window 0.778.
     dead_bias:   rho_hat. Belief, default 1.0.
     alive_share: a0, prior over the alive share of the half. 0.6 (Metrica 0.55-0.68, public window 0.80).
+    Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1.
     """
     q: float = 0.78
     dead_bias: float = 1.0
     alive_share: float = 0.6
+
+    def __post_init__(self) -> None:
+        _number("q", self.q, 0, 1)
+        _number("dead_bias", self.dead_bias, 0, math.inf)
+        _number("alive_share", self.alive_share, 0, 1, hi_open=False)
 
     def loglik(self, half: Half) -> NDArray[np.float32]:
         tok = half.nearest_team
@@ -106,41 +112,30 @@ class Tier0Emission:
         ])
         return table[tok + 1].astype(np.float32)
 
-    @staticmethod
-    def fit(pairs: Iterable[tuple[Half, NDArray[np.int8]]], base: "Tier0Emission") -> "Tier0Emission":
-        """q by counting on graded alive frames with a visible ball (labels in {H, A}, X ignored),
-        pooled over teams and halves, Laplace-smoothed (+1/+1). dead_bias and alive_share pass through
-        from `base` untouched."""
-        hit = total = 0
-        for half, labels in pairs:
-            tok = half.nearest_team
-            if labels.shape != tok.shape:
-                raise ValueError(f"labels {labels.shape} do not match half {tok.shape}")
-            use = ((labels == H) | (labels == A)) & (tok >= 0)
-            total += int(use.sum())
-            hit += int((tok[use] == labels[use]).sum())  # HOME == H, AWAY == A
-        return dataclasses.replace(base, q=(hit + 1) / (total + 2))
-
 
 @dataclass(frozen=True, slots=True)
 class DecoderParams:
-    """Everything the chain needs. Counts-derived fields are filled by `fit`, the rest by the grid.
+    """Everything the chain needs. Every field is set by hand or by the fit-dev grid, and the defaults
+    together with Tier0Emission's are params/tier0_v0.json.
 
     temper:             alpha, scale on summed log-evidence. Grid {0.01, 0.02, 0.05, 0.1, 0.2}.  (grid)
     poss_mean_s:        mean H/A spell in seconds; geometric, hazard 1 / (poss_mean_s * FPS / stride). (grid)
     dead_mean_s:        mean D stretch in seconds.                                              (grid)
-    p_dead_after_poss:  P(next segment is D | a possession ends).                               (fit)
-    p_flip_after_dead:  P(next possession is the OTHER team | a D stretch ends).                (fit)
-    stride:             frames per decode block. Speed knob: 5 by default, 1 allowed (0.17 s per half).
+    p_dead_after_poss:  P(next segment is D | a possession ends).                               (grid)
+    p_flip_after_dead:  P(next possession is the OTHER team | a D stretch ends).                (grid)
+    stride:             frames per decode block. Speed knob: 5 by default, 1 allowed (0.08 s per half).
     decode_rule:        "marginal" | "map", see the module docstring.                         (grid)
     min_poss_frames:    hard minimum H/A segment length in frames; "map" only, 1 = none.        (grid)
     min_dead_frames:    hard minimum D segment length in frames; "map" only, 1 = none.          (grid)
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
+    Checked at construction: temper and both means > 0, both probabilities in (0, 1), stride and both
+    minimums integers >= 1; "marginal" requires both minimums 1; "map" requires each mean, in blocks,
+    above its minimum in blocks.
 
     H/A symmetric by construction: no home-advantage prior, and no swap of tokens can change the answer.
-    Provenance of every fitted number is recorded in the params JSON, not here.
+    Provenance of every selected number is recorded in the params JSON, not here.
     """
     temper: float = 0.05
     poss_mean_s: float = 6.0
@@ -151,6 +146,32 @@ class DecoderParams:
     decode_rule: Literal["marginal", "map"] = "marginal"
     min_poss_frames: int = 1
     min_dead_frames: int = 1
+
+    def __post_init__(self) -> None:
+        _number("temper", self.temper, 0, math.inf)
+        _number("poss_mean_s", self.poss_mean_s, 0, math.inf)
+        _number("dead_mean_s", self.dead_mean_s, 0, math.inf)
+        _number("p_dead_after_poss", self.p_dead_after_poss, 0, 1)
+        _number("p_flip_after_dead", self.p_flip_after_dead, 0, 1)
+        _number("stride", self.stride, 1, math.inf, integer=True, lo_open=False)
+        _number("min_poss_frames", self.min_poss_frames, 1, math.inf, integer=True, lo_open=False)
+        _number("min_dead_frames", self.min_dead_frames, 1, math.inf, integer=True, lo_open=False)
+        if self.decode_rule == "marginal":
+            if (self.min_poss_frames, self.min_dead_frames) != (1, 1):
+                raise ValueError("decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")
+        elif self.decode_rule == "map":
+            mean, k = _blocks(self)
+            for name, s in (("poss", H), ("dead", _DH)):
+                if mean[s] <= k[s]:
+                    raise ValueError(f"decode_rule 'map' needs {name}_mean_s above min_{name}_frames "
+                                     f"in blocks of {self.stride}")
+        else:
+            raise ValueError(f"decode_rule {self.decode_rule!r} is not 'marginal' or 'map'")
+
+
+_EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
+if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
+    raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +184,7 @@ class Decoded:
 
 @dataclass(frozen=True, slots=True)
 class Decoder:
-    """A fitted, immutable, JSON-serialisable decoder. `decode` is a pure function of (self, half)."""
+    """An immutable, JSON-serialisable decoder. `decode` is a pure function of (self, half)."""
     emission: Tier0Emission  # widen to a union when the ATD-era emission exists
     params: DecoderParams
 
@@ -192,6 +213,17 @@ class Decoder:
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
+    def replace(self, **flat: object) -> "Decoder":
+        """A copy with fields changed by flat name. Each key goes to the emission or the params,
+        whichever declares it; an unknown name raises TypeError."""
+        emission = {k: v for k, v in flat.items() if k in _EMISSION_FIELDS}
+        params = {k: v for k, v in flat.items() if k not in _EMISSION_FIELDS}
+        return Decoder(dataclasses.replace(self.emission, **emission), dataclasses.replace(self.params, **params))
+
+    def fields(self) -> dict[str, object]:
+        """Every emission and params field by flat name, emission first: the names `replace` takes."""
+        return {**dataclasses.asdict(self.emission), **dataclasses.asdict(self.params)}
+
     def save(self, path: str | Path, provenance: Mapping[str, object]) -> Path:
         """{"emission": {"kind": "tier0", ...}, "params": {...}, "provenance": {...}} with sorted keys
         and fixed float formatting, so the committed file and the submission it produces are both
@@ -205,107 +237,38 @@ class Decoder:
 
     @staticmethod
     def load(path: str | Path) -> "Decoder":
-        """Boundary: parse + validate ranges (0 < q < 1, 0 < p < 1, temper > 0, stride >= 1).
+        """Boundary: parse, then construct; Tier0Emission and DecoderParams check their own ranges.
 
         Every emission and params field must be present: a default filled in silently would let a
-        later change of default alter the submission a committed params file produces. "marginal"
-        requires min_*_frames == 1; "map" requires each mean, in blocks, above its minimum in blocks."""
+        later change of default alter the submission a committed params file produces. Every
+        ValueError names the file."""
         doc = json.loads(Path(path).read_text())
         if not isinstance(doc, dict) or set(doc) != {"emission", "params", "provenance"}:
             raise ValueError(f"{path}: expected keys emission, params, provenance")
         emission = dict(doc["emission"])
         if emission.pop("kind", None) != "tier0":
             raise ValueError(f"{path}: emission.kind must be 'tier0'")
-        decoder = Decoder(_strict(Tier0Emission, emission, path), _strict(DecoderParams, doc["params"], path))
-        _validate(decoder, path)
-        return decoder
+        try:
+            return Decoder(_strict(Tier0Emission, emission), _strict(DecoderParams, doc["params"]))
+        except ValueError as error:
+            raise ValueError(f"{path}: {error}") from None
 
 
-def _strict(cls: type, values: Mapping[str, object], path: str | Path):
+def _strict(cls: type, values: Mapping[str, object]):
     names = {f.name for f in dataclasses.fields(cls)}
     if set(values) != names:
-        raise ValueError(f"{path}: {cls.__name__} keys differ: missing {sorted(names - set(values))}, "
+        raise ValueError(f"{cls.__name__} keys differ: missing {sorted(names - set(values))}, "
                          f"unknown {sorted(set(values) - names)}")
     return cls(**values)
 
 
-def _validate(decoder: Decoder, path: str | Path) -> None:
-    e, p = decoder.emission, decoder.params
-
-    def number(name: str, value: object, lo: float, hi: float, *, integer: bool = False,
-               lo_open: bool = True, hi_open: bool = True) -> None:
-        kinds = (int,) if integer else (int, float)
-        ok = isinstance(value, kinds) and not isinstance(value, bool) and math.isfinite(value)
-        ok = ok and (value > lo if lo_open else value >= lo) and (value < hi if hi_open else value <= hi)
-        if not ok:
-            raise ValueError(f"{path}: {name} = {value!r} outside its range")
-
-    number("q", e.q, 0, 1)
-    number("dead_bias", e.dead_bias, 0, math.inf)
-    number("alive_share", e.alive_share, 0, 1, hi_open=False)
-    number("temper", p.temper, 0, math.inf)
-    number("poss_mean_s", p.poss_mean_s, 0, math.inf)
-    number("dead_mean_s", p.dead_mean_s, 0, math.inf)
-    number("p_dead_after_poss", p.p_dead_after_poss, 0, 1)
-    number("p_flip_after_dead", p.p_flip_after_dead, 0, 1)
-    number("stride", p.stride, 1, math.inf, integer=True, lo_open=False)
-    number("min_poss_frames", p.min_poss_frames, 1, math.inf, integer=True, lo_open=False)
-    number("min_dead_frames", p.min_dead_frames, 1, math.inf, integer=True, lo_open=False)
-    if p.decode_rule == "marginal":
-        if (p.min_poss_frames, p.min_dead_frames) != (1, 1):
-            raise ValueError(f"{path}: decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")
-    elif p.decode_rule == "map":
-        mean, k = _blocks(p)
-        for name, s in (("poss", H), ("dead", _DH)):
-            if mean[s] <= k[s]:
-                raise ValueError(f"{path}: decode_rule 'map' needs {name}_mean_s above min_{name}_frames "
-                                 f"in blocks of {p.stride}")
-    else:
-        raise ValueError(f"{path}: decode_rule {p.decode_rule!r} is not 'marginal' or 'map'")
-
-
-def fit(pairs: Iterable[tuple[Half, NDArray[np.int8]]], base: Decoder) -> Decoder:
-    """Supervised counts, no EM. Fills the (fit) fields of `base` and leaves the (grid) fields alone.
-
-    pairs: (half, labels) with labels int8 [n] in {0..3}; X (ungraded) frames are ignored, so the
-    public window can be passed too (for a consistency read, never for selection).
-      q                 <- Tier0Emission.fit
-      p_dead_after_poss <- (# possession segments followed by D) / (# possession segments followed by anything), +1/+2 smoothing
-      p_flip_after_dead <- (# D stretches whose next possession is the other team than the previous one) / (# D stretches
-                           with a possession on both sides), +1/+2 smoothing. H/A pooled (symmetry).
-    Durations are NOT fitted: Metrica spells are convention-biased (merge_s, ~30% under 2 s) while the
-    challenge's are not, so poss_mean_s / dead_mean_s are grid knobs scored across merge_s worlds.
-    """
-    pairs = list(pairs)
-    n_poss = n_poss_to_dead = n_dead = n_flip = 0
-    for _, labels in pairs:
-        for seq in _segment_labels(labels):
-            for a, b in zip(seq, seq[1:]):
-                if a != D:
-                    n_poss += 1
-                    n_poss_to_dead += b == D
-            for a, b, c in zip(seq, seq[1:], seq[2:]):
-                if b == D and a != D and c != D:
-                    n_dead += 1
-                    n_flip += a != c
-    params = dataclasses.replace(base.params,
-                                 p_dead_after_poss=(n_poss_to_dead + 1) / (n_poss + 2),
-                                 p_flip_after_dead=(n_flip + 1) / (n_dead + 2))
-    return Decoder(Tier0Emission.fit(pairs, base.emission), params)
-
-
-def _segment_labels(labels: NDArray[np.int8]) -> list[list[int]]:
-    """The label of each maximal constant segment, one list per maximal non-X stretch. Only adjacent
-    entries of one list are observed transitions; a stretch's first and last segments may be truncated
-    by X or the half's edge, which is why nothing is counted across lists."""
-    graded = np.concatenate(([0], (labels != X).astype(np.int8), [0]))
-    edges = np.flatnonzero(np.diff(graded))
-    out = []
-    for lo, hi in zip(edges[::2], edges[1::2]):
-        w = labels[lo:hi]
-        starts = np.concatenate(([0], np.flatnonzero(w[1:] != w[:-1]) + 1))
-        out.append(w[starts].tolist())
-    return out
+def _number(name: str, value: object, lo: float, hi: float, *, integer: bool = False,
+            lo_open: bool = True, hi_open: bool = True) -> None:
+    kinds = (int,) if integer else (int, float)
+    ok = isinstance(value, kinds) and not isinstance(value, bool) and math.isfinite(value)
+    ok = ok and (value > lo if lo_open else value >= lo) and (value < hi if hi_open else value <= hi)
+    if not ok:
+        raise ValueError(f"{name} = {value!r} outside its range")
 
 
 # --- internals: kept private, exercised through Decoder.decode -----------------------------------------
