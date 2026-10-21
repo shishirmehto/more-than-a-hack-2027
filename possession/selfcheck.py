@@ -81,7 +81,10 @@ def layout_splits_halves() -> None:
     runs = score.valid_runs(layout.assemble([np.full(100, H, np.int8)] * 2))
     assert runs == [(500, 600), (1100, 1200)], runs
     _raises(ValueError, Layout.synthetic, [100, 100], gap=10)
+    assert Layout(1100, (Block(500, 100),)).n_total == 1100
     _raises(ValueError, Layout, 1700, (Block(500, 100), Block(650, 100)))
+    _raises(ValueError, Layout, 1100, (Block(499, 100),))
+    _raises(ValueError, Layout, 1099, (Block(500, 100),))
 
 
 def range_guard_fires() -> None:
@@ -110,18 +113,19 @@ def permutation_invariance() -> None:
     invariance. Exact distance ties go to the first slot and are the one documented exception."""
     nan = np.nan
     tiny = Geometry(
-        ball_xy=np.array([[0, 0], [2.1, 0], [nan, nan], [0, 0], [0, 0]], np.float32),
+        ball_xy=np.array([[0, 0], [2.1, 0], [nan, nan], [0, 0], [0, 0], [0, 0]], np.float32),
         players_xy=np.array([
             [[1, 0], [2, 0], [3, 0]],
             [[1, 0], [2, 0], [3, 0]],
             [[1, 0], [2, 0], [3, 0]],
             [[nan, nan], [5, 0], [nan, nan]],
             [[nan, nan], [nan, nan], [nan, nan]],
+            [[1, 0], [0, 1], [5, 5]],
         ], np.float32),
         slot_team=np.array([HOME, AWAY, HOME], np.int8),
         pitch_m=(105.3, 68.0))
     got = challenge.nearest_team(tiny)
-    assert got.tolist() == [HOME, AWAY, NO_TEAM, AWAY, NO_TEAM], got
+    assert got.tolist() == [HOME, AWAY, NO_TEAM, AWAY, NO_TEAM, HOME], got
 
     rng = np.random.default_rng(0)
     n, s = 3000, 46
@@ -185,8 +189,9 @@ def decoder_known_answer() -> None:
     HOME 500, every visible token correct. The switch inside the all-missing block must land at its
     middle (870) +-stride, the A -> H switch exactly at 1820, and nothing else may switch: at stride 5
     and stride 1, and under "map" with the gap switch anywhere inside the gap. Also: decode twice ->
-    identical bytes; H<->A token swap -> H<->A label swap (symmetry). Parameters are spelled out
-    here so a change of defaults cannot move this check."""
+    identical bytes; H<->A token swap -> H<->A label swap (symmetry); a half with no evidence at all
+    decodes to one H run after kickoff (the round-before-argmax tie rule). Parameters are spelled
+    out here so a change of defaults cannot move this check."""
     tok = _segments([(NO_TEAM, 120), (HOME, 600), (NO_TEAM, 300), (AWAY, 800), (HOME, 500)])
     swapped = np.where(tok == NO_TEAM, NO_TEAM, 1 - tok).astype(np.int8)
     emission = Tier0Emission(q=0.78, dead_bias=1.0, alive_share=0.6)
@@ -213,6 +218,40 @@ def decoder_known_answer() -> None:
     sw = _switches(model.decode(Half(HalfId("known_answer", 1, 120), tok)).codes)
     assert len(sw) == 3 and sw[0] == (120, D, H) and sw[2] == (1820, A, H), sw
     assert sw[1][1:] == (H, A) and 720 <= sw[1][0] <= 1020, sw
+
+    # No evidence at all: H and A tie exactly in theory, and the rounding rule resolves it to H.
+    blind = Decoder(emission, DecoderParams(stride=1)).decode(Half(HalfId("blind", 1, 10), np.full(3000, NO_TEAM, np.int8)))
+    assert _switches(blind.codes) == [(10, D, H)], _switches(blind.codes)
+
+
+def marginal_equals_enumeration() -> None:
+    """decoder._forward_backward's label posteriors equal brute-force marginals over all 4^7 state
+    paths of `_chain`'s HMM to 1e-12, on 20 random evidence sequences of 7 blocks with asymmetric
+    switch probabilities; and `_chain` itself matches its docstring on one literal configuration
+    (poss 6 s, dead 10 s, stride 5 -> hazards 1/30 and 1/50)."""
+    trans = decoder._chain(DecoderParams(poss_mean_s=6.0, dead_mean_s=10.0, p_dead_after_poss=0.25,
+                                         p_flip_after_dead=0.7, stride=5)).trans
+    hp, hd = 1 / 30, 1 / 50
+    expected = [[1 - hp, hp * 0.75, hp * 0.25, 0], [hp * 0.75, 1 - hp, 0, hp * 0.25],
+                [hd * 0.3, hd * 0.7, 1 - hd, 0], [hd * 0.7, hd * 0.3, 0, 1 - hd]]
+    assert np.allclose(trans, expected, rtol=0, atol=1e-15), trans
+
+    rng = np.random.default_rng(0)
+    nb = 7
+    paths = np.array(np.meshgrid(*[np.arange(4)] * nb, indexing="ij")).reshape(nb, -1).T   # [4^7, nb]
+    for trial in range(20):
+        p = DecoderParams(poss_mean_s=0.2 + trial * 0.05, dead_mean_s=0.15 + trial * 0.03,
+                          p_dead_after_poss=0.1 + trial * 0.04, p_flip_after_dead=0.85 - trial * 0.03, stride=1)
+        chain = decoder._chain(p)
+        E = rng.normal(0.0, 1.0, size=(nb, 3))
+        weight = chain.init[paths[:, 0]] * np.exp(E[0, decoder.STATE_LABEL[paths[:, 0]]])
+        for t in range(1, nb):
+            weight = weight * chain.trans[paths[:, t - 1], paths[:, t]] * np.exp(E[t, decoder.STATE_LABEL[paths[:, t]]])
+        labels = decoder.STATE_LABEL[paths]
+        brute = np.stack([[weight[labels[:, t] == k].sum() for k in (H, A, D)] for t in range(nb)])
+        brute /= brute.sum(axis=1, keepdims=True)
+        got = decoder._forward_backward(E, chain)
+        assert np.abs(got - brute).max() < 1e-12, (trial, np.abs(got - brute).max())
 
 
 def _expanded_hmm(p: DecoderParams):
@@ -356,6 +395,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     baseline_raw_round_trip,
     public_window_crosstab,
     decoder_known_answer,
+    marginal_equals_enumeration,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     rule_v2_reproduces_measurements,
