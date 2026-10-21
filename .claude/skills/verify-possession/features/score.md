@@ -1,0 +1,30 @@
+# Score decoders
+
+`score` scores one or more params files on Metrica dev worlds and on the public window, prints one table row per world, model and case, and writes the table to a CSV. With `--paired` it also prints the paired bootstrap spellF1 difference of each later params file against the first.
+
+## Sub-features
+
+- `score-dev` scores on dev worlds built from label rules, dead_bias values and seeds.
+- `score-public` scores on the public 5-minute window.
+- `score-paired` prints paired deltas with 5th and 95th percentiles.
+- `score-csv` writes the table to `<data dir>/derived/runs/<name>.csv`.
+
+## How to get to it (user POV)
+
+- Run `.venv/bin/python -m possession score --params <a.json> [<b.json> ...] --dev --public [--paired] [--rule KEY ...] [--dead-bias X ...] [--seed N ...] [--name NAME]`.
+
+## Driving it with run.sh
+
+Preconditions:
+
+- The doctor reports `Metrica sample data 9/9 files`.
+
+- **Score.** Run `$V/run.sh "$RUN_ID" score .venv/bin/python -m possession score --params params/tier0_v0.json params/tier0_v1.json --dev --public --paired --rule h3p3 --dead-bias 1 --name verify-$RUN_ID-score`. Exit code is `0`. In `score.out`, the `h3p3_r1` rows for `tier0_v0` and `tier0_v1` on `dev_pooled` are present, the public rows show spellF1 `0.4118` for `tier0_v0` and `0.3100` for `tier0_v1`, and the paired table shows public `tier0_v1` minus `tier0_v0` as `-0.1018 -0.1665 -0.0406` and `h3p3_r1 dev_pooled` as `-0.0063 -0.0184 0.0060`.
+- **Read back.** Run `$V/run.sh "$RUN_ID" score-csv bash -c "wc -l data/derived/runs/verify-$RUN_ID-score.csv"`. stdout reads `11 data/derived/runs/verify-$RUN_ID-score.csv`: a header and 10 rows (2 models on `dev_g1`, `dev_g2`, `dev_g3` and `dev_pooled`, plus 2 public rows).
+
+## Gotchas
+
+- Without `--dev` or `--public`, `score` exits with an argparse error.
+- `--rule` takes keys, not numbers. `m0` is the raw rule, `m2` merges spells under 2 s, and `h3p3` is controlled possession at 3 s or 3 passes. A merge rule and a controlled rule cannot be combined in one key.
+- The dropout columns on the public row cover only the 7,500 graded frames, so `overall` reads about `0.118`, not the match-wide `0.407`.
+- The paired interval resamples GT possessions inside one dropout draw. It does not include the draw-to-draw spread. Add more `--seed` values before trusting a gap under about 0.01.
