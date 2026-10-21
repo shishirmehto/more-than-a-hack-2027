@@ -507,7 +507,8 @@ def controlled_rule_known_answer() -> None:
     passes stands only when the pass proxy is on; a long run with no passes stands only when the hold
     proxy is on; the first run after the stoppage stands although 20 frames long; a 10-frame run
     holding its team's SET PIECE stands. D frames and the kickoff equal rule v2's in every variant,
-    the default rule is v2, negative fields raise, and the world keys read m0 / m2 / h3p3 / h2m1."""
+    the default rule is v2, negative fields and merge_s with a controlled rule raise, the world keys
+    read m0 / m2 / h3p3, and RuleV2.parse inverts .key on every SPELL_RULES rule and rejects others."""
     rows = [(H, "SET PIECE", {"KICK OFF"}, 10, 10), (H, "PASS", set(), 20, 30), (A, "RECOVERY", set(), 100, 100),
             (H, "RECOVERY", set(), 130, 130), (A, "RECOVERY", set(), 200, 200),
             *[(A, "PASS", set(), f, f + 5) for f in (205, 215, 225)], (H, "RECOVERY", set(), 240, 240),
@@ -538,8 +539,15 @@ def controlled_rule_known_answer() -> None:
         assert [r for r in got if r[2] == D] == [(0, 10, D), (401, 450, D)], (rule, got)
     _raises(ValueError, metrica.RuleV2, hold_s=-1.0)
     _raises(ValueError, metrica.RuleV2, min_passes=-1)
-    keys = [metrica.RuleV2(*fields).key for fields in ((0.0, 0.0, 0), (2.0, 0.0, 0), (0.0, 3.0, 3), (1.0, 2.0, 0))]
-    assert keys == ["m0", "m2", "h3p3", "h2m1"], keys
+    _raises(ValueError, metrica.RuleV2, 1.0, 2.0)
+    keys = [metrica.RuleV2(*fields).key for fields in ((0.0, 0.0, 0), (2.0, 0.0, 0), (0.0, 3.0, 3))]
+    assert keys == ["m0", "m2", "h3p3"], keys
+    from .metrica.__main__ import SPELL_RULES
+
+    assert [metrica.RuleV2.parse(rule.key) for rule in SPELL_RULES] == list(SPELL_RULES)
+    assert metrica.RuleV2.parse("h3p3") == metrica.RuleV2(hold_s=3.0, min_passes=3)
+    for bad in ("", "h2m1", "m2.0", "h0", "x3"):
+        _raises(ValueError, metrica.RuleV2.parse, bad)
 
 
 def controlled_rule_measurements() -> None:

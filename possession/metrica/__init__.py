@@ -24,6 +24,7 @@ Three internal modules, split by the knowledge each owns, not by pipeline order:
 """
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Literal
 
@@ -58,8 +59,7 @@ def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hol
             stop = len(labelled.labels)
             geometry = Geometry(fill_ball(period.ball_xy[:stop], ball_fill),
                                 period.players_xy[:stop], period.slot_team, raw.PITCH_M)
-            provenance = {"rule": VERSION, "merge_s": rule.merge_s, "hold_s": rule.hold_s,
-                          "min_passes": rule.min_passes, "pre_kickoff": "D", "ball_fill": ball_fill,
+            provenance = {"rule": VERSION, **dataclasses.asdict(rule), "pre_kickoff": "D", "ball_fill": ball_fill,
                           "sample_data_commit": COMMIT, "source_frame0": period.frame0,
                           "source_frames": n, "block_frames": stop}
             halves.append(CleanHalf(HalfId(f"metrica_g{game}", period.period, labelled.kickoff),

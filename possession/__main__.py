@@ -1,12 +1,11 @@
 """Thin shell: parse flags, call one function, print. No logic lives here (boundary-discipline).
 
     fetch-metrica [--write-manifest]      metrica.fetch (add --write-manifest on the very first run)
-    fit-dev    --seed S ... --merge-s M ... [--hold-s H ... --min-passes N ...] --dead-bias R ... --out P [grid flags]
+    fit-dev    --seed S ... --rule KEY ... --dead-bias R ... --out P [grid flags]
                                           worlds -> bench.fit_dev -> params JSON (+ <stem>_grid.csv beside it)
     sweep      --params P --dead-bias 1 3 11 --belief 1 3 11
                                           bench.surface over worlds, prints the generator x belief table
-    score      --params P ... [--dev] [--public] [--merge-s M ...] [--hold-s H ...] [--min-passes N ...]
-               [--dead-bias R ...] [--mode transplant] [--paired]
+    score      --params P ... [--dev] [--public] [--rule KEY ...] [--dead-bias R ...] [--mode transplant] [--paired]
                                           bench.run, prints the table, writes data/derived/runs/<name>.csv;
                                           --paired adds bench.paired_delta of each later model against the first
     make-submission --params P --out F    challenge.halves("baseline_raw") -> Decoder.decode -> score.write_submission
@@ -28,15 +27,12 @@ import shlex
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import Sequence
 
 import games
 
 from . import challenge, score
 from .decoder import Decoder
-
-if TYPE_CHECKING:
-    from .metrica import RuleV2
 
 RUNS_DIR = Path(games.DATA_DIR) / "derived" / "runs"
 
@@ -64,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     fetch.add_argument("--data-dir", type=Path, default=None)
 
     fit = sub.add_parser("fit-dev", help="grid-search decoders on dev worlds, write params + grid")
-    _world_flags(fit, merge_s=(0.0, 2.0), dead_bias=(1.0, 3.0))
+    _world_flags(fit, rule=("m0", "m2"), dead_bias=(1.0, 3.0))
     fit.add_argument("--out", type=Path, required=True)
     fit.add_argument("--temper", type=float, nargs="+", default=[0.02, 0.05, 0.1, 0.2])
     fit.add_argument("--poss-mean-s", type=float, nargs="+", default=[4.0, 6.0, 9.0, 13.0])
@@ -79,12 +75,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     fit.add_argument("--map-min-poss-frames", type=int, nargs="+", default=[1, 50])
 
     sweep = sub.add_parser("sweep", help="generator dead_bias x decoder belief surface on pooled dev")
-    _world_flags(sweep, merge_s=(0.0,), dead_bias=(1.0, 3.0, 11.0))
+    _world_flags(sweep, rule=("m0",), dead_bias=(1.0, 3.0, 11.0))
     sweep.add_argument("--params", type=Path, required=True)
     sweep.add_argument("--belief", type=float, nargs="+", default=[1.0, 3.0, 11.0])
 
     scores = sub.add_parser("score", help="score decoders on dev worlds and/or the public window")
-    _world_flags(scores, merge_s=(0.0,), dead_bias=(1.0,))
+    _world_flags(scores, rule=("m0",), dead_bias=(1.0,))
     scores.add_argument("--params", type=Path, nargs="+", required=True)
     scores.add_argument("--dev", action="store_true")
     scores.add_argument("--public", action="store_true")
@@ -121,28 +117,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     raise AssertionError(args.command)
 
 
-def _world_flags(p: argparse.ArgumentParser, *, merge_s: Sequence[float], dead_bias: Sequence[float]) -> None:
+def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: Sequence[float]) -> None:
     p.add_argument("--seed", type=int, nargs="+", default=[0], help="dropout seeds, one world each")
-    p.add_argument("--merge-s", type=float, nargs="+", default=list(merge_s))
-    p.add_argument("--hold-s", type=float, nargs="+", default=[0.0],
-                   help="controlled possession: seconds a new team must keep the ball (0 = proxy off)")
-    p.add_argument("--min-passes", type=int, nargs="+", default=[0],
-                   help="controlled possession: or this many of its passes (0 = proxy off)")
+    p.add_argument("--rule", nargs="+", default=list(rule), metavar="KEY",
+                   help='label rules by RuleV2.key: "m0" raw, "m2" merges spells under 2 s, '
+                        '"h3p3" controlled possession (3 s or 3 passes)')
     p.add_argument("--dead-bias", type=float, nargs="+", default=list(dead_bias))
-
-
-def _rules(args: argparse.Namespace) -> list[RuleV2]:
-    """The label rules the world flags cross: --merge-s x --hold-s x --min-passes."""
-    from .metrica import RuleV2
-
-    return [RuleV2(*fields) for fields in itertools.product(args.merge_s, args.hold_s, args.min_passes)]
 
 
 def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
     from . import bench, metrica
 
     started = time.perf_counter()
-    worlds = bench.worlds(_rules(args), args.dead_bias, seeds=args.seed)
+    worlds = bench.worlds([metrica.RuleV2.parse(key) for key in args.rule], args.dead_bias, seeds=args.seed)
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "dead_bias": args.belief,
               "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
@@ -174,10 +161,10 @@ def _print_row(row: dict[str, object]) -> None:
 
 
 def _sweep(args: argparse.Namespace) -> int:
-    from . import bench
+    from . import bench, metrica
 
     base = Decoder.load(args.params)
-    for rule, seed in itertools.product(_rules(args), args.seed):
+    for rule, seed in itertools.product([metrica.RuleV2.parse(key) for key in args.rule], args.seed):
         worlds = bench.worlds([rule], args.dead_bias, seeds=[seed])
         by_rho = {rho: worlds[bench.world_key(rule, f"r{rho:g}", seed)] for rho in args.dead_bias}
         print(f"rule {rule.key} seed {seed}")
@@ -188,10 +175,11 @@ def _sweep(args: argparse.Namespace) -> int:
 def _score(args: argparse.Namespace) -> int:
     import pandas as pd
 
-    from . import bench
+    from . import bench, metrica
 
     models = {p.stem: Decoder.load(p) for p in args.params}
-    worlds = bench.worlds(_rules(args), args.dead_bias, seeds=args.seed, mode=args.mode) if args.dev else {}
+    rules = [metrica.RuleV2.parse(key) for key in args.rule]
+    worlds = bench.worlds(rules, args.dead_bias, seeds=args.seed, mode=args.mode) if args.dev else {}
     if args.public:
         worlds["public"] = [bench.public_case()]
     table = pd.concat([bench.run(models, cases, bootstrap_n=args.bootstrap).assign(world=world)

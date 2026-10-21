@@ -6,8 +6,8 @@ alive share 55.1 / 58.4 / 67.9 %, raw spells 364 / 322 / 387, nearest-player tea
 
     dead  = D opens the frame after a stoppage event and closes the frame before the next restart.
     owner = the team of the latest ball-controlling event.
-    label = D if dead else owner;  D before kickoff;  optional controlled-possession filter;
-            optional merge of very short spells.
+    label = D if dead else owner;  D before kickoff;  optional controlled-possession filter or
+            merge of very short spells.
 
 It is a *convention*, not truth: Metrica logs quick RECOVERY/PASS/BALL LOST alternations, so about 30%
 of raw spells are under 2 s while the challenge's public window has median 7.6 s. Two knobs address
@@ -17,6 +17,7 @@ definition of a change of possession (CHALLENGE.md, "Change of possession").
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -32,19 +33,29 @@ VERSION = "v2"
 
 @dataclass(frozen=True, slots=True)
 class RuleV2:
-    """merge_s: spells shorter than this, that follow another spell directly (no D between), take the
-    previous spell's label, shortest spell first (leftmost on ties), until none is left. 0.0 = raw
-    rule. Measured spell counts (3 games pooled): m=0 -> 1073, 1 s -> 978, 2 s -> 825, 3 s -> 721.
-    A plain left-to-right pass gives 977 / 818 / 709, so the order is part of the rule.
+    """How the raw rule-v2 spells become possessions: a merge of short spells (merge_s) or controlled
+    possession (hold_s, min_passes), never both. All 0 is the raw rule. `key` names a rule ("m0",
+    "m2", "h3p3") and `parse` reads one back.
 
-    hold_s, min_passes: controlled possession. Inside a stretch of live play, a run of the other
-    team only takes possession if that team shows control: the run lasts at least hold_s seconds, or
-    it holds at least min_passes of that team's PASS events (Metrica logs only completed passes as
-    PASS), or it holds that team's SET PIECE. Otherwise its frames keep the previous possessor, so a
-    contested or loose phase stays with the last team. The first run after a stoppage or the kickoff
-    always stands (the restart names the possessor), and D frames never change. A run is judged on
-    its own, so a rejected run's touches do not count towards the next one. 0 turns a proxy off and
-    both 0 is the raw rule. Applied before merge_s."""
+    merge_s: spells shorter than this, that follow another spell directly (no D between), take the
+    previous spell's label, shortest spell first (leftmost on ties), until none is left. Measured
+    spell counts (3 games pooled): m=0 -> 1073, 1 s -> 978, 2 s -> 825, 3 s -> 721.
+
+    hold_s, min_passes: controlled possession, one left-to-right pass. Inside a stretch of live play,
+    a run of the other team only takes possession if that team shows control: the run lasts at least
+    hold_s seconds, or it holds at least min_passes of that team's PASS events (Metrica logs only
+    completed passes as PASS), or it holds that team's SET PIECE. Otherwise its frames keep the
+    previous possessor, so a contested or loose phase stays with the last team. The first run after
+    a stoppage or the kickoff always stands (the restart names the possessor), and D frames never
+    change. A run is judged on its own, so a rejected run's touches do not count towards the next
+    one. 0 turns a proxy off.
+
+    Measured on the three games (426,640 frames): hold_s alone is the merge with a left-to-right scan
+    instead of shortest first (0 frames differ at 1, 2, 3 and 5 s; 977 / 818 / 709 spells at
+    1 / 2 / 3 s). So the controlled labels differ from merge_s ones by the scan order, plus the pass
+    proxy, which binds only from about 4 s (h2p3 = h2 and h3p3 = h3; h5p3 moves 306 frames off h5).
+    The SET PIECE clause changed no label. merge_s with a controlled rule raises: at merge_s <=
+    hold_s the merge changed nothing or exactly undid the pass proxy (h5p3 + m5 = h5)."""
     merge_s: float = 0.0
     hold_s: float = 0.0
     min_passes: int = 0
@@ -52,6 +63,8 @@ class RuleV2:
     def __post_init__(self) -> None:
         if self.merge_s < 0 or self.hold_s < 0 or self.min_passes < 0:
             raise ValueError(f"rule fields must be >= 0: {self}")
+        if self.merge_s and self.controlled:
+            raise ValueError(f"merge_s and a controlled rule (hold_s, min_passes) are exclusive: {self}")
 
     @property
     def controlled(self) -> bool:
@@ -59,11 +72,23 @@ class RuleV2:
 
     @property
     def key(self) -> str:
-        """World-key prefix: "m2" for a merge-only rule, "h2p3" (+ "m1" when it also merges) otherwise."""
-        hold = f"h{self.hold_s:g}" if self.hold_s else ""
-        passes = f"p{self.min_passes}" if self.min_passes else ""
-        merge = f"m{self.merge_s:g}" if self.merge_s or not self.controlled else ""
-        return hold + passes + merge
+        """World-key prefix: "m2" for a merge rule ("m0" is the raw rule), "h2p3", "h5" or "p3" for a
+        controlled one."""
+        if not self.controlled:
+            return f"m{self.merge_s:g}"
+        return (f"h{self.hold_s:g}" if self.hold_s else "") + (f"p{self.min_passes}" if self.min_passes else "")
+
+    @classmethod
+    def parse(cls, key: str) -> RuleV2:
+        """The rule whose `key` is `key`; ValueError for anything else."""
+        found = re.fullmatch(r"m([\d.]+)|(?:h([\d.]+))?(?:p(\d+))?", key)
+        if not found or not any(found.groups()):
+            raise ValueError(f"not a rule key: {key!r} (expected e.g. m0, m2, h3p3, h5, p3)")
+        merge, hold, passes = found.groups()
+        rule = cls(float(merge or 0), float(hold or 0), int(passes or 0))
+        if rule.key != key:
+            raise ValueError(f"not a rule key: {key!r} (did you mean {rule.key!r}?)")
+        return rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +162,7 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     start = np.clip(events["start"].to_numpy(np.int64) - frame0, 0, n - 1)
     end = np.clip(events["end"].to_numpy(np.int64) - frame0, 0, n - 1)
     anchor = {"start": start, "end": end}
+    types, teams = events["type"].to_numpy(), events["team"].to_numpy(np.int8)
 
     openers = np.concatenate([anchor[t.anchor][matches(t, events)] for t in DEAD_TRIGGERS])
     is_restart = ~np.any([matches(t, events) for t in NOT_RESTART], axis=0)
@@ -144,7 +170,7 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     last_dead_frame = np.append(restarts - 1, n - 1)  # a stoppage with no later restart runs to the period's end
     dead = _covered(n, openers + 1, last_dead_frame[np.searchsorted(restarts, openers, side="right")])
 
-    not_card = (events["type"] != "CARD").to_numpy()
+    not_card = types != "CARD"
     fallback = np.unique(np.concatenate([anchor[t.anchor][matches(t, events)] for t in FALLBACK_RESTART]))
     for r in fallback[fallback > 0]:
         if dead[r - 1]:
@@ -153,8 +179,8 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
         if len(earlier) and earlier.max() < r - 1:
             dead[earlier.max() + 1:r] = True
 
-    owned = np.isin(events["type"].to_numpy(), list(OWNER_KINDS))
-    owner_start, owner_team = start[owned], events["team"].to_numpy(np.int8)[owned]
+    owned = np.isin(types, list(OWNER_KINDS))
+    owner_start, owner_team = start[owned], teams[owned]
     # Team 0 / 1 are the label codes H / A; slot 0 is "no owner event yet".
     owner = np.append(D, owner_team).astype(np.int8)[np.searchsorted(owner_start, np.arange(n), side="right")]
 
@@ -165,10 +191,10 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     labels[:kickoff] = D
     labels = labels[:stop]
     if rule.controlled:
-        types, teams = events["type"].to_numpy(), events["team"].to_numpy(np.int8)
-        starts = {kind: [start[(types == kind) & (teams == team)] for team in (0, 1)] for kind in ("PASS", "SET PIECE")}
-        labels = _keep_controlled(labels, rule, starts["PASS"], starts["SET PIECE"])
-    if rule.merge_s > 0:
+        passes = [start[(types == "PASS") & (teams == team)] for team in (0, 1)]
+        set_pieces = [start[(types == "SET PIECE") & (teams == team)] for team in (0, 1)]
+        labels = _keep_controlled(labels, rule, passes, set_pieces)
+    elif rule.merge_s > 0:
         labels = _merge_short(labels, rule.merge_s * FPS)
     return PeriodLabels(labels, kickoff)
 
