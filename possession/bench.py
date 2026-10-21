@@ -14,8 +14,10 @@ Determinism: no randomness outside dropout.challengeify (seeded, per-stream); de
 deterministic. Same inputs, same table, bit for bit.
 
 Selection protocol (the part a person would otherwise improvise):
-  * a "world" is a DevSpec: label rule x dead_bias (x seed). Both axes are UNKNOWN for the real match
-    (label convention; real P(missing | dead)), so no single world is ground truth;
+  * a "world" is a DevSpec: label rule x dead_bias x dropout seed. The first two are UNKNOWN for the
+    real match (label convention; real P(missing | dead)), so no single world is ground truth; the
+    seed is noise, and a world axis because in sweep 4 it moved v0 from rank 1 to 76 of 162, which
+    paired_delta (one draw, GT possessions resampled) cannot see;
   * a decoder is scored on every world; the winner maximises the MINIMUM pooled spellF1 across worlds,
     ties broken by the mean (max-min). Measured on a synthetic proxy, a decoder that believes
     dead_bias = 3 scores 0.34 / 0.48 / 0.52 across worlds {1, 3, 11} while one that believes 1
@@ -166,20 +168,27 @@ def pooled(cases: Sequence[Case]) -> Case:
     return next(c for c in cases if c.name == "dev_pooled")
 
 
-def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seed: int = 0,
+def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
            mode: Literal["renewal", "transplant"] = "renewal") -> dict[str, list[Case]]:
-    """dev_cases for every (rule, dead_bias), keyed "{rule.key}_r{dead_bias:g}" ("m2_r1", "h3p3_r1"),
-    rule-major. "transplant" ignores dead_bias, so it builds one world per rule, keyed
-    "{rule.key}_transplant". Labels load once per rule; dropout is drawn per world, because the renewal
-    draw reads the labels."""
+    """dev_cases for every (rule, dead_bias, seed), keyed by world_key ("m2_r1", "h3p3_r1_s2"),
+    rule-major, seed innermost. "transplant" ignores dead_bias, so it builds one world per (rule, seed),
+    keyed "{rule.key}_transplant[_s{seed}]". Labels load once per rule; dropout is drawn per world,
+    because the renewal draw reads the labels."""
     out = {}
     for rule in rules:
         clean = metrica.load(rule)
         generators = ({"transplant": DropoutParams(mode="transplant")} if mode == "transplant"
                       else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
-        for key, params in generators.items():
-            out[f"{rule.key}_{key}"] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
+        for generator, params in generators.items():
+            for seed in seeds:
+                out[world_key(rule, generator, seed)] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
     return out
+
+
+def world_key(rule: RuleV2, generator: str, seed: int) -> str:
+    """"{rule.key}_{generator}", plus "_s{seed}" for a seed other than 0, so a seed-0 key reads as it
+    did before seeds were an axis."""
+    return f"{rule.key}_{generator}" + (f"_s{seed}" if seed else "")
 
 
 def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:

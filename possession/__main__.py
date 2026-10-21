@@ -1,7 +1,7 @@
 """Thin shell: parse flags, call one function, print. No logic lives here (boundary-discipline).
 
     fetch-metrica [--write-manifest]      metrica.fetch (add --write-manifest on the very first run)
-    fit-dev    --seed S --merge-s M ... [--hold-s H ... --min-passes N ...] --dead-bias R ... --out P [grid flags]
+    fit-dev    --seed S ... --merge-s M ... [--hold-s H ... --min-passes N ...] --dead-bias R ... --out P [grid flags]
                                           worlds -> bench.fit_dev -> params JSON (+ <stem>_grid.csv beside it)
     sweep      --params P --dead-bias 1 3 11 --belief 1 3 11
                                           bench.surface over worlds, prints the generator x belief table
@@ -122,7 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _world_flags(p: argparse.ArgumentParser, *, merge_s: Sequence[float], dead_bias: Sequence[float]) -> None:
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, nargs="+", default=[0], help="dropout seeds, one world each")
     p.add_argument("--merge-s", type=float, nargs="+", default=list(merge_s))
     p.add_argument("--hold-s", type=float, nargs="+", default=[0.0],
                    help="controlled possession: seconds a new team must keep the ball (0 = proxy off)")
@@ -142,7 +142,7 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
     from . import bench, metrica
 
     started = time.perf_counter()
-    worlds = bench.worlds(_rules(args), args.dead_bias, seed=args.seed)
+    worlds = bench.worlds(_rules(args), args.dead_bias, seeds=args.seed)
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "dead_bias": args.belief,
               "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
@@ -177,10 +177,10 @@ def _sweep(args: argparse.Namespace) -> int:
     from . import bench
 
     base = Decoder.load(args.params)
-    for rule in _rules(args):
-        worlds = bench.worlds([rule], args.dead_bias, seed=args.seed)
-        by_rho = {rho: worlds[f"{rule.key}_r{rho:g}"] for rho in args.dead_bias}
-        print(f"rule {rule.key}")
+    for rule, seed in itertools.product(_rules(args), args.seed):
+        worlds = bench.worlds([rule], args.dead_bias, seeds=[seed])
+        by_rho = {rho: worlds[bench.world_key(rule, f"r{rho:g}", seed)] for rho in args.dead_bias}
+        print(f"rule {rule.key} seed {seed}")
         print(bench.surface(base, by_rho, args.belief).round(4).to_string())
     return 0
 
@@ -191,7 +191,7 @@ def _score(args: argparse.Namespace) -> int:
     from . import bench
 
     models = {p.stem: Decoder.load(p) for p in args.params}
-    worlds = bench.worlds(_rules(args), args.dead_bias, seed=args.seed, mode=args.mode) if args.dev else {}
+    worlds = bench.worlds(_rules(args), args.dead_bias, seeds=args.seed, mode=args.mode) if args.dev else {}
     if args.public:
         worlds["public"] = [bench.public_case()]
     table = pd.concat([bench.run(models, cases, bootstrap_n=args.bootstrap).assign(world=world)
