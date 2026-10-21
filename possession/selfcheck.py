@@ -73,6 +73,11 @@ def oracle_scores_one() -> None:
     s = score.evaluate(public, gt, preds)
     assert (s.spell_f1, s.macro_f1, s.n_gt_spells, s.n_pred_spells, s.n_graded) == (1.0, 1.0, 17, 17, 7500), s
 
+    hits = score.matched_flags(public, gt, preds)
+    assert hits.shape == (5, 17) and hits.all(), hits
+    misses = score.matched_flags(public, gt, [np.full(b.n, D, np.int8) for b in public.blocks])
+    assert misses.shape == (5, 17) and not misses.any(), misses
+
 
 def layout_splits_halves() -> None:
     """pm.valid_runs(Layout.synthetic([100, 100]).assemble([...no X inside...])) == exactly two runs,
