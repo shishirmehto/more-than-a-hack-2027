@@ -178,9 +178,13 @@ def write_submission(layout: Layout, preds: Sequence[NDArray[np.int8]], path: st
 
     text = "frame,label\n" + "".join(f"{i},{c}\n" for i, c in enumerate(letters.tolist()))
     tmp = path.with_name(f".{path.name}.tmp")  # not *.csv, so run_evaluation.py never globs it
-    with open(tmp, "wb") as f:
-        f.write(text.encode("ascii"))
-    if not np.array_equal(read_codes(tmp, n), codes):
-        raise ValueError(f"{tmp} does not read back as the assembled codes")
+    try:
+        with open(tmp, "wb") as f:
+            f.write(text.encode("ascii"))
+        if not np.array_equal(read_codes(tmp, n), codes):
+            raise ValueError(f"{tmp} does not read back as the assembled codes")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     os.replace(tmp, path)
     return path
