@@ -30,8 +30,9 @@ VERSION = "v2"
 @dataclass(frozen=True, slots=True)
 class RuleV2:
     """merge_s: spells shorter than this, that follow another spell directly (no D between), take the
-    previous spell's label. 0.0 = raw rule. Measured spell counts (3 games pooled): m=0 -> 1073,
-    1 s -> 978, 2 s -> 825, 3 s -> 721."""
+    previous spell's label, shortest spell first (leftmost on ties), until none is left. 0.0 = raw
+    rule. Measured spell counts (3 games pooled): m=0 -> 1073, 1 s -> 978, 2 s -> 825, 3 s -> 721.
+    A plain left-to-right pass gives 977 / 818 / 709, so the order is part of the rule."""
     merge_s: float = 0.0
 
 
@@ -111,10 +112,8 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     openers = np.concatenate([anchor[t.anchor][matches(t, events)] for t in DEAD_TRIGGERS])
     is_restart = ~np.any([matches(t, events) for t in NOT_RESTART], axis=0)
     restarts = start[is_restart]
-    next_restart = np.searchsorted(restarts, openers, side="right")
-    closes = np.where(next_restart < len(restarts),
-                      restarts[np.minimum(next_restart, len(restarts) - 1)] - 1, n - 1)
-    dead = _covered(n, openers + 1, closes)
+    last_dead_frame = np.append(restarts - 1, n - 1)  # a stoppage with no later restart runs to the period's end
+    dead = _covered(n, openers + 1, last_dead_frame[np.searchsorted(restarts, openers, side="right")])
 
     not_card = (events["type"] != "CARD").to_numpy()
     fallback = np.unique(np.concatenate([anchor[t.anchor][matches(t, events)] for t in FALLBACK_RESTART]))
@@ -127,9 +126,8 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
 
     owned = np.isin(events["type"].to_numpy(), list(OWNER_KINDS))
     owner_start, owner_team = start[owned], events["team"].to_numpy(np.int8)[owned]
-    last_owner = np.searchsorted(owner_start, np.arange(n), side="right") - 1
-    # Team 0 / 1 are the label codes H / A.
-    owner = np.where(last_owner < 0, D, owner_team[np.maximum(last_owner, 0)]).astype(np.int8)
+    # Team 0 / 1 are the label codes H / A; slot 0 is "no owner event yet".
+    owner = np.append(D, owner_team).astype(np.int8)[np.searchsorted(owner_start, np.arange(n), side="right")]
 
     kickoffs = start[matches(KICKOFF, events)]
     kickoff = int(kickoffs[0] if len(kickoffs) else start[0])
