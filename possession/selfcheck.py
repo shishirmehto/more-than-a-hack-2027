@@ -1,11 +1,3 @@
-"""The invariants as runnable checks. The repo has no test suite and numpy/pandas are the only
-dependencies, so this is plain asserts behind `python -m possession selfcheck`, seconds to run.
-
-Each check proves one claim against the real artifact (a literal expected value), not a proxy:
-a check that would still pass if every imported function returned None is not allowed in here.
-Checks marked [needs data] skip with a printed reason when data/metrica_sample/ is absent; the rest
-need nothing but the committed repo.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -35,7 +27,7 @@ N_ROWS = 199_319
 
 
 class Skip(Exception):
-    """Raised by a check that cannot run yet; run() reports it without failing."""
+    pass
 
 
 def _raises(exc: type[BaseException], fn: Callable, *args, **kwargs) -> None:
@@ -62,14 +54,6 @@ def _spell_f1_is_evaluate(layout: Layout, gt: np.ndarray, preds: list[np.ndarray
 
 
 def oracle_scores_one() -> None:
-    """Assemble each half's labels as its own prediction on a dev-like synthetic layout with 6 blocks
-    and on the challenge layout with the public GT: spell_f1 == 1.0 and macro_f1 == 1.0, n_pred ==
-    n_gt. Proves layout.assemble + score.evaluate wire to pm correctly, incl. one valid run per half.
-    score.spell_f1 returns evaluate's (spell_f1, n_pred_spells) exactly, for the oracle and for a
-    shifted prediction that matches only some spells.
-
-    Every synthetic block starts and ends in H, so a layout that let pm merge neighbouring halves
-    would fuse 5 spells and report 31 instead of 36."""
     block = _segments([(H, 120), (A, 80), (D, 50), (A, 200), (H, 60), (A, 90), (D, 40), (H, 160)])
     layout = Layout.synthetic([len(block)] * 6)
     synthetic_gt = layout.assemble([block] * 6)
@@ -92,9 +76,6 @@ def oracle_scores_one() -> None:
 
 
 def layout_splits_halves() -> None:
-    """pm.valid_runs(Layout.synthetic([100, 100]).assemble([...no X inside...])) == exactly two runs,
-    each of the block's size; Layout refuses fewer than GAP_X = 500 X rows before, between or after
-    its blocks."""
     layout = Layout.synthetic([100, 100])
     assert layout.n_total == 1700, layout
     runs = score.valid_runs(layout.assemble([np.full(100, H, np.int8)] * 2))
@@ -106,7 +87,6 @@ def layout_splits_halves() -> None:
 
 
 def range_guard_fires() -> None:
-    """check_codes raises on 4, -1 and a non-int8 array, before pm sees them (pm would corrupt silently)."""
     check_codes(np.array([H, A, D, X], np.int8), allow_x=True)
     check_codes(np.array([H, A, D], np.int8), allow_x=False)
     _raises(ValueError, check_codes, np.array([0, 4], np.int8), allow_x=True)
@@ -123,12 +103,6 @@ def range_guard_fires() -> None:
 
 
 def permutation_invariance() -> None:
-    """challenge.nearest_team(g) == nearest_team(g with slots shuffled independently per frame, slot_team
-    shuffled with them): identity-freedom is a tested property, not a convention.
-
-    slot_team is per half, so a per-frame shuffle can only move slots within a team; a whole-half
-    permutation moves slot_team with the slots, and padding with empty slots tests slot-count
-    invariance. Exact distance ties go to the first slot and are the one documented exception."""
     nan = np.nan
     tiny = Geometry(
         ball_xy=np.array([[0, 0], [2.1, 0], [nan, nan], [0, 0], [0, 0], [0, 0]], np.float32),
@@ -173,10 +147,6 @@ def permutation_invariance() -> None:
 
 
 def baseline_raw_round_trip() -> None:
-    """challenge.halves("baseline_raw"): half sizes (79467, 79390), kickoffs (0, 2934), and the NO_TEAM /
-    seen counts per half as literals, measured on the committed file: NO_TEAM (32304, 32339), HOME
-    (26971, 26176), AWAY (20192, 20875). Whole file via score.read_codes: 85,831 D rows and 113,488
-    others (DATA.md). Pins the "D means ball missing" semantics to the committed file."""
     halves = challenge.halves("baseline_raw")
     got = [(h.id.half, h.n, h.id.kickoff,
             int((h.nearest_team == NO_TEAM).sum()), int((h.nearest_team == HOME).sum()),
@@ -192,9 +162,6 @@ def baseline_raw_round_trip() -> None:
 
 
 def public_window_crosstab() -> None:
-    """Token vs public GT on rows [11185, 18685): GT D (1469) -> NO_TEAM 494 / HOME 790 / AWAY 185.
-    The numbers that proved baseline_raw's D is a mask; a regression here means someone relabelled it.
-    The H and A rows are pinned too: GT H (3454) -> 5 / 2750 / 699, GT A (2577) -> 386 / 551 / 1640."""
     gt = score.read_codes(bench.PUBLIC_GT, N_ROWS)[11185:18685]
     first = challenge.layout().blocks[0].origin
     token = challenge.halves("baseline_raw")[0].nearest_team[11185 - first:18685 - first]
@@ -203,13 +170,6 @@ def public_window_crosstab() -> None:
 
 
 def decoder_known_answer() -> None:
-    """Synthetic half, kickoff 120 (frames [0,120) D), then tokens HOME 600, missing 300, AWAY 800,
-    HOME 500, every visible token correct. The switch inside the all-missing block must land at its
-    middle (870) +-stride, the A -> H switch exactly at 1820, and nothing else may switch: at stride 5
-    and stride 1, and under "map" with the gap switch anywhere inside the gap. Also: decode twice ->
-    identical bytes; H<->A token swap -> H<->A label swap (symmetry); a half with no evidence at all
-    decodes to one H run after kickoff (the round-before-argmax tie rule). Parameters are spelled
-    out here so a change of defaults cannot move this check."""
     tok = _segments([(NO_TEAM, 120), (HOME, 600), (NO_TEAM, 300), (AWAY, 800), (HOME, 500)])
     swapped = np.where(tok == NO_TEAM, NO_TEAM, 1 - tok).astype(np.int8)
     emission = Tier0Emission(q=0.78, dead_bias=1.0, alive_share=0.6)
@@ -242,10 +202,6 @@ def decoder_known_answer() -> None:
 
 
 def marginal_equals_enumeration() -> None:
-    """decoder._forward_backward's label posteriors equal brute-force marginals over all 4^7 state
-    paths of `_chain`'s HMM to 1e-12, on 20 random evidence sequences of 7 blocks with asymmetric
-    switch probabilities; and `_chain` itself matches its docstring on one literal configuration
-    (poss 6 s, dead 10 s, stride 5 -> hazards 1/30 and 1/50)."""
     trans = decoder._chain(DecoderParams(poss_mean_s=6.0, dead_mean_s=10.0, p_dead_after_poss=0.25,
                                          p_flip_after_dead=0.7, stride=5)).trans
     hp, hd = 1 / 30, 1 / 50
@@ -273,11 +229,6 @@ def marginal_equals_enumeration() -> None:
 
 
 def params_load_guards() -> None:
-    """Decoder.load round-trips params/tier0_v0.json through save byte for byte, and the defaults
-    Decoder(Tier0Emission(), DecoderParams()) are v0 (fit_dev's base). Load refuses a missing field,
-    an unknown field, q = 1, stride 0, "marginal" with a minimum duration, and "map" whose mean is not
-    above its minimum in blocks; it accepts "map" one block above. The range checks are the
-    constructors', so building an out-of-range emission or params raises too."""
     v0 = Decoder.load(PARAMS_V0)
     assert v0 == Decoder(Tier0Emission(), DecoderParams()), v0
     assert v0.replace(dead_bias=3.0, temper=0.1).fields() == {**v0.fields(), "dead_bias": 3.0, "temper": 0.1}
@@ -312,9 +263,6 @@ def params_load_guards() -> None:
 
 
 def _expanded_hmm(p: DecoderParams):
-    """The chain-state HMM `_map` claims to solve: state s unrolled into k_s sub-states walked in
-    order, a self-loop on the last one, and exits weighted by `_chain`'s switch distribution. The
-    first segment starts in its last sub-state (no minimum at the kickoff)."""
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
     cont = [(m - kc) / (m - kc + 1) for m, kc in zip(mean, k)]
@@ -351,7 +299,6 @@ def _expanded_viterbi(E: np.ndarray, p: DecoderParams) -> tuple[float, np.ndarra
 
 
 def _expanded_score(labels: np.ndarray, E: np.ndarray, p: DecoderParams) -> float:
-    """Score of a label path under the expanded HMM; -inf if the path is not a legal one."""
     k, index, log_t, log_pi, label = _expanded_hmm(p)
     bounds = np.concatenate((np.flatnonzero(np.r_[True, labels[1:] != labels[:-1]]), [len(labels)]))
     states, team = [], None
@@ -370,12 +317,6 @@ def _expanded_score(labels: np.ndarray, E: np.ndarray, p: DecoderParams) -> floa
 
 
 def map_equals_expanded_viterbi() -> None:
-    """decoder._map's path score equals plain Viterbi on the equivalent expanded chain-state HMM
-    (each state s unrolled into k_s sub-states) to 1e-9, on 50 random evidence sequences of length
-    200 with min blocks in {1, 3, 7}; and its labels equal the expanded Viterbi's labels (continuous
-    random evidence makes the optimum unique). Pins the prefix-sum recursion (bakeoff probe measured
-    7e-14). The reference takes its switch distribution from `_chain`, so the two decode rules are
-    also pinned to one chain."""
     rng = np.random.default_rng(0)
     combos = [(a, b) for a in (1, 3, 7) for b in (1, 3, 7)]
     for trial in range(50):
@@ -391,8 +332,6 @@ def map_equals_expanded_viterbi() -> None:
 
 
 def _synthetic_clean(n_halves: int = 8, n: int = 250_000, kickoff: int = 500) -> list[CleanHalf]:
-    """Dev-like halves with no data on disk: alive and dead strata interleaved in ~100-frame
-    segments (alive share ~0.6), a ball on a Lissajous path, one home and one away slot."""
     out = []
     t = np.arange(n, dtype=np.float32)
     ball = np.stack([50 + 40 * np.sin(t / 37), 34 + 20 * np.cos(t / 53)], axis=1).astype(np.float32)
@@ -413,15 +352,6 @@ def _synthetic_clean(n_halves: int = 8, n: int = 250_000, kickoff: int = 500) ->
 
 
 def dropout_hits_both_constraints() -> None:
-    """solve_rates worked example (a=0.6, target=0.407, rho=11.5 -> 0.0783, 0.9001), its cap branch
-    (a=0.68, rho=11 -> 0.1374 / 0.98, effective ratio 7.13, the G3 saturation) and its loud failure.
-    The committed baseline_raw pool: 146 missing / 145 present runs over [kickoff, n), 155,923 frames,
-    64,079 missing. On eight synthetic CleanHalf (2M frames, no data on disk) and rho in {1, 3}, where
-    the cap does not bind: every half's realised overall rate within tolerance of 0.407, and pooled
-    realised P(missing | dead) / P(missing | alive) within 15% of rho. No observed frame's token
-    differs from the clean geometry's (no leak); same seed -> identical tokens, other seed ->
-    different. "transplant" ignores dead_bias and its decode window is a cyclic window of the real
-    mask."""
     p_alive, p_dead = dropout.solve_rates(0.6, 0.407, 11.5, 0.98)
     assert (round(p_alive, 4), round(p_dead, 4)) == (0.0783, 0.9001), (p_alive, p_dead)
     p_alive, p_dead = dropout.solve_rates(0.68, 0.407, 11.0, 0.98)
@@ -473,11 +403,6 @@ def _n_spells(labels: np.ndarray) -> int:
 
 
 def rule_v2_reproduces_measurements() -> None:
-    """[needs data] Per game, alive share over TRACKING frames (provenance source_frames, the
-    explorers' denominator) 55.1 / 58.4 / 67.9 %; H/A spells 364 / 322 / 387 at merge_s = 0 and
-    333 / 297 / 348 at merge_s = 1; pooled spells 1073 / 978 / 825 / 721 at merge_s 0 / 1 / 2 / 3;
-    labels[:kickoff] all D; no X anywhere inside a block. Skips when the Metrica files are not under
-    games.DATA_DIR (MTAH_DATA_DIR)."""
     try:
         by_merge = {m: metrica.load(metrica.RuleV2(m)) for m in (0.0, 1.0, 2.0, 3.0)}
     except IOError:
@@ -499,14 +424,6 @@ def rule_v2_reproduces_measurements() -> None:
 
 
 def controlled_rule_known_answer() -> None:
-    """label_period on a hand-built period (kickoff 10, a throw-in stoppage [401, 450), a free kick
-    at 600 with no stoppage before it) under hold_s 2 (50 frames) and min_passes 3, each alone and
-    together, as literal runs. Pins: an A run of 30 frames is rejected; one of 40 frames with three A
-    passes stands only when the pass proxy is on; a long run with no passes stands only when the hold
-    proxy is on; the first run after the stoppage stands although 20 frames long; a 10-frame run
-    holding its team's SET PIECE stands. D frames and the kickoff equal rule v2's in every variant,
-    the default rule is v2, negative fields and merge_s with a controlled rule raise, the world keys
-    read m0 / m2 / h3p3, and RuleV2.parse inverts .key on every SPELL_RULES rule and rejects others."""
     rows = [(H, "SET PIECE", {"KICK OFF"}, 10, 10), (H, "PASS", set(), 20, 30), (A, "RECOVERY", set(), 100, 100),
             (H, "RECOVERY", set(), 130, 130), (A, "RECOVERY", set(), 200, 200),
             *[(A, "PASS", set(), f, f + 5) for f in (205, 215, 225)], (H, "RECOVERY", set(), 240, 240),
@@ -548,10 +465,6 @@ def controlled_rule_known_answer() -> None:
 
 
 def controlled_rule_measurements() -> None:
-    """[needs data] Pooled spells under the controlled rule at merge_s 0: hold_s 2 / 3 / 5 with
-    min_passes 3 -> 818 / 709 / 582, hold_s 5 alone -> 578 (the pass proxy binds only from about 4 s),
-    min_passes 3 alone -> 454. Every half's D frames and kickoff equal raw rule v2's: the filter only
-    moves frames between H and A. Skips like rule_v2_reproduces_measurements."""
     try:
         raw = metrica.load(metrica.RuleV2())
     except IOError:
@@ -567,10 +480,6 @@ def controlled_rule_measurements() -> None:
 
 
 def worlds_seed_axis() -> None:
-    """[needs data] bench.worlds([RuleV2(2.0)], [1.0, 3.0], seeds=[0, 2]) keys its worlds m2_r1,
-    m2_r1_s2, m2_r3, m2_r3_s2 in that order. Its seed-0 world has the tokens of bench.dev_cases at
-    seed 0, its seed-2 world differs from them on every half, and both share one GT: the seed draws
-    dropout, never labels. Skips like rule_v2_reproduces_measurements."""
     rule = metrica.RuleV2(2.0)
     try:
         got = bench.worlds([rule], [1.0, 3.0], seeds=[0, 2])
@@ -586,9 +495,6 @@ def worlds_seed_axis() -> None:
 
 
 def public_case_predict_equals_submission() -> None:
-    """bench.public_case().predict(v0) is array-equal, half by half, to the rows __main__.make_submission
-    writes for params/tier0_v0.json: the file scored on the public window is the file written. And a
-    fresh interpreter that imports the submission path has not imported bench (no Metrica, no RNG)."""
     from . import __main__ as cli
 
     case = bench.public_case()
@@ -602,11 +508,6 @@ def public_case_predict_equals_submission() -> None:
 
 
 def submission_is_byte_stable() -> None:
-    """make-submission twice, in two separate processes, from params/tier0_v0.json -> identical
-    sha256; file is 199,320 lines (header + rows), frames 0..199318 in order, every row in HADX, X
-    exactly on the 40,462 rows outside games.half_video_blocks, the 2,934 graded pre-kickoff rows of
-    half 2 D, and pm.validate_submission passes. public_case_predict_equals_submission pins the
-    written rows to the in-memory decode."""
     with tempfile.TemporaryDirectory() as tmp:
         outs = [Path(tmp) / f"run{i}.csv" for i in (1, 2)]
         for out in outs:

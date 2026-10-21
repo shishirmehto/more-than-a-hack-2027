@@ -1,27 +1,3 @@
-"""Metrica public sample games as clean, labelled halves. Owns everything about that dataset.
-
-Public surface (three names):
-
-    fetch(data_dir=None)                      one-off, network, idempotent, sha256-checked
-    load(rule=RuleV2(), ball_fill="hold")     -> tuple[CleanHalf, ...], six halves, order g1p1 g1p2 g2p1 ...
-    RuleV2                                    the label rule's tunables (merge_s, hold_s, min_passes)
-
-What `load` guarantees (the boundary of this subpackage; everything inside is a private detail):
-  * labels come from events only (rule v2), never from the ball-NaN pattern;
-  * ball_xy has no NaN (native out-of-play NaN is filled), so injected dropout is the only missingness
-    a decoder ever sees: the dead-ball signal Metrica leaks through native NaN cannot reach it;
-  * every half is a gap-free block [first tracking frame of the period, last event end + 1), labels
-    in {H, A, D} with the pre-kickoff stretch as D (mirrors the challenge's graded half-2 stretch);
-  * coordinates in metres on a 105 x 68 pitch, origin top-left, as the raw files (kloppy is NOT used:
-    its CSV loader flips y and its open-data loader re-downloads through an fsspec cache).
-
-Three internal modules, split by the knowledge each owns, not by pipeline order:
-    fetch.py  where the files are and that they are the right bytes
-    raw.py    the two file formats (CSV pair + CSV events, EPTS txt + xml + JSON events)
-    rule.py   what football events mean for who has the ball
-
-`python -m possession.metrica` prints the acceptance table for the labels (see __main__.py).
-"""
 from __future__ import annotations
 
 import dataclasses
@@ -43,12 +19,7 @@ GAMES = (1, 2, 3)
 
 def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hold",
          data_dir: str | Path | None = None) -> tuple[CleanHalf, ...]:
-    """Parse + label + fill. A game whose files are missing raises one error naming them and the fetch command.
-
-    Parsing (raw.parse_game) is memoised per (game, data_dir): sweeps that re-label with another
-    rule or re-draw dropout never re-read 183 MB. Measured: a cold parse is 0.3 to 0.5 s a
-    game, and a warm `load` of all six halves is about 0.04 s.
-    """
+    """Parse + label + fill. A game whose files are missing raises one error naming them and the fetch command."""
     halves = []
     for game in GAMES:
         parsed = raw.parse_game(game, data_dir)
@@ -68,13 +39,6 @@ def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hol
 
 
 def fill_ball(ball_xy: NDArray[np.float32], how: Literal["hold", "linear"]) -> NDArray[np.float32]:
-    """Replace every NaN in the native ball track. Postcondition: no NaN. Idempotent.
-
-    "hold" (default): forward-fill the last observed position, back-fill the head. A dead ball then
-    sits where it left play, stationary, and jumps at the restart, like a tracker that re-acquires
-    the ball. "linear": np.interp over indices; gives the dead ball a constant velocity that a
-    ball-speed feature would read as live play (a different leak), so it is the option, not the default.
-    """
     n = len(ball_xy)
     observed = ~np.isnan(ball_xy).any(axis=1)
     if not observed.any():

@@ -1,20 +1,3 @@
-"""Label rule "v2": per-frame H / A / D from Metrica events. Pure function of one period's events.
-
-What it encodes (measured by the explorers on the three games; reproduce these before trusting it:
-alive share 55.1 / 58.4 / 67.9 %, raw spells 364 / 322 / 387, nearest-player team == label on
-79-82 % of alive ball-visible frames):
-
-    dead  = D opens the frame after a stoppage event and closes the frame before the next restart.
-    owner = the team of the latest ball-controlling event.
-    label = D if dead else owner;  D before kickoff;  optional controlled-possession filter or
-            merge of very short spells.
-
-It is a *convention*, not truth: Metrica logs quick RECOVERY/PASS/BALL LOST alternations, so about 30%
-of raw spells are under 2 s while the challenge's public window has median 7.6 s. Two knobs address
-that mismatch, both axes of the dev world and never tuned toward the public window (17 possessions
-cannot rank anything): `merge_s`, a length threshold, and `hold_s` / `min_passes`, the challenge's own
-definition of a change of possession (CHALLENGE.md, "Change of possession").
-"""
 from __future__ import annotations
 
 import re
@@ -38,24 +21,14 @@ class RuleV2:
     "m2", "h3p3") and `parse` reads one back.
 
     merge_s: spells shorter than this, that follow another spell directly (no D between), take the
-    previous spell's label, shortest spell first (leftmost on ties), until none is left. Measured
-    spell counts (3 games pooled): m=0 -> 1073, 1 s -> 978, 2 s -> 825, 3 s -> 721.
+    previous spell's label, shortest spell first (leftmost on ties), until none is left.
 
     hold_s, min_passes: controlled possession, one left-to-right pass. Inside a stretch of live play,
     a run of the other team only takes possession if that team shows control: the run lasts at least
-    hold_s seconds, or it holds at least min_passes of that team's PASS events (Metrica logs only
-    completed passes as PASS), or it holds that team's SET PIECE. Otherwise its frames keep the
-    previous possessor, so a contested or loose phase stays with the last team. The first run after
-    a stoppage or the kickoff always stands (the restart names the possessor), and D frames never
-    change. A run is judged on its own, so a rejected run's touches do not count towards the next
-    one. 0 turns a proxy off.
-
-    Measured on the three games (426,640 frames): hold_s alone is the merge with a left-to-right scan
-    instead of shortest first (0 frames differ at 1, 2, 3 and 5 s; 977 / 818 / 709 spells at
-    1 / 2 / 3 s). So the controlled labels differ from merge_s ones by the scan order, plus the pass
-    proxy, which binds only from about 4 s (h2p3 = h2 and h3p3 = h3; h5p3 moves 306 frames off h5).
-    The SET PIECE clause changed no label. merge_s with a controlled rule raises: at merge_s <=
-    hold_s the merge changed nothing or exactly undid the pass proxy (h5p3 + m5 = h5)."""
+    hold_s seconds, or it holds at least min_passes of that team's PASS events, or it holds that
+    team's SET PIECE. Otherwise its frames keep the previous possessor. The first run after a
+    stoppage or the kickoff always stands, and D frames never change. A run is judged on its own, so
+    a rejected run's touches do not count towards the next one. 0 turns a proxy off."""
     merge_s: float = 0.0
     hold_s: float = 0.0
     min_passes: int = 0
@@ -100,8 +73,6 @@ class PeriodLabels:
 
 @dataclass(frozen=True, slots=True)
 class Trigger:
-    """Selects events of `kind` ("*" = any kind) whose subtype contains any of `subtype_any`
-    (None = any subtype). `anchor` is the frame the rule reads: the event's start or end."""
     kind: str
     subtype_any: tuple[str, ...] | None
     anchor: Literal["start", "end"]
@@ -135,7 +106,6 @@ KICKOFF = Trigger("SET PIECE", ("KICK OFF",), "start")
 
 
 def matches(trigger: Trigger, events: pd.DataFrame) -> NDArray[np.bool_]:
-    """bool [m]: events the trigger selects (kind equality or "*", subtype substring, upper-case)."""
     hit = np.ones(len(events), bool) if trigger.kind == "*" else (events["type"] == trigger.kind).to_numpy()
     if trigger.subtype_any is not None:
         has_subtype = (any(w in s for s in subs for w in trigger.subtype_any) for subs in events["subtypes"])
@@ -193,7 +163,6 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
 
 
 def _covered(n: int, first: NDArray[np.int64], last: NDArray[np.int64]) -> NDArray[np.bool_]:
-    """bool [n]: frames inside any inclusive range [first, last]; empty ranges (first > last) cover nothing."""
     keep = first <= last
     steps = np.bincount(first[keep], minlength=n + 1) - np.bincount(last[keep] + 1, minlength=n + 1)
     return np.cumsum(steps[:n]) > 0
@@ -201,8 +170,6 @@ def _covered(n: int, first: NDArray[np.int64], last: NDArray[np.int64]) -> NDArr
 
 def _keep_controlled(labels: NDArray[np.int8], rule: RuleV2, passes: list[NDArray[np.int64]],
                      set_pieces: list[NDArray[np.int64]]) -> NDArray[np.int8]:
-    """RuleV2.hold_s / min_passes, left to right over the runs. passes / set_pieces: local start
-    frames per team (index = label code), sorted because the events are."""
     def inside(starts: NDArray[np.int64], a: int, b: int) -> int:
         return int(np.searchsorted(starts, b) - np.searchsorted(starts, a))
 
@@ -219,9 +186,6 @@ def _keep_controlled(labels: NDArray[np.int8], rule: RuleV2, passes: list[NDArra
 
 
 def _merge_short(labels: NDArray[np.int8], min_frames: float) -> NDArray[np.int8]:
-    """Repeatedly take the shortest possession run under min_frames that directly follows another
-    possession run (leftmost on ties) and give it that run's label, until none is left. Shortest
-    first is what reproduces the measured spell counts; a plain left-to-right pass does not."""
     runs = [list(segment) for segment in score.segments(labels, [(0, len(labels))])]
     while True:
         short = [(b - a, k) for k, (a, b, label) in enumerate(runs)

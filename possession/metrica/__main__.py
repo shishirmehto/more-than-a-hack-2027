@@ -1,14 +1,4 @@
-"""Acceptance table for the Metrica labels: `python -m possession.metrica [--data-dir DIR]`.
-
-One row per game plus a pooled row. Frames are per period (P1/P2; the pooled row sums them):
-`tracking` is every frame the tracking file has, `block` is what `load` keeps (kickoff stretch as D,
-post-final-whistle dropped). `alive` is the share of non-D frames, over the block and over the
-tracking frames. `spells` are maximal H or A runs; `m0` is the raw rule and `m1`..`m3` are
-RuleV2(merge_s=1, 2, 3). `ball NaN` is whether any ball_xy still has a NaN after `load`; it must be "no".
-
-A second table gives the pooled spell lengths per label rule in SPELL_RULES. DESIGN.md's spell table
-(Dev sweeps) sets them beside the public window as a check on the convention, never to pick one.
-"""
+"""Acceptance table for the Metrica labels: `python -m possession.metrica [--data-dir DIR]`."""
 from __future__ import annotations
 
 import argparse
@@ -31,7 +21,6 @@ SPELL_RULES = (RuleV2(), RuleV2(2.0), RuleV2(3.0), RuleV2(5.0),
 
 
 def spell_seconds(labels: NDArray[np.int8]) -> NDArray[np.float64]:
-    """Durations in seconds of the maximal H or A runs of one half."""
     return np.array([b - a for a, b, _ in score.possession_spells(labels, [(0, len(labels))])], np.float64) / FPS
 
 

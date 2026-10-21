@@ -1,17 +1,3 @@
-"""Where the Metrica sample files are, and proof they are the right bytes.
-
-Pinned to commit e706dd506b360d69d9d123d5b8026e7294b13996 of github.com/metrica-sports/sample-data:
-raw.githubusercontent.com URLs that name a commit are immutable, so the commit is the pin and the
-sha256 manifest is belt and braces (and catches a truncated download). The repo has no LICENSE; its
-README asks users to be responsible and to acknowledge the source. The technical document must say
-"Metrica Sports public sample data" and link the repo. Raw files are untrusted input: parsed, never
-executed, never committed (`data/*` is gitignored).
-
-Idempotent (per make-operations-idempotent): re-running skips files whose sha256 already matches,
-re-downloads ones that do not, and never leaves a partial file (temp file in the same directory,
-atomic rename). Stdlib only (urllib, hashlib). The only network call in the package, and it sends
-nothing out: it is a GET of a public file.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -50,8 +36,8 @@ def root(data_dir: str | Path | None = None) -> Path:
 
 def paths(game: int, data_dir: str | Path | None = None) -> dict[str, Path]:
     """Local paths for one game, like games.require: raises ONE IOError naming every missing file
-    plus the exact command to run (`python -m possession fetch-metrica`). Existence only, no hashing
-    (hashing 183 MB on every load would be the wrong cost); `fetch` is where bytes are verified."""
+    plus the exact command to run (`python -m possession fetch-metrica`). Existence only, no
+    hashing; `fetch` is where bytes are verified."""
     folder = root(data_dir)
     found = {role: _local(folder, rel) for role, rel in FILES[game].items()}
     missing = [str(path) for path in found.values() if not path.is_file()]
@@ -67,7 +53,7 @@ def fetch(data_dir: str | Path | None = None, *, write_manifest: bool = False) -
     Per file: skip if present and sha256 matches the manifest; else GET RAW_URL, stream to a temp
     file while hashing, compare, rename. A manifest mismatch deletes the temp file and raises with
     both digests. With write_manifest=True the digests are recorded instead of compared (local
-    files are hashed, missing ones downloaded). ~183 MB total.
+    files are hashed, missing ones downloaded).
     """
     folder = root(data_dir)
     expected = {} if write_manifest else _read_manifest()
@@ -106,7 +92,6 @@ def _write_manifest(files: dict[str, dict[str, object]]) -> None:
 
 
 def _copy_hashing(src: BinaryIO, dst: BinaryIO | None = None) -> tuple[str, int]:
-    """Read `src` to its end in 1 MiB chunks, writing each to `dst` when given: (sha256 hex, bytes)."""
     digest, size = hashlib.sha256(), 0
     while chunk := src.read(1 << 20):
         if dst is not None:
@@ -117,7 +102,6 @@ def _copy_hashing(src: BinaryIO, dst: BinaryIO | None = None) -> tuple[str, int]
 
 
 def _ensure(rel: str, dest: Path, want: str | None) -> dict[str, object]:
-    """Leave `dest` holding the bytes whose sha256 is `want` (any bytes if None); return its manifest entry."""
     if dest.is_file():
         with open(dest, "rb") as f:
             have, size = _copy_hashing(f)

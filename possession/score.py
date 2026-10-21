@@ -1,16 +1,3 @@
-"""The only module that imports the organisers' scorer.
-
-Everything the package knows about `evaluation/possession_metrics.py` is here: import style, the
-range guard pm does not do, per-half assembly, the flat Scores row, submission I/O. Callers hand in
-a `Layout`, a GT array and per-half int8 predictions and get numbers back; they never see pm's dict.
-
-Import style: the package runs from the repo root (`python -m possession ...`), so `games` and the
-`evaluation` namespace package both resolve. This is the one place that spells the import.
-
-Determinism: pm.evaluate(bootstrap_n>0) uses BOOTSTRAP_SEED=0 by default, so bootstrap intervals are
-already reproducible. For another seed, call pm.bootstrap_spell_f1 with the filled prediction
-(pm.fill_abstentions) from here; nothing else in the package needs to know.
-"""
 from __future__ import annotations
 
 import fnmatch
@@ -35,12 +22,7 @@ REFUSED_NAMES = ("baseline_*.csv", "*_possession_gt*")
 
 @dataclass(frozen=True, slots=True)
 class Scores:
-    """Flat, DataFrame-ready subset of pm.evaluate. spell_f1 is the ranking metric, macro_f1 breaks ties.
-
-    n_pred_spells / n_gt_spells are the jitter detector: a decoder that flickers shows it here long
-    before macro_f1 moves. bench.run refuses to score a prediction with more than 10x the GT spells,
-    because pm.spell_overlaps is O(G x P) pure Python.
-    """
+    """Flat, DataFrame-ready subset of pm.evaluate."""
     spell_f1: float
     macro_f1: float
     n_pred_spells: int
@@ -65,7 +47,6 @@ class Scores:
 
 def _assemble_checked(layout: Layout, gt: NDArray[np.int8],
                       preds: Sequence[NDArray[np.int8]]) -> NDArray[np.int8]:
-    """The range guard: GT in 0..3 and scorer-length, then _assemble_preds."""
     check_codes(gt, allow_x=True)
     if len(gt) != layout.n_total:
         raise ValueError(f"gt has {len(gt)} rows, layout {layout.n_total}")
@@ -73,7 +54,6 @@ def _assemble_checked(layout: Layout, gt: NDArray[np.int8],
 
 
 def _assemble_preds(layout: Layout, preds: Sequence[NDArray[np.int8]]) -> NDArray[np.int8]:
-    """Every prediction in 0..2 (no X inside a half), assembled with X outside the blocks."""
     for p in preds:
         check_codes(p, allow_x=False)
     return layout.assemble(preds)
@@ -84,11 +64,7 @@ def evaluate(layout: Layout, gt: NDArray[np.int8], preds: Sequence[NDArray[np.in
     """Score per-half predictions against a scorer-length GT array.
 
     gt:    int8 [layout.n_total] in {0..3}; graded spans are its non-X runs (pm.valid_runs).
-    preds: one int8 [block.n] per block, values in {0,1,2}. Abstention (X) inside play is not
-           offered: the decoder never emits it; X exists only outside blocks, added here.
-
-    Works for the 17-possession public window (gt has one run inside half 1; predictions outside it
-    are ignored by pm) and for pooled Metrica dev layouts (six runs) alike.
+    preds: one int8 [block.n] per block, values in {0,1,2}.
     """
     pred = _assemble_checked(layout, gt, preds)
     r = pm.evaluate(gt, pred, bootstrap_n=bootstrap_n)
@@ -115,9 +91,8 @@ def evaluate(layout: Layout, gt: NDArray[np.int8], preds: Sequence[NDArray[np.in
 
 def spell_f1(layout: Layout, gt: NDArray[np.int8], preds: Sequence[NDArray[np.int8]],
              runs: Sequence[tuple[int, int]]) -> tuple[float, int]:
-    """(spell_f1, n_pred_spells) exactly as `evaluate` reports them, without the rest of pm.evaluate:
-    the cheap path for a grid that reads nothing else. runs = valid_runs(gt), computed once per gt by
-    the caller. selfcheck.oracle_scores_one pins the equality with `evaluate`."""
+    """(spell_f1, n_pred_spells) exactly as `evaluate` reports them, without the rest of pm.evaluate.
+    runs = valid_runs(gt), computed once per gt by the caller."""
     pred = _assemble_checked(layout, gt, preds)
     s = pm.spell_scores(gt, pm.fill_abstentions(pred, runs), runs)
     return s["mean_f1"], s["n_pred"]
@@ -153,8 +128,8 @@ def matched_flags(layout: Layout, gt: NDArray[np.int8],
     possession is matched at that IoU.
 
     Same greedy one-to-one matching pm uses (pm.possession_spells -> spell_overlaps -> matched_gt_flags),
-    returned per GT spell instead of as counts. The building block for bench.paired_delta, which pm
-    does not provide. Predictions are filled (pm.fill_abstentions) first, as pm.evaluate does.
+    returned per GT spell instead of as counts. Predictions are filled (pm.fill_abstentions) first,
+    as pm.evaluate does.
     """
     pred = _assemble_checked(layout, gt, preds)
     runs = pm.valid_runs(gt)
@@ -168,9 +143,8 @@ def matched_flags(layout: Layout, gt: NDArray[np.int8],
 def read_codes(path: str | Path, n_expected: int | None = None) -> NDArray[np.int8]:
     """frame,label CSV -> int8 codes, via pm.read_label_csv + pm.validate_submission + pm.label_codes.
 
-    The boundary for every CSV the package reads (public GT, baseline_raw.csv): raises ValueError
-    with pm's one-line reason when invalid. Never returns a half-valid array. n_expected None
-    accepts the file's own row count (frames must still be 0..n-1 in order).
+    Raises ValueError with pm's one-line reason when invalid. Never returns a half-valid array.
+    n_expected None accepts the file's own row count (frames must still be 0..n-1 in order).
     """
     table = pm.read_label_csv(path)
     reason = pm.validate_submission(table, len(table) if n_expected is None else n_expected)
@@ -182,12 +156,10 @@ def read_codes(path: str | Path, n_expected: int | None = None) -> NDArray[np.in
 def write_submission(layout: Layout, preds: Sequence[NDArray[np.int8]], path: str | Path) -> Path:
     """Assemble (range-checked), then write `frame,label` to `path`.
 
-    Byte-for-byte reproducibility lives here: header `frame,label`, one `{i},{L}` line per row, LF
-    newlines written explicitly (no platform newline translation, no pandas to_csv), labels from
-    pm.LABELS[code]. Writes to `path` via a temp file in the same directory and an atomic rename, so a
-    crash never leaves a half file that run_evaluation.py would score. Before the rename the temp
-    file is read back through read_codes, which runs pm.validate_submission on the written bytes.
-    Refuses a path whose file name matches baseline_*.csv (those are committed) or *_possession_gt*.
+    Writes to `path` via a temp file in the same directory and an atomic rename, so a crash never
+    leaves a half file that run_evaluation.py would score. Before the rename the temp file is read
+    back through read_codes, which runs pm.validate_submission on the written bytes. Refuses a path
+    whose file name matches baseline_*.csv or *_possession_gt*.
     """
     path = Path(path)
     for pattern in REFUSED_NAMES:

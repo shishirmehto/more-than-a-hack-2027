@@ -1,24 +1,4 @@
-"""Thin shell: parse flags, call one function, print. No logic lives here (boundary-discipline).
-
-    fetch-metrica    metrica.fetch (add --write-manifest on the very first run)
-    fit-dev          worlds -> bench.fit_dev -> params JSON (+ <stem>_grid.csv beside it)
-    sweep            bench.surface over worlds, prints the generator x belief table
-    score            bench.run, prints the table, writes data/derived/runs/<name>.csv;
-                     --paired adds bench.paired_delta of each later model against the first
-    make-submission  challenge.halves("baseline_raw") -> Decoder.decode -> score.write_submission;
-                     reads ONLY committed inputs (baseline_raw.csv + the params JSON):
-                     no RNG, no Metrica on disk, byte-for-byte reproducible
-    selfcheck        selfcheck.run()
-
-fit-dev, sweep and score take the world flags --rule, --dead-bias and --seed, each a list, crossed
-into worlds. Each command's --help lists its flags.
-
-bench, metrica and selfcheck are imported inside the commands that use them, so make-submission never
-loads the dev harness (selfcheck.public_case_predict_equals_submission checks this).
-
-Dev outputs go under data/derived/runs/ (gitignored). Never under evaluation/results/: run_evaluation.py
-scores every CSV there against the public GT, and a file named baseline_*.csv would be committed.
-"""
+"""Thin shell: parse flags, call one function, print. No logic lives here (boundary-discipline)."""
 from __future__ import annotations
 
 import argparse
@@ -38,7 +18,6 @@ RUNS_DIR = Path(games.DATA_DIR) / "derived" / "runs"
 
 
 def make_submission(params: Path, out: Path) -> Path:
-    """The submission path: committed baseline_raw.csv + a params JSON -> a scorer-ready CSV."""
     model = Decoder.load(params)
     preds = [model.decode(h).codes for h in challenge.halves("baseline_raw")]
     return score.write_submission(challenge.layout(), preds, out)

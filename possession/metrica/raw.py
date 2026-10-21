@@ -1,18 +1,3 @@
-"""The two Metrica file formats, parsed into one in-memory shape. No labels, no dropout, no policy.
-
-Games 1 and 2: a Home and an Away tracking CSV (3 header rows; columns Period, Frame, Time [s], then
-x,y per player slot, subs NaN until they are on, last two columns the ball) plus an events CSV.
-Game 3: EPTS tracking `frame:x,y;...(22 groups);:bx,by` with `NaN,NaN` for missing, a metadata.xml
-whose 11 DataFormatSpecification windows rebind the 22 slots at substitutions, and an events JSON.
-
-Both formats are normalised at this boundary (per boundary-discipline) so nothing downstream ever
-branches on game number:
-    coordinates  -> metres, x * 105, y * 68, origin top-left, NO y flip (events match raw tracking)
-    team         -> 0 home / 1 away (Game 3: the first <Team> in the metadata is home)
-    events       -> the EVENT_COLUMNS table below
-    periods      -> split on the Period column, never on a frame gap (frame ids are 1-based and run
-                    contiguously across periods; there is no halftime gap in the ids)
-"""
 from __future__ import annotations
 
 import functools
@@ -54,9 +39,9 @@ class RawPeriod:
 
     period:     1 | 2
     frame0:     source Frame of local index 0 (a period's first tracking frame)
-    ball_xy:    float32 [n, 2] metres, NaN where untracked (this IS the dead-ball leak; never used as a cue)
-    players_xy: float32 [n, S, 2] metres, NaN for subs not on. S = 22..28.
-    slot_team:  int8 [S]. Game 3: asserted constant across the 11 substitution windows.
+    ball_xy:    float32 [n, 2] metres, NaN where untracked
+    players_xy: float32 [n, S, 2] metres, NaN for subs not on.
+    slot_team:  int8 [S].
     All three arrays are read-only: parse_game is memoised and hands every caller the same objects.
     """
     period: int
@@ -75,11 +60,11 @@ class RawGame:
 
 def parse_game(game: int, data_dir: str | Path | None = None) -> RawGame:
     """Parse one game from the local files (never fetches). Memoised on (game, resolved data_dir),
-    so `parse_game(1)` and `parse_game(1, None)` share one parse: 0.3 to 0.5 s a game, measured.
+    so `parse_game(1)` and `parse_game(1, None)` share one parse.
 
-    Postconditions checked here and nowhere downstream: frame ids contiguous within a period; x,y in
-    a sane window (-0.2..1.2 before scaling; the ball may be off-pitch); both periods present; every
-    event's start frame falls inside its period's frame range.
+    Postconditions checked here: frame ids contiguous within a period; x,y in a sane window
+    (-0.2..1.2 before scaling; the ball may be off-pitch); both periods present; every event's start
+    frame falls inside its period's frame range.
     """
     return _parse_cached(game, str(root(data_dir).resolve()))
 
@@ -133,7 +118,6 @@ def _parse_epts_game(tracking_txt: Path, meta_xml: Path, events_json: Path, game
 
 
 def _epts_slot_team(meta: ET.Element, team_ids: list[str]) -> NDArray[np.int8]:
-    """Team (0 home / 1 away) of each of the 22 slots, asserted identical in every substitution window."""
     player_team = {p.get("id"): team_ids.index(p.get("teamId")) for p in meta.iter("Player")}
     channel_player = {c.get("id"): c.get("playerId") for c in meta.iter("PlayerChannel")}
     windows = []
@@ -159,7 +143,6 @@ def _epts_period_frames(meta: ET.Element) -> tuple[tuple[int, int], tuple[int, i
 
 
 def _read_team_csv(path: Path) -> NDArray[np.float32]:
-    """Table [n, 3 + 2 * players + 2] of Period, Frame, Time, then x,y per player, then ball x,y."""
     names = pd.read_csv(path, header=None, skiprows=2, nrows=1, dtype=str).iloc[0].tolist()
     if names[:3] != _TRACKING_CSV_LEAD or names[-2] != "Ball":
         raise ValueError(f"{path.name}: unexpected header row {names[:4]} ... {names[-3:]}")
@@ -169,7 +152,6 @@ def _read_team_csv(path: Path) -> NDArray[np.float32]:
 def _split_periods(game: int, period: NDArray[np.int64], frame: NDArray[np.int64],
                    ball: NDArray[np.floating], players: NDArray[np.floating],
                    slot_team: NDArray[np.int8]) -> tuple[RawPeriod, RawPeriod]:
-    """Cut normalised arrays at the Period column, check them, and convert to metres."""
     for name, values in (("ball", ball), ("players", players)):
         low, high = np.nanmin(values), np.nanmax(values)
         if low < _NORM_WINDOW[0] or high > _NORM_WINDOW[1]:

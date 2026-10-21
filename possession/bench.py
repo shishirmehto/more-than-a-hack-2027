@@ -1,34 +1,3 @@
-"""The evaluation harness: build Cases, score any decoder on them, sweep worlds. The only module that
-joins everything, and the only one that knows the selection protocol.
-
-A `Case` is one scoring problem: halves to decode, where they sit (Layout), and the GT array. Three
-kinds, one type, so every decoder runs through the same two calls:
-
-    dev_g1 / dev_g2 / dev_g3   one Metrica game: 2 halves, synthetic layout, event-derived labels
-    dev_pooled                 all six halves in one layout: one spellF1 over ~721-1073 spells
-    public                     BAR-ATH from baseline_raw.csv, public GT: 17 possessions, a CORRECTNESS
-                               check (alignment, file format, label meaning), never a selection signal
-                               (spellF1 noise ~ +/-0.04)
-
-Determinism: no randomness outside dropout.challengeify (seeded, per-stream); decode is pure; pm is
-deterministic. Same inputs, same table, bit for bit.
-
-Selection protocol (the part a person would otherwise improvise):
-  * a "world" is a DevSpec: label rule x dead_bias x dropout seed. The first two are UNKNOWN for the
-    real match (label convention; real P(missing | dead)), so no single world is ground truth; the
-    seed is noise, and a world axis because it moves the ranking more than paired_delta (one draw,
-    GT possessions resampled) can see (DESIGN.md, sweeps 4 and 5);
-  * a decoder is scored on every world; the winner maximises the MINIMUM pooled spellF1 across worlds,
-    ties broken by the mean (max-min). Measured on a synthetic proxy, a decoder that believes
-    dead_bias = 3 scores 0.34 / 0.48 / 0.52 across worlds {1, 3, 11} while one that believes 1
-    scores 0.44 / 0.44 / 0.44: belief 1 wins max-min and loses mean;
-  * per-game rows are reported next to the pooled row so a win that lives in one game is visible;
-  * paired_delta before reading any gap: two decoders on one case share their GT spells, so compare
-    on those, not on two unpaired intervals.
-Measured here: decoding the six dev halves takes 0.09 s at stride 5 ("map" 0.18-0.42 s) and
-pm.evaluate on dev_pooled 0.04-0.12 s, so sweep 1 (288 candidates x 4 worlds, params/tier0_v1.json)
-ran in 300 s.
-"""
 from __future__ import annotations
 
 import itertools
@@ -57,15 +26,13 @@ Grid = Mapping[str, Sequence[object]]
 
 
 class Flicker(ValueError):
-    """A prediction refused by run's switch guard before pm.spell_overlaps grinds through it."""
+    pass
 
 
 @dataclass(frozen=True, slots=True)
 class DevSpec:
-    """One dev world. Everything that shapes the dev data, nothing else.
+    """One dev world.
 
-    rule:      label rule: a merge_s rule or a controlled-possession rule, never both (RuleV2.key).
-    dropout:   generator (dead_bias axis, target rate, ...).
     seed:      dropout seed; labels are seed-free.
     ball_fill: how native Metrica NaN are replaced before dropout ("hold" | "linear").
     """
@@ -78,10 +45,9 @@ class DevSpec:
 @dataclass(frozen=True, slots=True)
 class Case:
     """name:   "dev_g1" | "dev_g2" | "dev_g3" | "dev_pooled" | "public".
-    layout: where each half sits in the scorer array (synthetic for dev, challenge.layout() for public).
+    layout: where each half sits in the scorer array.
     halves: decoder inputs, in layout order.
-    gt:     int8 [layout.n_total] in {0..3}. Derived from labels by Layout.assemble, never stored twice.
-    The realised dropout of a case is derived from halves + gt when a table needs it (dropout_stats).
+    gt:     int8 [layout.n_total] in {0..3}.
     """
     name: str
     layout: Layout
@@ -90,8 +56,7 @@ class Case:
 
     def __post_init__(self) -> None:
         """len(gt) == layout.n_total; codes in range (half.check_codes); gt is X on every row outside
-        the layout's blocks; one half per block with half.n == block.n. A Case that violates these
-        would be scored silently wrong by pm, so it cannot be constructed."""
+        the layout's blocks; one half per block with half.n == block.n."""
         check_codes(self.gt, allow_x=True)
         layout = self.layout
         if len(self.gt) != layout.n_total:
@@ -108,8 +73,7 @@ class Case:
         self.gt.setflags(write=False)
 
     def predict(self, model: Decoder) -> list[NDArray[np.int8]]:
-        """One int8 [block.n] per half: `model.decode(h).codes`. make-submission decodes the same
-        halves without a Case; selfcheck.public_case_predict_equals_submission pins the two equal."""
+        """One int8 [block.n] per half: `model.decode(h).codes`."""
         return [model.decode(h).codes for h in self.halves]
 
 
@@ -137,17 +101,12 @@ def _dev_cases(clean: Sequence[CleanHalf], halves: Sequence[Half]) -> list[Case]
 
 def public_case(source: Literal["baseline_raw", "atd"] = "baseline_raw") -> Case:
     """BAR-ATH: challenge.halves(source), challenge.layout(), GT = public CSV via score.read_codes
-    (evaluation/gt/BAR-ATH_possession_gt_public.csv; real labels only on rows [11185, 18685)).
-    make-submission decodes the same two halves without building this case."""
+    (evaluation/gt/BAR-ATH_possession_gt_public.csv; real labels only on rows [11185, 18685))."""
     layout = challenge.layout()
     return Case("public", layout, tuple(challenge.halves(source)), score.read_codes(PUBLIC_GT, layout.n_total))
 
 
 def dropout_stats(halves: Sequence[Half], labels: Sequence[NDArray[np.int8]]) -> dict[str, float]:
-    """Realised ball dropout on graded decode-window frames ([kickoff, n), label != X), pooled:
-    overall missing rate, P(missing | D), P(missing | alive), their ratio (the EFFECTIVE dead_bias),
-    and the missing rate on [0, kickoff). Recomputed from the tokens, never read back from a spec.
-    NaN where a stratum is empty."""
     def rate(mask: NDArray[np.bool_], where: NDArray[np.bool_]) -> float:
         return float(mask[where].mean()) if where.any() else float("nan")
 
@@ -163,17 +122,16 @@ def dropout_stats(halves: Sequence[Half], labels: Sequence[NDArray[np.int8]]) ->
 
 
 def pooled(cases: Sequence[Case]) -> Case:
-    """The world's "dev_pooled" case: the one selection reads."""
+    """The world's "dev_pooled" case."""
     return next(c for c in cases if c.name == "dev_pooled")
 
 
 def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
            mode: Literal["renewal", "transplant"] = "renewal") -> dict[str, list[Case]]:
     """dev_cases for every (rule, dead_bias, seed), keyed "{rule.key}_r{dead_bias:g}" ("m2_r1"), plus
-    "_s{seed}" for a seed other than 0 ("h3p3_r1_s2"), so a seed-0 key reads as it did before seeds
-    were an axis. Rule-major, seed innermost. "transplant" ignores dead_bias, so it builds one world
-    per (rule, seed), keyed "{rule.key}_transplant[_s{seed}]". Labels load once per rule; dropout is
-    drawn per world, because the renewal draw reads the labels."""
+    "_s{seed}" for a seed other than 0 ("h3p3_r1_s2"). Rule-major, seed innermost. "transplant"
+    ignores dead_bias, so it builds one world per (rule, seed), keyed
+    "{rule.key}_transplant[_s{seed}]"."""
     out = {}
     for rule in rules:
         clean = metrica.load(rule)
@@ -188,12 +146,11 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
 
 def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
     """One row per (model, case): model, case, score.Scores.as_row() columns, then the case's
-    dropout_stats, so the effective dead_bias a score was measured under sits in the same row.
+    dropout_stats.
 
     Refuses (raises Flicker, naming the model and case) a prediction whose switch count exceeds 10x
     the GT's segments, instead of grinding through pm.spell_overlaps (O(GT x pred) pure Python) on a
-    flicker. Both are counted inside the graded runs only, so the public case's 17-possession window
-    is not compared against switches across two whole halves.
+    flicker. Both are counted inside the graded runs only.
     """
     stats = [dropout_stats(case.halves, case.layout.cut(case.gt)) for case in cases]
     rows = []
@@ -209,7 +166,6 @@ _Memo = dict[tuple[str, bytes], NDArray[np.int8]]
 
 
 def _predict(name: str, model: Decoder, case: Case, memo: _Memo) -> list[NDArray[np.int8]]:
-    """case.predict(model) through `memo`, then the flicker guard (raises Flicker)."""
     preds = []
     for h in case.halves:
         key = (repr(h.id), h.nearest_team.tobytes())
@@ -241,9 +197,7 @@ def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequ
 
     worlds: {dead_bias: dev_cases(DevSpec(dropout=DropoutParams(dead_bias=...)))}. The decoder variant
     for a column is base.replace(dead_bias=belief).
-    The last row is the column's minimum over worlds (the max-min score). This is the lever that
-    turns the open question "does the real ATD drop the ball more on dead frames?" into a number per
-    decoder choice, until the real ATD can be crossed with Smart Tagging set-piece windows.
+    The last row is the column's minimum over worlds (the max-min score).
     """
     cells = {}
     for belief in beliefs:
@@ -260,19 +214,14 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
             base: Decoder = Decoder(Tier0Emission(), DecoderParams()),
             on_row: Callable[[dict[str, object]], None] | None = None) -> tuple[Decoder, pd.DataFrame]:
     """Every candidate of `grids` scored on every world's dev_pooled case; returns (best by max-min,
-    the whole grid table). Nothing is counted from the dev labels: in sweeps 2 and 3 the counted
-    transition probabilities lost to hand-set ones (counted p_dead_after_poss 0.44 against 0.25 cost
-    ~0.025 spellF1 on the binding world).
+    the whole grid table).
 
-    grids:  a union of Cartesian products, one Mapping per sub-grid, so the "marginal" and "map"
-            decode rules can sweep different axes in one table. Keys are Decoder.fields() names
+    grids:  a union of Cartesian products, one Mapping per sub-grid. Keys are Decoder.fields() names
             (dead_bias is the decoder's belief); an axis a sub-grid omits keeps `base`'s value.
-    base:   the decoder every candidate varies. The default equals params/tier0_v0.json
-            (selfcheck.params_load_guards).
-    on_row: called with each finished row (progress for long sweeps).
+    base:   the decoder every candidate varies.
+    on_row: called with each finished row.
     The table has one row per candidate, ranked by SELECTION (rank 1 = returned decoder); a world on
-    which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies. It is
-    written next to the params JSON so a reader can see how flat the optimum is."""
+    which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies."""
     cases = {name: pooled(world) for name, world in worlds.items()}
     runs = {name: score.valid_runs(case.gt) for name, case in cases.items()}
     models, rows = [], []
@@ -313,11 +262,6 @@ def _candidates(base: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
 def paired_delta(a: Decoder, b: Decoder, case: Case, *, n_draws: int = 1000, seed: int = 0) -> tuple[float, float, float]:
     """(delta, low, high): the observed spellF1(a) - spellF1(b) (spell_f1_mean, pm's mean over IoUs)
     and the 5th / 95th percentiles of its bootstrap, resampling the GT possessions both share.
-
-    pm offers no paired comparison; its pieces do (score.matched_flags -> per-IoU hit flags per GT
-    spell). Resample GT spells once per draw, apply to both, recompute each F1 with pm's own
-    arithmetic (bootstrap_spell_f1: 2tp / (2tp + fp + fn), fp clamped at 0, predicted count fixed).
-    5th/95th percentiles, like pm. Use before believing any gap < 0.04.
     """
     flags, n_pred = zip(*(score.matched_flags(case.layout, case.gt, case.predict(model)) for model in (a, b)))
     n_gt = flags[0].shape[1]
