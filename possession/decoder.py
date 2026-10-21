@@ -10,7 +10,7 @@ from typing import Literal, Mapping
 import numpy as np
 from numpy.typing import NDArray
 
-from .half import A, D, FPS, H, Half
+from .half import A, AWAY, D, FPS, H, HOME, NO_TEAM, Half
 
 N_STATES = 4
 STATE_LABEL = np.array([H, A, D, D], dtype=np.int8)
@@ -47,17 +47,20 @@ class Tier0Emission:
 
     def loglik(self, half: Half) -> NDArray[np.float32]:
         tok = half.nearest_team
-        r = float((tok[half.id.kickoff:] < 0).mean())
+        r = float((tok[half.id.kickoff:] == NO_TEAM).mean())
         rho, a0, q = self.dead_bias, self.alive_share, self.q
         m_a = min(max(r / (a0 + (1 - a0) * rho), _M_FLOOR), _M_CAP)
         m_d = min(max(rho * m_a, _M_FLOOR), _M_CAP)
         seen = np.log([1 - m_a, 1 - m_a, 1 - m_d])
-        table = np.array([
-            np.log([m_a, m_a, m_d]),
-            np.log([q, 1 - q, 0.5]) + seen,
-            np.log([1 - q, q, 0.5]) + seen,
-        ])
-        return table[tok + 1].astype(np.float32)
+        row_by_token = {
+            NO_TEAM: np.log([m_a, m_a, m_d]),
+            HOME: np.log([q, 1 - q, 0.5]) + seen,
+            AWAY: np.log([1 - q, q, 0.5]) + seen,
+        }
+        out = np.empty((half.n, 3), dtype=np.float64)
+        for token, row in row_by_token.items():
+            out[tok == token] = row
+        return out.astype(np.float32)
 
 
 @dataclass(frozen=True, slots=True)

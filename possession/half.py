@@ -10,7 +10,8 @@ FPS = 25
 
 H, A, D, X = 0, 1, 2, 3
 
-HOME, AWAY, NO_TEAM = 0, 1, -1
+HOME, AWAY = H, A
+NO_TEAM = -1
 
 # pm.valid_runs splits runs at X; match_transitions has no run guard and pairs transitions across
 # a short gap (measured: pairs stop at >= 24 X frames at tau = 25). 500 is margin, not a tuned value.

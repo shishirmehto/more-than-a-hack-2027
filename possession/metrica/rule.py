@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Mapping
 
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
 from .. import score
-from ..half import D, FPS
+from ..half import A, D, FPS, H, HOME
 
 VERSION = "v2"
 
@@ -126,7 +126,8 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     start = np.clip(events["start"].to_numpy(np.int64) - frame0, 0, n - 1)
     end = np.clip(events["end"].to_numpy(np.int64) - frame0, 0, n - 1)
     anchor = {"start": start, "end": end}
-    types, teams = events["type"].to_numpy(), events["team"].to_numpy(np.int8)
+    types = events["type"].to_numpy()
+    team_label = np.where(events["team"].to_numpy() == HOME, H, A)
 
     openers = np.concatenate([anchor[t.anchor][matches(t, events)] for t in DEAD_TRIGGERS])
     is_restart = ~np.any([matches(t, events) for t in NOT_RESTART], axis=0)
@@ -144,8 +145,8 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
             dead[earlier.max() + 1:r] = True
 
     owned = np.isin(types, list(OWNER_KINDS))
-    owner_start, owner_team = start[owned], teams[owned]
-    owner = np.append(D, owner_team).astype(np.int8)[np.searchsorted(owner_start, np.arange(n), side="right")]
+    owner_after_k_events = np.append(D, team_label[owned]).astype(np.int8)
+    owner = owner_after_k_events[np.searchsorted(start[owned], np.arange(n), side="right")]
 
     kickoffs = start[matches(KICKOFF, events)]
     kickoff = int(kickoffs[0] if len(kickoffs) else start[0])
@@ -154,8 +155,8 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     labels[:kickoff] = D
     labels = labels[:stop]
     if rule.controlled:
-        passes = [start[(types == "PASS") & (teams == team)] for team in (0, 1)]
-        set_pieces = [start[(types == "SET PIECE") & (teams == team)] for team in (0, 1)]
+        passes = {label: start[(types == "PASS") & (team_label == label)] for label in (H, A)}
+        set_pieces = {label: start[(types == "SET PIECE") & (team_label == label)] for label in (H, A)}
         labels = _keep_controlled(labels, rule, passes, set_pieces)
     elif rule.merge_s > 0:
         labels = _merge_short(labels, rule.merge_s * FPS)
@@ -168,8 +169,8 @@ def _covered(n: int, first: NDArray[np.int64], last: NDArray[np.int64]) -> NDArr
     return np.cumsum(steps[:n]) > 0
 
 
-def _keep_controlled(labels: NDArray[np.int8], rule: RuleV2, passes: list[NDArray[np.int64]],
-                     set_pieces: list[NDArray[np.int64]]) -> NDArray[np.int8]:
+def _keep_controlled(labels: NDArray[np.int8], rule: RuleV2, passes: Mapping[int, NDArray[np.int64]],
+                     set_pieces: Mapping[int, NDArray[np.int64]]) -> NDArray[np.int8]:
     def inside(starts: NDArray[np.int64], a: int, b: int) -> int:
         return int(np.searchsorted(starts, b) - np.searchsorted(starts, a))
 
