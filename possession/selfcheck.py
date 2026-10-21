@@ -25,7 +25,7 @@ import games
 
 from . import bench, challenge, decoder, dropout, metrica, score
 from .decoder import Decoder, DecoderParams, Tier0Emission
-from .half import (A, AWAY, D, FPS, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
+from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
 
 REPO = Path(__file__).resolve().parents[1]
@@ -322,8 +322,7 @@ def _expanded_hmm(p: DecoderParams):
     order, a self-loop on the last one, and exits weighted by `_chain`'s switch distribution. The
     first segment starts in its last sub-state (no minimum at the kickoff)."""
     trans = decoder._chain(p).trans
-    k = [math.ceil(p.min_poss_frames / p.stride)] * 2 + [math.ceil(p.min_dead_frames / p.stride)] * 2
-    mean = [p.poss_mean_s * FPS / p.stride] * 2 + [p.dead_mean_s * FPS / p.stride] * 2
+    mean, k = decoder._blocks(p)
     cont = [(m - kc) / (m - kc + 1) for m, kc in zip(mean, k)]
     states = [(s, j) for s in range(4) for j in range(k[s])]
     index = {state: i for i, state in enumerate(states)}

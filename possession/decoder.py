@@ -32,8 +32,8 @@ bakeoff; a labelled proxy, to be re-run on the Metrica dev set):
     geometry-derived dev tokens whose errors are bursty.
 
 Decoding runs per half, on blocks of `stride` frames (evidence summed per block, partial last block
-allowed), then upsampled. Measured on the baseline_raw halves: K = 4 forward-backward costs 0.17 s per
-79k-frame half at stride 1 and 0.03 s at stride 5, so a 100-config x 3-world x 6-half grid is minutes,
+allowed), then upsampled. Measured on the baseline_raw halves: K = 4 forward-backward costs 0.08 s per
+79k-frame half at stride 1 and 0.015 s at stride 5, so a 100-config x 3-world x 6-half grid is minutes,
 not hours.
 """
 from __future__ import annotations
@@ -255,9 +255,9 @@ def _validate(decoder: Decoder, path: str | Path) -> None:
         if (p.min_poss_frames, p.min_dead_frames) != (1, 1):
             raise ValueError(f"{path}: decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")
     elif p.decode_rule == "map":
-        for name, mean_s, min_frames in (("poss", p.poss_mean_s, p.min_poss_frames),
-                                         ("dead", p.dead_mean_s, p.min_dead_frames)):
-            if mean_s * FPS / p.stride <= math.ceil(min_frames / p.stride):
+        mean, k = _blocks(p)
+        for name, s in (("poss", H), ("dead", _DH)):
+            if mean[s] <= k[s]:
                 raise ValueError(f"{path}: decode_rule 'map' needs {name}_mean_s above min_{name}_frames "
                                  f"in blocks of {p.stride}")
     else:
@@ -317,6 +317,26 @@ class _Chain:
     init: NDArray[np.float64]
 
 
+def _blocks(p: DecoderParams) -> tuple[list[float], list[int]]:
+    """Per state (H, A, D_after_H, D_after_A): mean segment length and minimum segment length, both in
+    blocks of `stride` frames (the minimum rounded up)."""
+    mean = [p.poss_mean_s * FPS / p.stride] * 2 + [p.dead_mean_s * FPS / p.stride] * 2
+    k = [math.ceil(p.min_poss_frames / p.stride)] * 2 + [math.ceil(p.min_dead_frames / p.stride)] * 2
+    return mean, k
+
+
+def _switch_into(p: DecoderParams) -> list[list[tuple[int, float]]]:
+    """Per target state c: (predecessor q, P(q -> c | q's segment ends)). Shared by both decode rules.
+    The order inside a row is `_map`'s tie order (an earlier predecessor wins a tie)."""
+    pd, pf = p.p_dead_after_poss, p.p_flip_after_dead
+    return [
+        [(A, 1 - pd), (_DH, 1 - pf), (_DA, pf)],
+        [(H, 1 - pd), (_DA, 1 - pf), (_DH, pf)],
+        [(H, pd)],
+        [(A, pd)],
+    ]
+
+
 def _chain(p: DecoderParams) -> _Chain:
     """States 0=H 1=A 2=D_after_H 3=D_after_A. With blocks of `stride` frames:
         hp = 1 / (poss_mean_s * FPS / stride)     hd = 1 / (dead_mean_s * FPS / stride)     (clipped to <= 0.5)
@@ -324,15 +344,12 @@ def _chain(p: DecoderParams) -> _Chain:
         D_after_H -> D_after_H 1-hd ;  -> H hd*(1-p_flip) ;  -> A hd*p_flip
         A and D_after_A mirror those.
     """
-    hp = min(1.0 / (p.poss_mean_s * FPS / p.stride), 0.5)
-    hd = min(1.0 / (p.dead_mean_s * FPS / p.stride), 0.5)
-    pd, pf = p.p_dead_after_poss, p.p_flip_after_dead
-    trans = np.array([
-        [1 - hp, hp * (1 - pd), hp * pd, 0.0],
-        [hp * (1 - pd), 1 - hp, 0.0, hp * pd],
-        [hd * (1 - pf), hd * pf, 1 - hd, 0.0],
-        [hd * pf, hd * (1 - pf), 0.0, 1 - hd],
-    ])
+    mean, _ = _blocks(p)
+    hazard = [min(1.0 / m, 0.5) for m in mean]
+    trans = np.diag([1 - h for h in hazard])
+    for c, row in enumerate(_switch_into(p)):
+        for q, w in row:
+            trans[q, c] = hazard[q] * w
     return _Chain(trans=trans, init=np.array([0.5, 0.5, 0.0, 0.0]))
 
 
@@ -346,28 +363,36 @@ def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float
     """
     nb = E.shape[0]
     ek = np.exp(E - E.max(axis=1, keepdims=True))[:, STATE_LABEL].tolist()
-    into = chain.trans.T.tolist()     # into[j] = P(i -> j) for i = 0..3
-    out_of = chain.trans.tolist()     # out_of[i] = P(i -> j) for j = 0..3
+    (t00, t01, t02, t03), (t10, t11, t12, t13), (t20, t21, t22, t23), (t30, t31, t32, t33) = chain.trans.tolist()
 
-    alpha = [None] * nb
-    a = [pi * e for pi, e in zip(chain.init.tolist(), ek[0])]
-    s = a[0] + a[1] + a[2] + a[3]
-    alpha[0] = [x / s for x in a]
-    for t in range(1, nb):
-        p0, p1, p2, p3 = alpha[t - 1]
-        a = [(p0 * c0 + p1 * c1 + p2 * c2 + p3 * c3) * e for (c0, c1, c2, c3), e in zip(into, ek[t])]
-        s = a[0] + a[1] + a[2] + a[3]
-        alpha[t] = [x / s for x in a]
+    i0, i1, i2, i3 = chain.init.tolist()
+    e0, e1, e2, e3 = ek[0]
+    x0, x1, x2, x3 = i0 * e0, i1 * e1, i2 * e2, i3 * e3
+    s = x0 + x1 + x2 + x3
+    a0, a1, a2, a3 = x0 / s, x1 / s, x2 / s, x3 / s
+    alpha = [a0, a1, a2, a3]
+    for e0, e1, e2, e3 in ek[1:]:
+        x0 = (a0 * t00 + a1 * t10 + a2 * t20 + a3 * t30) * e0
+        x1 = (a0 * t01 + a1 * t11 + a2 * t21 + a3 * t31) * e1
+        x2 = (a0 * t02 + a1 * t12 + a2 * t22 + a3 * t32) * e2
+        x3 = (a0 * t03 + a1 * t13 + a2 * t23 + a3 * t33) * e3
+        s = x0 + x1 + x2 + x3
+        a0, a1, a2, a3 = x0 / s, x1 / s, x2 / s, x3 / s
+        alpha += (a0, a1, a2, a3)
 
-    beta = [None] * nb
-    beta[nb - 1] = [1.0, 1.0, 1.0, 1.0]
-    for t in range(nb - 2, -1, -1):
-        w0, w1, w2, w3 = [e * b for e, b in zip(ek[t + 1], beta[t + 1])]
-        b = [r0 * w0 + r1 * w1 + r2 * w2 + r3 * w3 for r0, r1, r2, r3 in out_of]
-        s = b[0] + b[1] + b[2] + b[3]
-        beta[t] = [x / s for x in b]
+    b0 = b1 = b2 = b3 = 1.0
+    beta = [b0, b1, b2, b3]                 # built from the last block backwards
+    for e0, e1, e2, e3 in ek[:0:-1]:
+        w0, w1, w2, w3 = e0 * b0, e1 * b1, e2 * b2, e3 * b3
+        x0 = t00 * w0 + t01 * w1 + t02 * w2 + t03 * w3
+        x1 = t10 * w0 + t11 * w1 + t12 * w2 + t13 * w3
+        x2 = t20 * w0 + t21 * w1 + t22 * w2 + t23 * w3
+        x3 = t30 * w0 + t31 * w1 + t32 * w2 + t33 * w3
+        s = x0 + x1 + x2 + x3
+        b0, b1, b2, b3 = x0 / s, x1 / s, x2 / s, x3 / s
+        beta += (b0, b1, b2, b3)
 
-    g = np.array(alpha) * np.array(beta)
+    g = np.array(alpha).reshape(nb, 4) * np.array(beta).reshape(nb, 4)[::-1]
     g /= (g[:, 0] + g[:, 1] + g[:, 2] + g[:, 3])[:, None]
     return np.stack([g[:, 0], g[:, 1], g[:, 2] + g[:, 3]], axis=1)
 
@@ -399,18 +424,10 @@ def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
     C = np.concatenate([np.zeros((1, K)), np.cumsum(ll, axis=0)]).tolist()
     ll = ll.tolist()
 
-    k = [math.ceil(p.min_poss_frames / p.stride)] * 2 + [math.ceil(p.min_dead_frames / p.stride)] * 2
-    mean = [p.poss_mean_s * FPS / p.stride] * 2 + [p.dead_mean_s * FPS / p.stride] * 2
+    mean, k = _blocks(p)
     cont_p = [(m - kc) / (m - kc + 1) for m, kc in zip(mean, k)]
     log_c = [round(math.log(c), 12) for c in cont_p]
-    pd, pf = p.p_dead_after_poss, p.p_flip_after_dead
-    switch_into = [                     # per state c: (predecessor q, P(q -> c | q's segment ends))
-        [(A, 1 - pd), (_DH, 1 - pf), (_DA, pf)],
-        [(H, 1 - pd), (_DA, 1 - pf), (_DH, pf)],
-        [(H, pd)],
-        [(A, pd)],
-    ]
-    entry_w = [[(q, round(math.log(1 - cont_p[q]) + math.log(w), 12)) for q, w in row] for row in switch_into]
+    entry_w = [[(q, round(math.log(1 - cont_p[q]) + math.log(w), 12)) for q, w in row] for row in _switch_into(p)]
     log_pi = [round(math.log(0.5), 12)] * 2 + [-math.inf] * 2
 
     ent = [[-math.inf] * K for _ in range(nb + 1)]   # ent[s][c]: best score of a fresh c segment at s
