@@ -28,7 +28,8 @@ Decode costs ~0.06 s per half at stride 5 (measured); pm.evaluate ~0.3 s on the 
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+import itertools
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable, Literal, Mapping, Sequence
 
@@ -36,7 +37,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from . import challenge, dropout, metrica, score
+from . import challenge, decoder, dropout, metrica, score
 from .decoder import Decoder, DecoderParams, Tier0Emission
 from .half import D, NO_TEAM, X, Half, Layout, check_codes
 from .dropout import DropoutParams
@@ -237,7 +238,15 @@ def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequ
     turns the open question "does the real ATD drop the ball more on dead frames?" into a number per
     decoder choice, until the real ATD can be crossed with Smart Tagging set-piece windows.
     """
-    raise NotImplementedError
+    cells = {}
+    for belief in beliefs:
+        model = Decoder(replace(base.emission, dead_bias=belief), base.params)
+        cells[belief] = {rho: float(run({f"belief {belief:g}": model}, [pooled(cases)])["spell_f1"].iloc[0])
+                         for rho, cases in worlds.items()}
+    table = pd.DataFrame(cells)
+    table.loc["min"] = table.min()
+    table.index.name, table.columns.name = "generator dead_bias", "belief"
+    return table
 
 
 def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *, reference: Case,
@@ -255,14 +264,78 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *, refe
     The table has one row per candidate, ranked by SELECTION (rank 1 = returned decoder); a world on
     which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies. It is
     written next to the params JSON so a reader can see how flat the optimum is."""
-    raise NotImplementedError
+    fitted = decoder.fit(reference.pairs(), base)
+    cases = {name: pooled(world) for name, world in worlds.items()}
+    models, rows = [], []
+    for model in _candidates(fitted, grids):
+        spell, n_pred = {}, {}
+        for name, case in cases.items():
+            preds = case.predict(model)
+            try:
+                _refuse_flicker("candidate", case, preds)
+            except Flicker:
+                spell[name], n_pred[name] = float("nan"), -1
+                continue
+            s = score.evaluate(case.layout, case.gt, preds)
+            spell[name], n_pred[name] = s.spell_f1, s.n_pred_spells
+        values = np.array(list(spell.values()))
+        row = {**_describe(model), **{f"spell_{k}": v for k, v in spell.items()},
+               "min": float(values.min()), "mean": float(values.mean()),
+               **{f"pred_{k}": v for k, v in n_pred.items()}}
+        if on_row is not None:
+            on_row(row)
+        models.append(model)
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    order = table.sort_values(["min", "mean"], ascending=False, kind="stable", na_position="last").index
+    table = table.loc[order].reset_index(drop=True)
+    table.insert(0, "rank", np.arange(1, len(table) + 1))
+    return models[order[0]], table
+
+
+def _candidates(fitted: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
+    out = []
+    for grid in grids:
+        keys = list(grid)
+        for values in itertools.product(*(grid[k] for k in keys)):
+            cfg = dict(zip(keys, values))
+            emission = replace(fitted.emission, dead_bias=cfg.pop("belief", fitted.emission.dead_bias))
+            out.append(Decoder(emission, replace(fitted.params, **cfg)))
+    return out
+
+
+def _describe(model: Decoder) -> dict[str, object]:
+    p = model.params
+    return {"decode_rule": p.decode_rule, "temper": p.temper, "poss_mean_s": p.poss_mean_s,
+            "dead_mean_s": p.dead_mean_s, "belief": model.emission.dead_bias,
+            "min_poss_frames": p.min_poss_frames, "min_dead_frames": p.min_dead_frames}
 
 
 def paired_delta(a: Decoder, b: Decoder, case: Case, *, n_draws: int = 1000, seed: int = 0) -> tuple[float, float, float]:
-    """(mean delta, low, high) of spellF1(a) - spellF1(b), bootstrapping the GT possessions both share.
+    """(delta, low, high): the observed spellF1(a) - spellF1(b) (spell_f1_mean, pm's mean over IoUs)
+    and the 5th / 95th percentiles of its bootstrap, resampling the GT possessions both share.
 
     pm offers no paired comparison; its pieces do (score.matched_flags -> per-IoU hit flags per GT
     spell). Resample GT spells once per draw, apply to both, recompute each F1 with pm's own
-    precision/recall arithmetic. 5th/95th percentiles, like pm. Use before believing any gap < 0.04.
+    arithmetic (bootstrap_spell_f1: 2tp / (2tp + fp + fn), fp clamped at 0, predicted count fixed).
+    5th/95th percentiles, like pm. Use before believing any gap < 0.04.
     """
-    raise NotImplementedError
+    flags, n_pred = [], []
+    for model in (a, b):
+        preds = case.predict(model)
+        flags.append(score.matched_flags(case.layout, case.gt, preds))
+        n_pred.append(score.evaluate(case.layout, case.gt, preds).n_pred_spells)
+    n_gt = flags[0].shape[1]
+
+    def spell_f1(hits: NDArray[np.bool_], picks: NDArray[np.int64], predicted: int) -> NDArray[np.float64]:
+        tp = hits[:, picks].sum(axis=-1)                      # [n_ious, n_draws]
+        fp, fn = np.maximum(0, predicted - tp), n_gt - tp
+        f1 = np.where(tp > 0, 2.0 * tp / np.maximum(2 * tp + fp + fn, 1), 0.0)
+        return f1.mean(axis=0)
+
+    every = np.arange(n_gt)[None, :]
+    observed = spell_f1(flags[0], every, n_pred[0]) - spell_f1(flags[1], every, n_pred[1])
+    picks = np.random.default_rng(seed).integers(0, n_gt, size=(n_draws, n_gt))
+    deltas = spell_f1(flags[0], picks, n_pred[0]) - spell_f1(flags[1], picks, n_pred[1])
+    low, high = np.percentile(deltas, (5, 95))
+    return float(observed[0]), float(low), float(high)
