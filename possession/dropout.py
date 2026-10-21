@@ -85,8 +85,8 @@ class DropoutParams:
                                dead-ball information. Sweep {0.75, 1, 3, 11}: 0.75 ~ public-window
                                P(m|D)=0.34 with a=0.6; 11 ~ P(m|D)=0.9, P(m|alive)=0.08. Above roughly 8
                                the max_rate cap binds on high-alive halves (G3, a=0.68, rho 11 -> 0.98 / 0.14,
-                               effective ratio ~7), so the EFFECTIVE ratio saturates; it is recomputed from
-                               the data into Case.provenance, never read back from this field.
+                               effective ratio ~7), so the EFFECTIVE ratio saturates; bench.run reports it
+                               recomputed from the data (bench.dropout_stats), never read back from this field.
     prekickoff_missing_rate:   rate on frames [0, kickoff). 0.19, from half 2's 2934 graded
                                pre-kickoff frames (baseline: 564 of 2934 missing). Its own stratum, so
                                it neither inflates "dead" nor is bent by dead_bias.
@@ -189,8 +189,8 @@ def _seen_mask(c: CleanHalf, params: DropoutParams, seed: int, pool: RunPool) ->
     where each mask is missing_mask over its own span (alive and dead over [kickoff, n), pre-kickoff
     over [0, kickoff)) with its own Stream; with a random phase that equals cutting it out of a
     whole-half draw. Re-draw (attempt k = 0..N) until |realised overall rate - target| <= tolerance
-    over the decode window; keep the closest after max_attempts. The realised overall / P(m|dead) /
-    P(m|alive) go into the Case provenance.
+    over the decode window; keep the closest after max_attempts. bench.dropout_stats reports the
+    realised overall / P(m|dead) / P(m|alive).
     """
     n, k0 = c.geometry.n, c.id.kickoff
     pre = missing_mask(k0, params.prekickoff_missing_rate, pool, _rng(seed, c.id, Stream.PREKICK_MASK))

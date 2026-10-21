@@ -116,14 +116,26 @@ def evaluate(layout: Layout, gt: NDArray[np.int8], preds: Sequence[NDArray[np.in
     )
 
 
+def spell_f1(layout: Layout, gt: NDArray[np.int8], preds: Sequence[NDArray[np.int8]],
+             runs: Sequence[tuple[int, int]]) -> tuple[float, int]:
+    """(spell_f1, n_pred_spells) exactly as `evaluate` reports them, without the rest of pm.evaluate:
+    the cheap path for a grid that reads nothing else. runs = valid_runs(gt), computed once per gt by
+    the caller. selfcheck.oracle_scores_one pins the equality with `evaluate`."""
+    pred = _assemble_checked(layout, gt, preds)
+    s = pm.spell_scores(gt, pm.fill_abstentions(pred, runs), runs)
+    return s["mean_f1"], s["n_pred"]
+
+
 def valid_runs(gt: NDArray[np.int8]) -> list[tuple[int, int]]:
     """pm.valid_runs: half-open [start, stop) spans where gt is not X."""
     check_codes(gt, allow_x=True)
     return pm.valid_runs(gt)
 
 
-def matched_flags(layout: Layout, gt: NDArray[np.int8], preds: Sequence[NDArray[np.int8]]) -> NDArray[np.bool_]:
-    """bool [len(pm.SPELL_IOUS), n_gt_spells]: True where a GT possession is matched at that IoU.
+def matched_flags(layout: Layout, gt: NDArray[np.int8],
+                  preds: Sequence[NDArray[np.int8]]) -> tuple[NDArray[np.bool_], int]:
+    """(flags, n_pred_spells). flags: bool [len(pm.SPELL_IOUS), n_gt_spells], True where a GT
+    possession is matched at that IoU.
 
     Same greedy one-to-one matching pm uses (pm.possession_spells -> spell_overlaps -> matched_gt_flags),
     returned per GT spell instead of as counts. The building block for bench.paired_delta, which pm
@@ -132,9 +144,10 @@ def matched_flags(layout: Layout, gt: NDArray[np.int8], preds: Sequence[NDArray[
     pred = _assemble_checked(layout, gt, preds)
     runs = pm.valid_runs(gt)
     filled = pm.fill_abstentions(pred, runs)
-    gt_spells = pm.possession_spells(gt, runs)
-    overlaps = pm.spell_overlaps(gt_spells, pm.possession_spells(filled, runs))
-    return np.vstack([pm.matched_gt_flags(overlaps, len(gt_spells), iou) for iou in pm.SPELL_IOUS])
+    gt_spells, pred_spells = pm.possession_spells(gt, runs), pm.possession_spells(filled, runs)
+    overlaps = pm.spell_overlaps(gt_spells, pred_spells)
+    flags = np.vstack([pm.matched_gt_flags(overlaps, len(gt_spells), iou) for iou in pm.SPELL_IOUS])
+    return flags, len(pred_spells)
 
 
 def read_codes(path: str | Path, n_expected: int | None = None) -> NDArray[np.int8]:

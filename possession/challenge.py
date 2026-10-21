@@ -20,6 +20,7 @@ What the ATD loader must produce (per half, rows = ATD frame_id - 1, spans from 
 """
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Literal
 
@@ -98,6 +99,7 @@ def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
     raise ValueError(f"unknown source {source!r}; have 'baseline_raw', 'atd'")
 
 
+@functools.cache
 def _halves_from_baseline_raw(path: Path) -> tuple[Half, Half]:
     """baseline_raw.csv -> tier-0 Halves. READ THIS BEFORE TOUCHING.
 
@@ -105,6 +107,8 @@ def _halves_from_baseline_raw(path: Path) -> tuple[Half, Half]:
     frames), NOT dead ball: 66% of public-window GT-D frames have a visible ball and 44% of
     ball-missing frames are inside live possession. So: D -> NO_TEAM (a mask), H -> HOME, A -> AWAY.
     The decoder never sees the word "D" from this source.
+
+    Cached per process (every dev world's dropout pool reads it); a Half's arrays are read-only.
     """
     codes = score.read_codes(path, n_expected=games.source_frames("tactical"))
     token = np.where(codes == D, NO_TEAM, codes).astype(np.int8)

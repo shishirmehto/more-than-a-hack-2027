@@ -5,8 +5,9 @@
                                           worlds -> bench.fit_dev -> params JSON (+ <stem>_grid.csv beside it)
     sweep      --params P --dead-bias 1 3 11 --belief 1 3 11
                                           bench.surface over worlds, prints the generator x belief table
-    score      --params P ... [--dev] [--public] [--merge-s M ...] [--dead-bias R ...] [--mode transplant]
-                                          bench.run, prints the table, writes data/derived/runs/<name>.csv
+    score      --params P ... [--dev] [--public] [--merge-s M ...] [--dead-bias R ...] [--mode transplant] [--paired]
+                                          bench.run, prints the table, writes data/derived/runs/<name>.csv;
+                                          --paired adds bench.paired_delta of each later model against the first
     make-submission --params P --out F    challenge.halves("baseline_raw") -> Decoder.decode -> score.write_submission
                                           reads ONLY committed inputs (baseline_raw.csv + the params JSON):
                                           no RNG, no Metrica on disk, byte-for-byte reproducible
@@ -84,6 +85,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     scores.add_argument("--public", action="store_true")
     scores.add_argument("--mode", choices=("renewal", "transplant"), default="renewal")
     scores.add_argument("--bootstrap", type=int, default=0)
+    scores.add_argument("--paired", action="store_true",
+                        help="paired bootstrap spellF1 delta of each later --params against the first, "
+                             "on every dev_pooled and public case")
     scores.add_argument("--name", default=None, help="run file name (default: the params stems)")
 
     args = parser.parse_args(argv)
@@ -106,6 +110,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "score":
         if not (args.dev or args.public):
             parser.error("score needs --dev, --public or both")
+        if args.paired and len(args.params) < 2:
+            parser.error("--paired needs two or more --params")
         return _score(args)
     raise AssertionError(args.command)
 
@@ -156,8 +162,8 @@ def _sweep(args: argparse.Namespace) -> int:
 
     base = Decoder.load(args.params)
     for m in args.merge_s:
-        by_rho = {rho: bench.dev_cases(bench.DevSpec(bench.RuleV2(m), bench.DropoutParams(dead_bias=rho), args.seed))
-                  for rho in args.dead_bias}
+        worlds = bench.worlds([m], args.dead_bias, seed=args.seed)
+        by_rho = {rho: worlds[f"m{m:g}_r{rho:g}"] for rho in args.dead_bias}
         print(f"merge_s {m:g}")
         print(bench.surface(base, by_rho, args.belief).round(4).to_string())
     return 0
@@ -169,19 +175,28 @@ def _score(args: argparse.Namespace) -> int:
     from . import bench
 
     models = {p.stem: Decoder.load(p) for p in args.params}
-    tables = []
-    if args.dev:
-        for world, cases in bench.worlds(args.merge_s, args.dead_bias, seed=args.seed, mode=args.mode).items():
-            tables.append(bench.run(models, cases, bootstrap_n=args.bootstrap).assign(world=world))
+    worlds = bench.worlds(args.merge_s, args.dead_bias, seed=args.seed, mode=args.mode) if args.dev else {}
     if args.public:
-        tables.append(bench.run(models, [bench.public_case()], bootstrap_n=args.bootstrap).assign(world="public"))
-    table = pd.concat(tables, ignore_index=True)
+        worlds["public"] = [bench.public_case()]
+    table = pd.concat([bench.run(models, cases, bootstrap_n=args.bootstrap).assign(world=world)
+                       for world, cases in worlds.items()], ignore_index=True)
     table = table[["world", *[c for c in table.columns if c != "world"]]]
     print(table.round(4).to_string(index=False))
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     out = RUNS_DIR / f"{args.name or '+'.join(models)}.csv"
     table.to_csv(out, index=False, lineterminator="\n")
     print(out)
+    if args.paired:
+        (first, reference), *others = models.items()
+        rows = []
+        for world, cases in worlds.items():
+            for case in (c for c in cases if c.name in ("dev_pooled", "public")):
+                for name, model in others:
+                    delta, low, high = bench.paired_delta(model, reference, case)
+                    rows.append({"world": world, "case": case.name, "model": name, "minus": first,
+                                 "delta": delta, "low": low, "high": high})
+        print("paired spellF1 delta, 5th / 95th percentile of the bootstrap over shared GT possessions")
+        print(pd.DataFrame(rows).round(4).to_string(index=False))
     return 0
 
 

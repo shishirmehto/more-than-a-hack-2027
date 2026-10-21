@@ -30,7 +30,7 @@ ran in 300 s.
 from __future__ import annotations
 
 import itertools
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, Mapping, Sequence
 
@@ -40,7 +40,7 @@ from numpy.typing import NDArray
 
 from . import challenge, dropout, metrica, score
 from .decoder import Decoder, DecoderParams, Tier0Emission
-from .half import D, NO_TEAM, X, Half, Layout, check_codes
+from .half import D, NO_TEAM, X, CleanHalf, Half, Layout, check_codes
 from .dropout import DropoutParams
 from .metrica import RuleV2
 
@@ -72,23 +72,20 @@ class DevSpec:
     dropout: DropoutParams = DropoutParams()
     seed: int = 0
     ball_fill: Literal["hold", "linear"] = "hold"
-    data_dir: str | Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Case:
-    """name:       "dev_g1" | "dev_g2" | "dev_g3" | "dev_pooled" | "public".
-    layout:     where each half sits in the scorer array (synthetic for dev, challenge.layout() for public).
-    halves:     decoder inputs, in layout order.
-    gt:         int8 [layout.n_total] in {0..3}. Derived from labels by Layout.assemble, never stored twice.
-    provenance: JSON-able: DevSpec, sample-data commit, realised dropout stats (overall rate,
-                P(missing | dead), P(missing | alive)) recomputed from halves + gt, not synced.
+    """name:   "dev_g1" | "dev_g2" | "dev_g3" | "dev_pooled" | "public".
+    layout: where each half sits in the scorer array (synthetic for dev, challenge.layout() for public).
+    halves: decoder inputs, in layout order.
+    gt:     int8 [layout.n_total] in {0..3}. Derived from labels by Layout.assemble, never stored twice.
+    The realised dropout of a case is derived from halves + gt when a table needs it (dropout_stats).
     """
     name: str
     layout: Layout
     halves: tuple[Half, ...]
     gt: NDArray[np.int8]
-    provenance: Mapping[str, object]
 
     def __post_init__(self) -> None:
         """len(gt) == layout.n_total; codes in range (half.check_codes); gt is X on every row outside
@@ -118,25 +115,22 @@ class Case:
 def dev_cases(spec: DevSpec) -> list[Case]:
     """metrica.load -> dropout.challengeify -> per-game and pooled Cases. Requires fetched data.
 
-    Returns [dev_g1, dev_g2, dev_g3, dev_pooled]; each provenance holds the spec, the sample-data
-    commit and the realised dropout stats of that case's halves (see dropout_stats)."""
-    clean = metrica.load(spec.rule, ball_fill=spec.ball_fill, data_dir=spec.data_dir)
-    halves = dropout.challengeify(clean, spec.dropout, spec.seed)
+    Returns [dev_g1, dev_g2, dev_g3, dev_pooled]."""
+    clean = metrica.load(spec.rule, ball_fill=spec.ball_fill)
+    return _dev_cases(clean, dropout.challengeify(clean, spec.dropout, spec.seed))
+
+
+def _dev_cases(clean: Sequence[CleanHalf], halves: Sequence[Half]) -> list[Case]:
     by_game: dict[str, list[int]] = {}
     for i, c in enumerate(clean):
         by_game.setdefault(c.id.match, []).append(i)
     groups = [("dev_" + match.removeprefix("metrica_"), idx) for match, idx in by_game.items()]
     groups.append(("dev_pooled", list(range(len(clean)))))
-    spec_json = {**asdict(spec), "data_dir": None if spec.data_dir is None else str(spec.data_dir)}
     cases = []
     for name, idx in groups:
         layout = Layout.synthetic([clean[i].geometry.n for i in idx])
         labels = [clean[i].labels for i in idx]
-        case_halves = tuple(halves[i] for i in idx)
-        provenance = {"spec": spec_json, "sample_data_commit": metrica.COMMIT,
-                      "halves": [f"{h.id.match}/{h.id.half}" for h in case_halves],
-                      "dropout": dropout_stats(case_halves, labels)}
-        cases.append(Case(name, layout, case_halves, layout.assemble(labels), provenance))
+        cases.append(Case(name, layout, tuple(halves[i] for i in idx), layout.assemble(labels)))
     return cases
 
 
@@ -145,10 +139,7 @@ def public_case(source: Literal["baseline_raw", "atd"] = "baseline_raw") -> Case
     (evaluation/gt/BAR-ATH_possession_gt_public.csv; real labels only on rows [11185, 18685)).
     Also the submission case: make-submission writes `case.predict(model)` through score.write_submission."""
     layout = challenge.layout()
-    gt = score.read_codes(PUBLIC_GT, layout.n_total)
-    halves = tuple(challenge.halves(source))
-    provenance = {"source": source, "gt": PUBLIC_GT.name, "dropout": dropout_stats(halves, layout.cut(gt))}
-    return Case("public", layout, halves, gt, provenance)
+    return Case("public", layout, tuple(challenge.halves(source)), score.read_codes(PUBLIC_GT, layout.n_total))
 
 
 def dropout_stats(halves: Sequence[Half], labels: Sequence[NDArray[np.int8]]) -> dict[str, float]:
@@ -176,38 +167,59 @@ def pooled(cases: Sequence[Case]) -> Case:
 
 
 def worlds(merge_s: Sequence[float], dead_bias: Sequence[float], *, seed: int = 0,
-           mode: Literal["renewal", "transplant"] = "renewal",
-           data_dir: str | Path | None = None) -> dict[str, list[Case]]:
+           mode: Literal["renewal", "transplant"] = "renewal") -> dict[str, list[Case]]:
     """dev_cases for every (merge_s, dead_bias), keyed "m{merge_s:g}_r{dead_bias:g}", merge_s-major.
-    "transplant" ignores dead_bias, so it builds one world per merge_s, keyed "m{merge_s:g}_transplant"."""
+    "transplant" ignores dead_bias, so it builds one world per merge_s, keyed "m{merge_s:g}_transplant".
+    Labels load once per merge_s; dropout is drawn per world, because the renewal draw reads the labels."""
     out = {}
     for m in merge_s:
-        if mode == "transplant":
-            out[f"m{m:g}_transplant"] = dev_cases(DevSpec(RuleV2(m), DropoutParams(mode="transplant"), seed,
-                                                          data_dir=data_dir))
-            continue
-        for rho in dead_bias:
-            out[f"m{m:g}_r{rho:g}"] = dev_cases(DevSpec(RuleV2(m), DropoutParams(dead_bias=rho), seed,
-                                                        data_dir=data_dir))
+        clean = metrica.load(RuleV2(m))
+        generators = ({"transplant": DropoutParams(mode="transplant")} if mode == "transplant"
+                      else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
+        for key, params in generators.items():
+            out[f"m{m:g}_{key}"] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
     return out
 
 
 def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
-    """One row per (model, case): model, case, then score.Scores.as_row() columns.
+    """One row per (model, case): model, case, score.Scores.as_row() columns, then the case's
+    dropout_stats, so the effective dead_bias a score was measured under sits in the same row.
 
     Refuses (raises Flicker, naming the model and case) a prediction whose switch count exceeds 10x
     the GT's segments, instead of grinding through pm.spell_overlaps (O(GT x pred) pure Python) on a
     flicker. Both are counted inside the graded runs only, so the public case's 17-possession window
     is not compared against switches across two whole halves.
     """
+    stats = [dropout_stats(case.halves, case.layout.cut(case.gt)) for case in cases]
     rows = []
     for name, model in models.items():
-        for case in cases:
-            preds = case.predict(model)
-            _refuse_flicker(name, case, preds)
-            s = score.evaluate(case.layout, case.gt, preds, bootstrap_n=bootstrap_n)
-            rows.append({"model": name, "case": case.name, **s.as_row()})
+        memo: _Memo = {}
+        for case, case_stats in zip(cases, stats):
+            s = _evaluate(name, model, case, memo, bootstrap_n=bootstrap_n)
+            rows.append({"model": name, "case": case.name, **s.as_row(), **case_stats})
     return pd.DataFrame(rows)
+
+
+# One model's decodes keyed by a half's content (id and tokens, the decoder's whole input while
+# Half.features is None), never by world or case name: two worlds share a decode only when their
+# draws are byte-identical, which today's merge rule happens to give, not something it promises.
+_Memo = dict[tuple[str, bytes], NDArray[np.int8]]
+
+
+def _predict(name: str, model: Decoder, case: Case, memo: _Memo) -> list[NDArray[np.int8]]:
+    """case.predict(model) through `memo`, then the flicker guard (raises Flicker)."""
+    preds = []
+    for h in case.halves:
+        key = (repr(h.id), h.nearest_team.tobytes())
+        if key not in memo:
+            memo[key] = model.decode(h).codes
+        preds.append(memo[key])
+    _refuse_flicker(name, case, preds)
+    return preds
+
+
+def _evaluate(name: str, model: Decoder, case: Case, memo: _Memo, *, bootstrap_n: int = 0) -> score.Scores:
+    return score.evaluate(case.layout, case.gt, _predict(name, model, case, memo), bootstrap_n=bootstrap_n)
 
 
 def _refuse_flicker(name: str, case: Case, preds: Sequence[NDArray[np.int8]]) -> None:
@@ -233,8 +245,8 @@ def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequ
     """
     cells = {}
     for belief in beliefs:
-        model = base.replace(dead_bias=belief)
-        cells[belief] = {rho: float(run({f"belief {belief:g}": model}, [pooled(cases)])["spell_f1"].iloc[0])
+        model, memo = base.replace(dead_bias=belief), {}
+        cells[belief] = {rho: _evaluate(f"belief {belief:g}", model, pooled(cases), memo).spell_f1
                          for rho, cases in worlds.items()}
     table = pd.DataFrame(cells)
     table.loc["min"] = table.min()
@@ -260,18 +272,18 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
     which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies. It is
     written next to the params JSON so a reader can see how flat the optimum is."""
     cases = {name: pooled(world) for name, world in worlds.items()}
+    runs = {name: score.valid_runs(case.gt) for name, case in cases.items()}
     models, rows = [], []
     for model in _candidates(base, grids):
+        memo: _Memo = {}
         spell, n_pred = {}, {}
         for name, case in cases.items():
-            preds = case.predict(model)
             try:
-                _refuse_flicker("candidate", case, preds)
+                preds = _predict("candidate", model, case, memo)
             except Flicker:
                 spell[name], n_pred[name] = float("nan"), -1
                 continue
-            s = score.evaluate(case.layout, case.gt, preds)
-            spell[name], n_pred[name] = s.spell_f1, s.n_pred_spells
+            spell[name], n_pred[name] = score.spell_f1(case.layout, case.gt, preds, runs[name])
         values = np.array(list(spell.values()))
         row = {**model.fields(), **{f"spell_{k}": v for k, v in spell.items()},
                "min": float(values.min()), "mean": float(values.mean()),
@@ -305,11 +317,7 @@ def paired_delta(a: Decoder, b: Decoder, case: Case, *, n_draws: int = 1000, see
     arithmetic (bootstrap_spell_f1: 2tp / (2tp + fp + fn), fp clamped at 0, predicted count fixed).
     5th/95th percentiles, like pm. Use before believing any gap < 0.04.
     """
-    flags, n_pred = [], []
-    for model in (a, b):
-        preds = case.predict(model)
-        flags.append(score.matched_flags(case.layout, case.gt, preds))
-        n_pred.append(score.evaluate(case.layout, case.gt, preds).n_pred_spells)
+    flags, n_pred = zip(*(score.matched_flags(case.layout, case.gt, case.predict(model)) for model in (a, b)))
     n_gt = flags[0].shape[1]
 
     def spell_f1(hits: NDArray[np.bool_], picks: NDArray[np.int64], predicted: int) -> NDArray[np.float64]:

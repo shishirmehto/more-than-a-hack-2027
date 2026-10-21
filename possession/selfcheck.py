@@ -55,28 +55,41 @@ def _switches(codes: np.ndarray) -> list[tuple[int, int, int]]:
     return [(int(i), int(codes[i - 1]), int(codes[i])) for i in at]
 
 
+def _spell_f1_is_evaluate(layout: Layout, gt: np.ndarray, preds: list[np.ndarray]) -> float:
+    s = score.evaluate(layout, gt, preds)
+    cheap = score.spell_f1(layout, gt, preds, score.valid_runs(gt))
+    assert cheap == (s.spell_f1, s.n_pred_spells), (cheap, s)
+    return s.spell_f1
+
+
 def oracle_scores_one() -> None:
     """Assemble each half's labels as its own prediction on a dev-like synthetic layout with 6 blocks
     and on the challenge layout with the public GT: spell_f1 == 1.0 and macro_f1 == 1.0, n_pred ==
     n_gt. Proves layout.assemble + score.evaluate wire to pm correctly, incl. one valid run per half.
+    score.spell_f1 returns evaluate's (spell_f1, n_pred_spells) exactly, for the oracle and for a
+    shifted prediction that matches only some spells.
 
     Every synthetic block starts and ends in H, so a layout that let pm merge neighbouring halves
     would fuse 5 spells and report 31 instead of 36."""
     block = _segments([(H, 120), (A, 80), (D, 50), (A, 200), (H, 60), (A, 90), (D, 40), (H, 160)])
     layout = Layout.synthetic([len(block)] * 6)
-    s = score.evaluate(layout, layout.assemble([block] * 6), [block] * 6)
+    synthetic_gt = layout.assemble([block] * 6)
+    s = score.evaluate(layout, synthetic_gt, [block] * 6)
     assert (s.spell_f1, s.macro_f1, s.n_gt_spells, s.n_pred_spells, s.n_graded) == (1.0, 1.0, 36, 36, 4800), s
+    assert _spell_f1_is_evaluate(layout, synthetic_gt, [block] * 6) == 1.0
+    assert 0 < _spell_f1_is_evaluate(layout, synthetic_gt, [np.roll(block, 70)] * 6) < 1
 
     public = challenge.layout()
     gt = score.read_codes(PUBLIC_GT, N_ROWS)
     preds = [np.where(part == X, D, part).astype(np.int8) for part in public.cut(gt)]
     s = score.evaluate(public, gt, preds)
     assert (s.spell_f1, s.macro_f1, s.n_gt_spells, s.n_pred_spells, s.n_graded) == (1.0, 1.0, 17, 17, 7500), s
+    assert 0 < _spell_f1_is_evaluate(public, gt, [np.roll(p, 200) for p in preds]) < 1
 
-    hits = score.matched_flags(public, gt, preds)
-    assert hits.shape == (5, 17) and hits.all(), hits
-    misses = score.matched_flags(public, gt, [np.full(b.n, D, np.int8) for b in public.blocks])
-    assert misses.shape == (5, 17) and not misses.any(), misses
+    hits, n_pred = score.matched_flags(public, gt, preds)
+    assert hits.shape == (5, 17) and hits.all() and n_pred == 17, (hits, n_pred)
+    misses, n_pred = score.matched_flags(public, gt, [np.full(b.n, D, np.int8) for b in public.blocks])
+    assert misses.shape == (5, 17) and not misses.any() and n_pred == 0, (misses, n_pred)
 
 
 def layout_splits_halves() -> None:
