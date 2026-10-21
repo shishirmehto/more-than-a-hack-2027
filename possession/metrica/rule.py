@@ -6,12 +6,14 @@ alive share 55.1 / 58.4 / 67.9 %, raw spells 364 / 322 / 387, nearest-player tea
 
     dead  = D opens the frame after a stoppage event and closes the frame before the next restart.
     owner = the team of the latest ball-controlling event.
-    label = D if dead else owner;  D before kickoff;  optional merge of very short spells.
+    label = D if dead else owner;  D before kickoff;  optional controlled-possession filter;
+            optional merge of very short spells.
 
 It is a *convention*, not truth: Metrica logs quick RECOVERY/PASS/BALL LOST alternations, so about 30%
-of raw spells are under 2 s while the challenge's public window has median 7.6 s. `merge_s` is the
-one knob for that mismatch, and the harness runs it as an axis of the dev world (0, 1, 2, 3), never
-tuned toward the public window (17 possessions cannot rank anything).
+of raw spells are under 2 s while the challenge's public window has median 7.6 s. Two knobs address
+that mismatch, both axes of the dev world and never tuned toward the public window (17 possessions
+cannot rank anything): `merge_s`, a length threshold, and `hold_s` / `min_passes`, the challenge's own
+definition of a change of possession (CHALLENGE.md, "Change of possession").
 """
 from __future__ import annotations
 
@@ -33,8 +35,35 @@ class RuleV2:
     """merge_s: spells shorter than this, that follow another spell directly (no D between), take the
     previous spell's label, shortest spell first (leftmost on ties), until none is left. 0.0 = raw
     rule. Measured spell counts (3 games pooled): m=0 -> 1073, 1 s -> 978, 2 s -> 825, 3 s -> 721.
-    A plain left-to-right pass gives 977 / 818 / 709, so the order is part of the rule."""
+    A plain left-to-right pass gives 977 / 818 / 709, so the order is part of the rule.
+
+    hold_s, min_passes: controlled possession. Inside a stretch of live play, a run of the other
+    team only takes possession if that team shows control: the run lasts at least hold_s seconds, or
+    it holds at least min_passes of that team's PASS events (Metrica logs only completed passes as
+    PASS), or it holds that team's SET PIECE. Otherwise its frames keep the previous possessor, so a
+    contested or loose phase stays with the last team. The first run after a stoppage or the kickoff
+    always stands (the restart names the possessor), and D frames never change. A run is judged on
+    its own, so a rejected run's touches do not count towards the next one. 0 turns a proxy off and
+    both 0 is the raw rule. Applied before merge_s."""
     merge_s: float = 0.0
+    hold_s: float = 0.0
+    min_passes: int = 0
+
+    def __post_init__(self) -> None:
+        if self.merge_s < 0 or self.hold_s < 0 or self.min_passes < 0:
+            raise ValueError(f"rule fields must be >= 0: {self}")
+
+    @property
+    def controlled(self) -> bool:
+        return self.hold_s > 0 or self.min_passes > 0
+
+    @property
+    def key(self) -> str:
+        """World-key prefix: "m2" for a merge-only rule, "h2p3" (+ "m1" when it also merges) otherwise."""
+        hold = f"h{self.hold_s:g}" if self.hold_s else ""
+        passes = f"p{self.min_passes}" if self.min_passes else ""
+        merge = f"m{self.merge_s:g}" if self.merge_s or not self.controlled else ""
+        return hold + passes + merge
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +164,10 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     labels = np.where(dead, D, owner).astype(np.int8)
     labels[:kickoff] = D
     labels = labels[:stop]
+    if rule.controlled:
+        types, teams = events["type"].to_numpy(), events["team"].to_numpy(np.int8)
+        starts = {kind: [start[(types == kind) & (teams == team)] for team in (0, 1)] for kind in ("PASS", "SET PIECE")}
+        labels = _keep_controlled(labels, rule, starts["PASS"], starts["SET PIECE"])
     if rule.merge_s > 0:
         labels = _merge_short(labels, rule.merge_s * FPS)
     return PeriodLabels(labels, kickoff)
@@ -145,6 +178,25 @@ def _covered(n: int, first: NDArray[np.int64], last: NDArray[np.int64]) -> NDArr
     keep = first <= last
     steps = np.bincount(first[keep], minlength=n + 1) - np.bincount(last[keep] + 1, minlength=n + 1)
     return np.cumsum(steps[:n]) > 0
+
+
+def _keep_controlled(labels: NDArray[np.int8], rule: RuleV2, passes: list[NDArray[np.int64]],
+                     set_pieces: list[NDArray[np.int64]]) -> NDArray[np.int8]:
+    """RuleV2.hold_s / min_passes, left to right over the runs. passes / set_pieces: local start
+    frames per team (index = label code), sorted because the events are."""
+    def inside(starts: NDArray[np.int64], a: int, b: int) -> int:
+        return int(np.searchsorted(starts, b) - np.searchsorted(starts, a))
+
+    out, holder = labels.copy(), D
+    for a, b, team in score.segments(labels, [(0, len(labels))]):
+        if team != D and holder not in (D, team) and not (
+                (rule.hold_s and b - a >= rule.hold_s * FPS)
+                or (rule.min_passes and inside(passes[team], a, b) >= rule.min_passes)
+                or inside(set_pieces[team], a, b)):
+            out[a:b] = holder
+        else:
+            holder = team
+    return out
 
 
 def _merge_short(labels: NDArray[np.int8], min_frames: float) -> NDArray[np.int8]:

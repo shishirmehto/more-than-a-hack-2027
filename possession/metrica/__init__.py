@@ -4,7 +4,7 @@ Public surface (three names):
 
     fetch(data_dir=None)                      one-off, network, idempotent, sha256-checked
     load(rule=RuleV2(), ball_fill="hold")     -> tuple[CleanHalf, ...], six halves, order g1p1 g1p2 g2p1 ...
-    RuleV2                                    the label rule's one tunable (merge_s)
+    RuleV2                                    the label rule's tunables (merge_s, hold_s, min_passes)
 
 What `load` guarantees (the boundary of this subpackage; everything inside is a private detail):
   * labels come from events only (rule v2), never from the ball-NaN pattern;
@@ -44,8 +44,8 @@ def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hol
          data_dir: str | Path | None = None) -> tuple[CleanHalf, ...]:
     """Parse + label + fill. A game whose files are missing raises one error naming them and the fetch command.
 
-    Parsing (raw.parse_game) is memoised per (game, data_dir): sweeps that re-label with other
-    `merge_s` or re-draw dropout never re-read 183 MB. Measured: a cold parse is 0.3 to 0.5 s a
+    Parsing (raw.parse_game) is memoised per (game, data_dir): sweeps that re-label with another
+    rule or re-draw dropout never re-read 183 MB. Measured: a cold parse is 0.3 to 0.5 s a
     game, and a warm `load` of all six halves is about 0.04 s.
     """
     halves = []
@@ -58,7 +58,8 @@ def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hol
             stop = len(labelled.labels)
             geometry = Geometry(fill_ball(period.ball_xy[:stop], ball_fill),
                                 period.players_xy[:stop], period.slot_team, raw.PITCH_M)
-            provenance = {"rule": VERSION, "merge_s": rule.merge_s, "pre_kickoff": "D", "ball_fill": ball_fill,
+            provenance = {"rule": VERSION, "merge_s": rule.merge_s, "hold_s": rule.hold_s,
+                          "min_passes": rule.min_passes, "pre_kickoff": "D", "ball_fill": ball_fill,
                           "sample_data_commit": COMMIT, "source_frame0": period.frame0,
                           "source_frames": n, "block_frames": stop}
             halves.append(CleanHalf(HalfId(f"metrica_g{game}", period.period, labelled.kickoff),
