@@ -45,9 +45,9 @@ def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hol
     """Parse + label + fill. A game whose files are missing raises one error naming them and the fetch command.
 
     Parsing (raw.parse_game) is memoised per (game, data_dir): sweeps that re-label with other
-    `merge_s` or re-draw dropout never re-read 183 MB. Labelling is ~0.1 s per game.
+    `merge_s` or re-draw dropout never re-read 183 MB. Measured: a cold parse is 0.3 to 0.5 s a
+    game, and a warm `load` of all six halves is about 0.04 s.
     """
-    data_dir = None if data_dir is None else str(data_dir)
     halves = []
     for game in games:
         parsed = raw.parse_game(game, data_dir)

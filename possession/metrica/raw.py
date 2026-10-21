@@ -26,9 +26,11 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from .fetch import paths
+from .fetch import data_dir_default, paths
 
 PITCH_M = (105.0, 68.0)
+_EPTS_SLOTS = 22
+_EPTS_LINE_VALUES = 1 + 2 * _EPTS_SLOTS + 2  # frame, x,y per slot, ball x,y
 
 # One row per event. `type` and `subtypes` are upper-cased and stripped at parse time so the rule
 # module matches strings without case logic. Game 3 JSON subtypes (null | dict | list) all become a
@@ -74,14 +76,20 @@ class RawGame:
     events: pd.DataFrame  # EVENT_COLUMNS, sorted by (period, start), stable on source row order
 
 
-@functools.cache
-def parse_game(game: int, data_dir: str | None = None) -> RawGame:
-    """Parse one game from the local files (never fetches). Memoised on (game, data_dir): about 1 to 2 s a game.
+def parse_game(game: int, data_dir: str | Path | None = None) -> RawGame:
+    """Parse one game from the local files (never fetches). Memoised on (game, resolved data_dir),
+    so `parse_game(1)` and `parse_game(1, None)` share one parse: 0.3 to 0.5 s a game, measured.
 
     Postconditions checked here and nowhere downstream: frame ids contiguous within a period; x,y in
     a sane window (-0.2..1.2 before scaling; the ball may be off-pitch); both periods present; every
     event's start frame falls inside its period's frame range.
     """
+    root = data_dir_default() if data_dir is None else Path(data_dir)
+    return _parse_cached(game, str(root.resolve()))
+
+
+@functools.cache
+def _parse_cached(game: int, data_dir: str) -> RawGame:
     files = paths(game, data_dir)
     if game in (1, 2):
         return _parse_csv_game(files["home"], files["away"], files["events"], game)
@@ -96,9 +104,9 @@ def _parse_csv_game(home_csv: Path, away_csv: Path, events_csv: Path, game: int)
         raise ValueError(f"game {game}: Home and Away tracking files disagree on Period/Frame")
     if not np.array_equal(home[:, -2:], away[:, -2:], equal_nan=True):
         raise ValueError(f"game {game}: Home and Away tracking files disagree on the ball")
-    n = len(home)
-    players = np.concatenate([home[:, 3:-2].reshape(n, -1, 2), away[:, 3:-2].reshape(n, -1, 2)], axis=1)
-    slot_team = np.repeat(np.array([0, 1], np.int8), [home[:, 3:-2].shape[1] // 2, away[:, 3:-2].shape[1] // 2])
+    home_xy, away_xy = (t[:, 3:-2].reshape(len(t), -1, 2) for t in (home, away))
+    players = np.concatenate([home_xy, away_xy], axis=1)
+    slot_team = np.repeat(np.array([0, 1], np.int8), [home_xy.shape[1], away_xy.shape[1]])
     periods = _split_periods(game, home[:, 0].astype(np.int64), home[:, 1].astype(np.int64),
                              home[:, -2:], players, slot_team)
     return RawGame(game, periods, _check_events(game, _events_from_csv(events_csv), periods))
@@ -127,10 +135,6 @@ def _parse_epts_game(tracking_txt: Path, meta_xml: Path, events_json: Path, game
         raise ValueError(f"{tracking_txt.name}: frames outside both periods {bounds}")
     periods = _split_periods(game, period, frame, lines[:, -2:], players, slot_team)
     return RawGame(game, periods, _check_events(game, _events_from_json(events_json, team_ids), periods))
-
-
-_EPTS_SLOTS = 22
-_EPTS_LINE_VALUES = 1 + 2 * _EPTS_SLOTS + 2
 
 
 def _epts_slot_team(meta: ET.Element, team_ids: list[str]) -> NDArray[np.int8]:

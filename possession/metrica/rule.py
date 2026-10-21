@@ -89,9 +89,8 @@ def matches(trigger: Trigger, events: pd.DataFrame) -> NDArray[np.bool_]:
     """bool [m]: events the trigger selects (kind equality or "*", subtype substring, upper-case)."""
     hit = np.ones(len(events), bool) if trigger.kind == "*" else (events["type"] == trigger.kind).to_numpy()
     if trigger.subtype_any is not None:
-        wanted = trigger.subtype_any
-        hit = hit & np.fromiter((any(w in s for s in subs for w in wanted) for subs in events["subtypes"]),
-                           bool, count=len(events))
+        has_subtype = (any(w in s for s in subs for w in trigger.subtype_any) for subs in events["subtypes"])
+        hit = hit & np.fromiter(has_subtype, bool, count=len(events))
     return hit
 
 
