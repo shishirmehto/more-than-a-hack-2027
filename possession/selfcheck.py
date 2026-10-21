@@ -520,12 +520,14 @@ def submission_is_byte_stable() -> None:
                            cwd=REPO, check=True, capture_output=True)
         first, second = (out.read_bytes() for out in outs)
         assert hashlib.sha256(first).hexdigest() == hashlib.sha256(second).hexdigest()
-        score.read_codes(outs[0], N_ROWS)
+        codes = score.read_codes(outs[0], N_ROWS)
 
     lines = first.decode("ascii").split("\n")
     assert lines[0] == "frame,label" and lines[-1] == "" and len(lines) - 1 == 199_320, len(lines)
     frames, labels = zip(*(line.split(",") for line in lines[1:-1]))
     assert frames == tuple(str(i) for i in range(N_ROWS))
+    code_of = {"H": H, "A": A, "D": D, "X": X}
+    assert np.array_equal(codes, [code_of[label] for label in labels]), "read_codes disagrees with the written text"
     labels = np.array(labels)
     graded = np.zeros(N_ROWS, dtype=bool)
     for _, first_row, last_row in games.half_video_blocks(games.GAME):

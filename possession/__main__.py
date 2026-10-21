@@ -25,7 +25,9 @@ def make_submission(params: Path, out: Path) -> Path:
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = argparse.ArgumentParser(prog="python -m possession", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        prog="python -m possession",
+        description="Label BAR-ATH possession per frame, and select and score decoders on Metrica dev worlds.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     make = sub.add_parser("make-submission", help="decode BAR-ATH and write the submission CSV")

@@ -17,14 +17,14 @@ PITCH_M = (105.0, 68.0)
 _EPTS_SLOTS = 22
 _EPTS_LINE_VALUES = 1 + 2 * _EPTS_SLOTS + 2
 
-EVENT_COLUMNS: tuple[str, ...] = (
-    "team",
-    "type",
-    "subtypes",
-    "period",
-    "start",
-    "end",
-)
+EVENT_COLUMNS: dict[str, type] = {
+    "team": np.int8,
+    "type": str,
+    "subtypes": object,
+    "period": np.int8,
+    "start": np.int32,
+    "end": np.int32,
+}
 
 # Normalised coordinates may leave [0, 1] (the ball goes over the touchline, players stand behind
 # the goal line).
@@ -188,14 +188,15 @@ def _check_events(game: int, events: pd.DataFrame, periods: tuple[RawPeriod, Raw
 
 def _event_table(team: Iterable[int], kind: Iterable[str], subtypes: Iterable[Iterable[str]],
                  period: Iterable[int], start: Iterable[int], end: Iterable[int]) -> pd.DataFrame:
-    table = pd.DataFrame({
-        "team": np.fromiter(team, np.int8),
+    values = {
+        "team": list(team),
         "type": [str(k).strip().upper() for k in kind],
-        "subtypes": pd.Series([frozenset(str(s).strip().upper() for s in subs) for subs in subtypes], dtype=object),
-        "period": np.fromiter(period, np.int8),
-        "start": np.fromiter(start, np.int32),
-        "end": np.fromiter(end, np.int32),
-    }, columns=list(EVENT_COLUMNS))
+        "subtypes": [frozenset(str(s).strip().upper() for s in subs) for subs in subtypes],
+        "period": list(period),
+        "start": list(start),
+        "end": list(end),
+    }
+    table = pd.DataFrame({name: pd.Series(values[name], dtype=dtype) for name, dtype in EVENT_COLUMNS.items()})
     return table.sort_values(["period", "start"], kind="stable").reset_index(drop=True)
 
 

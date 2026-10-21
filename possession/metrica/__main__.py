@@ -1,4 +1,3 @@
-"""Acceptance table for the Metrica labels: `python -m possession.metrica [--data-dir DIR]`."""
 from __future__ import annotations
 
 import argparse
@@ -25,7 +24,10 @@ def spell_seconds(labels: NDArray[np.int8]) -> NDArray[np.float64]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m possession.metrica", description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(
+        prog="python -m possession.metrica",
+        description="Print the acceptance tables for the Metrica labels: per-game shares and spell counts, "
+                    "then pooled spell lengths per label rule.")
     parser.add_argument("--data-dir", default=None, help="folder from `fetch` (default: games.DATA_DIR/metrica_sample)")
     data_dir = parser.parse_args(argv).data_dir
 
