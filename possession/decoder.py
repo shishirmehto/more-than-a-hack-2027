@@ -5,7 +5,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Mapping, Protocol
+from typing import Literal, Mapping
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,11 +17,6 @@ STATE_LABEL = np.array([H, A, D, D], dtype=np.int8)
 _DH, _DA = 2, 3
 
 _M_FLOOR, _M_CAP = 1e-6, 0.98
-
-
-class Emission(Protocol):
-    def loglik(self, half: Half) -> NDArray[np.float32]:
-        ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -85,17 +85,6 @@ class Geometry:
 
 
 @dataclass(frozen=True, slots=True)
-class Features:
-    """Per-frame, slot-order-invariant columns beyond the team token.
-
-    names:  fixed order, team-paired (H then A) so a team swap equals a column-pair swap.
-    values: float32 [n, F]; NaN where undefined (ball unobserved).
-    """
-    names: tuple[str, ...]
-    values: NDArray[np.float32]
-
-
-@dataclass(frozen=True, slots=True)
 class Half:
     """The decoder's whole input for one half.
 
@@ -103,12 +92,10 @@ class Half:
                   minimum, no threshold). -1 means NO EVIDENCE: the ball was not observed (or no
                   slot present). It is a mask, never a dead-ball marker.
 
-    Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; features is None or
-    features.values.shape[0] == n.
+    Invariants: values in {-1,0,1}; 0 <= id.kickoff < n.
     """
     id: HalfId
     nearest_team: NDArray[np.int8]
-    features: Features | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -119,12 +106,6 @@ class Half:
         if not 0 <= self.id.kickoff < self.n:
             raise ValueError(f"kickoff {self.id.kickoff} outside [0, {self.n})")
         _freeze(tok)
-        f = self.features
-        if f is not None:
-            if f.values.dtype != np.float32 or f.values.shape != (self.n, len(f.names)):
-                raise ValueError(f"features.values must be float32 [{self.n}, {len(f.names)}], "
-                                 f"got {f.values.dtype} {f.values.shape}")
-            _freeze(f.values)
 
     @property
     def n(self) -> int:

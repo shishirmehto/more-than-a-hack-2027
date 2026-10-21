@@ -11,14 +11,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from . import challenge
-from .half import D, NO_TEAM, CleanHalf, Geometry, Half, HalfId
+from .half import D, NO_TEAM, CleanHalf, Half, HalfId
 
 
 class Stream(IntEnum):
     ALIVE_MASK = 1
     DEAD_MASK = 2
     PREKICK_MASK = 3
-    SLOT_FRAGMENTATION = 4
     TRANSPLANT_OFFSET = 5
 
 
@@ -166,7 +165,3 @@ def _rng(seed: int, id: HalfId, stream: Stream, attempt: int = 0) -> np.random.G
 def _run_lengths(mask: NDArray[np.bool_]) -> NDArray[np.int64]:
     edges = np.flatnonzero(np.diff(np.concatenate(([0], mask.astype(np.int8), [0]))))
     return edges[1::2] - edges[::2]
-
-
-def fragment_slots(g: Geometry, rng: np.random.Generator) -> Geometry:
-    raise NotImplementedError

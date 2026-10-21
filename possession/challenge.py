@@ -60,7 +60,7 @@ def observe(g: Geometry, id: HalfId) -> Half:
     Slot-order and slot-count invariant by construction, up to exact distance ties, which go to the
     first slot.
     """
-    return Half(id=id, nearest_team=nearest_team(g), features=None)
+    return Half(id=id, nearest_team=nearest_team(g))
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",

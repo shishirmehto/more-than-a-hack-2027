@@ -78,13 +78,13 @@ This deliberately departs from the grounding's stage-shaped map (`halves / featu
 ### Data structures first
 
 - `Geometry` (Level A): `ball_xy float32 [n,2]` metres NaN-for-unobserved, `players_xy float32 [n,S,2]` NaN-for-empty-slot, `slot_team int8 [S]`, `pitch_m`. Slots are anonymous. S=46 for the challenge, 22 to 28 for Metrica.
-- `Half` (Level B): `HalfId(match, half, kickoff)`, `nearest_team int8 [n]` in {-1,0,1}, optional `Features`. This is the decoder's whole input. `-1` means no evidence. It is a mask, never a dead-ball marker, and the type has no label field for a dead ball to sneak into.
+- `Half` (Level B): `HalfId(match, half, kickoff)` and `nearest_team int8 [n]` in {-1,0,1}. This is the decoder's whole input. `-1` means no evidence. It is a mask, never a dead-ball marker, and the type has no label field for a dead ball to sneak into.
 - `CleanHalf`: `Geometry` with a fully observed ball, plus `labels int8 [n]` in {0,1,2}, plus provenance. Native NaN are filled upstream, so injected dropout is the only missingness a decoder can ever see.
 - `Layout`/`Block`: the only owner of origins. X exists only outside blocks. Invariant: at least 500 X rows before, between and after blocks, so `pm.valid_runs` returns exactly one run per half. The challenge layout is built from `games.half_video_blocks`, the dev layout is `Layout.synthetic`.
 - `Case`: layout, halves, a scorer-length `gt` assembled from labels (derived, never stored twice). Its realised dropout is derived from halves and `gt` when a table needs it (`dropout_stats`).
 - `Decoder`: frozen `(Tier0Emission, DecoderParams)`, each range-checked at construction, serialisable to JSON.
 
-Geometry is a separate type from `Half` on purpose. `Half` is what both the tier-0 file (no geometry, ever) and the future ATD path (geometry) can supply. Putting geometry on `Half` as an optional field would be "sometimes geometric", which forces an `if` into the decoder (per `type-system-discipline`, no bags of optional fields). `Half.features` is the one reserved optional and it is always `None` in the first implementation. I keep it because the task asks the shape to show what the ATD must produce. Its contract is in the `Features` docstring.
+Geometry is a separate type from `Half` on purpose. `Half` is what both the tier-0 file (no geometry, ever) and the future ATD path (geometry) can supply. Putting geometry on `Half` as an optional field would be "sometimes geometric", which forces an `if` into the decoder (per `type-system-discipline`, no bags of optional fields). The ATD-era `Half` adds a feature field when the gated data lands, with the contract in "Where the ATD plugs in".
 
 ### The decoder
 
@@ -126,7 +126,7 @@ Two effects. With weak evidence the MAP path hands whole stretches to the flat-e
 - **Pre-kickoff is D, post-whistle is trimmed.** A half block starts at the period's first tracking frame and ends at the last event end plus one. Frames before kickoff are D. This mirrors the challenge's graded half 2 (2,934 D frames) and exercises the kickoff rule in dev. An X head would be back-filled by `pm.fill_abstentions` into a false spell, so D it is.
 - **Native NaN fill.** Default `hold` (forward-fill, back-fill the head). It is a parameter, not an open question. The reason is that `linear` gives a dead ball a constant velocity that a ball-speed feature would read as live play, which is a different leak.
 - **Dropout.** Alternating renewal process. Missing runs are resampled from baseline_raw's 150 real runs, present runs from its 149 real runs, scaled by the closed form `c = E[m](1-r)/(r E[p])` so the stationary rate is `r`. One mask for alive frames, one for dead frames, selected by label. `solve_rates(a, target, rho, cap)` solves both constraints given the half's alive share `a`. They are `a*p_alive + (1-a)*p_dead = 0.407` and `p_dead = rho * p_alive`, with a cap and a loud failure if unreachable. Pre-kickoff is its own stratum at 0.19 (564 of 2934 missing in the real half-2 stretch). A prototype of this generator (**measured**, `e2_dead_bias_surface.py`) realised an overall rate of 0.39 to 0.43 at target 0.407, and at rho 3 a P(missing | dead) of 0.83 and a P(missing | alive) of 0.27.
-- **Identity.** Not simulated. `challenge.nearest_team` reduces over slots per frame, so identity-freedom is a tested property (`selfcheck.permutation_invariance`). `fragment_slots` is a stub marking the hook for the ATD era.
+- **Identity.** Not simulated. `challenge.nearest_team` reduces over slots per frame, so identity-freedom is a tested property (`selfcheck.permutation_invariance`).
 - **Seeds.** `SeedSequence([seed, game, half, stream])` per purpose (per `separate-before-serializing-shared-state`, no actor shares a generator, so adding a half or a stream reshuffles nothing).
 
 ### The harness and the selection protocol
@@ -159,7 +159,7 @@ Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it cos
 
 ### Where the ATD plugs in and what it must produce
 
-`challenge.load_geometry()` must return, per half, a `Geometry`: `ball_xy` and `players_xy` in metres (normalised times 105.3 and 68.0), NaN for `N` groups, S=46, `slot_team` from the XML `<Player teamId>` order with the first `<Team>` as home, rows equal to ATD `frame_id - 1` over `games.half_video_blocks`. `observe` turns it into a `Half`. The regression gate is that `observe` reproduces `baseline_raw.csv` on at least 99.99% of frames (exact equality is not promised, float32 can flip a near-tie). Richer evidence is `Features` computed in `observe`, team-paired and slot-order invariant, with ball-free columns that stay defined during dropout. Those ball-free columns are where the ATD era can beat tier-0, because a dropout block is 10 s of zero evidence today. Smart Tagging set-piece windows are a second source for the same `Features` contract.
+`challenge.load_geometry()` must return, per half, a `Geometry`: `ball_xy` and `players_xy` in metres (normalised times 105.3 and 68.0), NaN for `N` groups, S=46, `slot_team` from the XML `<Player teamId>` order with the first `<Team>` as home, rows equal to ATD `frame_id - 1` over `games.half_video_blocks`. `observe` turns it into a `Half`. The regression gate is that `observe` reproduces `baseline_raw.csv` on at least 99.99% of frames (exact equality is not promised, float32 can flip a near-tie). Richer evidence is a feature field that `Half` gains when the gated data lands, computed in `observe`. Its columns are per frame, float32, slot-order invariant and team-paired (H then A, so a team swap equals a column-pair swap), NaN where the ball is unobserved, with ball-free columns that stay defined during dropout. Those ball-free columns are where the ATD era can beat tier-0, because a dropout block is 10 s of zero evidence today. Smart Tagging set-piece windows are a second source for the same feature contract.
 
 ### Principles that changed a decision
 
@@ -261,4 +261,4 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 
 ## Next implementation step
 
-Done: every stub except `fragment_slots` and `challenge.load_geometry`, and the sweeps above. Next is the ATD path. Implement `challenge.load_geometry` once the data lands, then a richer `Emission` from team-paired features (ball speed and possessor distance, for example) scored against v0 on the controlled worlds h{2, 3, 5}p3 with `--seed 0 1 2`, then confirmed on held-out seeds.
+Done: every stub except `challenge.load_geometry`, and the sweeps above. Next is the ATD path. Implement `challenge.load_geometry` once the data lands, then a richer `Emission` from team-paired features (ball speed and possessor distance, for example) scored against v0 on the controlled worlds h{2, 3, 5}p3 with `--seed 0 1 2`, then confirmed on held-out seeds.
