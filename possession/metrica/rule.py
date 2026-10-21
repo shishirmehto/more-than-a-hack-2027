@@ -22,6 +22,8 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from ..half import D, FPS
+
 VERSION = "v2"
 
 
@@ -79,10 +81,18 @@ FALLBACK_RESTART: tuple[Trigger, ...] = (
 # The owner is the team of the latest of these by start frame. CARRY exists only in Game 3.
 OWNER_KINDS: frozenset[str] = frozenset({"SET PIECE", "PASS", "SHOT", "RECOVERY", "CARRY"})
 
+# The period's first match is the kickoff; a period with none starts at its first event.
+KICKOFF = Trigger("SET PIECE", ("KICK OFF",), "start")
+
 
 def matches(trigger: Trigger, events: pd.DataFrame) -> NDArray[np.bool_]:
     """bool [m]: events the trigger selects (kind equality or "*", subtype substring, upper-case)."""
-    raise NotImplementedError
+    hit = np.ones(len(events), bool) if trigger.kind == "*" else (events["type"] == trigger.kind).to_numpy()
+    if trigger.subtype_any is not None:
+        wanted = trigger.subtype_any
+        hit = hit & np.fromiter((any(w in s for s in subs for w in wanted) for subs in events["subtypes"]),
+                           bool, count=len(events))
+    return hit
 
 
 def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> PeriodLabels:
@@ -94,29 +104,66 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     Invariants of the result: values in {0,1,2}; labels[:kickoff] == D; kickoff < stop <= n;
     deterministic (stable sorts only, ties resolved to the later source row).
     """
-    # TODO 1. s = start - frame0, e = end - frame0 (int arrays); clip to [0, n-1].
-    #
-    # TODO 2. dead openers T (D starts at T+1): anchor frame of every event selected by a DEAD_TRIGGERS entry.
-    #
-    # TODO 3. restart starts R = sorted(s[events not selected by any NOT_RESTART trigger]).
-    #     each opener T closes at the first r in R with r > T:  close = r - 1
-    #     (np.searchsorted(R, T, side="right")); no such r -> dead to the end of the period.
-    #     dead = difference array over (T+1, close+1), cumsum > 0.
-    #
-    # TODO 4. restart fallback. For every event selected by a FALLBACK_RESTART entry, start r:
-    #     if frame r-1 is not dead, L = max(e over earlier events, excluding CARD),
-    #     mark dead [L+1, r-1]. (Game 3 alive-and-ball-NaN frames drop 2078 -> 679 with this.)
-    #
-    # TODO 5. owner timeline. own = events with type in OWNER_KINDS, np.argsort(kind="stable") by s;
-    #     idx = np.searchsorted(own_s, arange(n), side="right") - 1   # last owner event with s <= f;
-    #     equal starts resolve to the later row because the sort is stable.
-    #     owner[idx < 0] = D (before any owner event).
-    #
-    # TODO 6. kickoff = first SET PIECE with subtype KICK OFF (fallback: first event) start - frame0.
-    #     labels = where(dead, D, owner); labels[:kickoff] = D.
-    #     stop = clip(max(e) + 1, kickoff + 1, n)   # drops post-final-whistle frames (they are X via Layout)
-    #
-    # TODO 7. merge (rule.merge_s > 0): run-length encode labels[:stop]; walk possession runs in
-    #     order; a run of H/A shorter than merge_s*FPS whose predecessor is an adjacent H/A run takes
-    #     the predecessor's label; repeat until stable (cascades resolve left to right, deterministic).
-    raise NotImplementedError
+    events = events.sort_values("start", kind="stable")
+    start = np.clip(events["start"].to_numpy(np.int64) - frame0, 0, n - 1)
+    end = np.clip(events["end"].to_numpy(np.int64) - frame0, 0, n - 1)
+    anchor = {"start": start, "end": end}
+
+    openers = np.concatenate([anchor[t.anchor][matches(t, events)] for t in DEAD_TRIGGERS])
+    is_restart = ~np.any([matches(t, events) for t in NOT_RESTART], axis=0)
+    restarts = start[is_restart]
+    next_restart = np.searchsorted(restarts, openers, side="right")
+    closes = np.where(next_restart < len(restarts),
+                      restarts[np.minimum(next_restart, len(restarts) - 1)] - 1, n - 1)
+    dead = _covered(n, openers + 1, closes)
+
+    not_card = (events["type"] != "CARD").to_numpy()
+    fallback = np.unique(np.concatenate([anchor[t.anchor][matches(t, events)] for t in FALLBACK_RESTART]))
+    for r in fallback[fallback > 0]:
+        if dead[r - 1]:
+            continue
+        earlier = end[not_card & (start < r)]
+        if len(earlier) and earlier.max() < r - 1:
+            dead[earlier.max() + 1:r] = True
+
+    owned = np.isin(events["type"].to_numpy(), list(OWNER_KINDS))
+    owner_start, owner_team = start[owned], events["team"].to_numpy(np.int8)[owned]
+    last_owner = np.searchsorted(owner_start, np.arange(n), side="right") - 1
+    # Team 0 / 1 are the label codes H / A.
+    owner = np.where(last_owner < 0, D, owner_team[np.maximum(last_owner, 0)]).astype(np.int8)
+
+    kickoffs = start[matches(KICKOFF, events)]
+    kickoff = int(kickoffs[0] if len(kickoffs) else start[0])
+    stop = int(np.clip(end.max() + 1, kickoff + 1, n))
+    labels = np.where(dead, D, owner).astype(np.int8)
+    labels[:kickoff] = D
+    labels = labels[:stop]
+    if rule.merge_s > 0:
+        labels = _merge_short(labels, rule.merge_s * FPS)
+    return PeriodLabels(labels, kickoff, stop)
+
+
+def _covered(n: int, first: NDArray[np.int64], last: NDArray[np.int64]) -> NDArray[np.bool_]:
+    """bool [n]: frames inside any inclusive range [first, last]; empty ranges (first > last) cover nothing."""
+    keep = first <= last
+    steps = np.bincount(first[keep], minlength=n + 1) - np.bincount(last[keep] + 1, minlength=n + 1)
+    return np.cumsum(steps[:n]) > 0
+
+
+def _merge_short(labels: NDArray[np.int8], min_frames: float) -> NDArray[np.int8]:
+    """Repeatedly take the shortest possession run under min_frames that directly follows another
+    possession run (leftmost on ties) and give it that run's label, until none is left. Shortest
+    first is what reproduces the measured spell counts; a plain left-to-right pass does not."""
+    edges = np.concatenate([[0], np.flatnonzero(labels[1:] != labels[:-1]) + 1, [len(labels)]])
+    runs = [[int(a), int(b), int(labels[a])] for a, b in zip(edges[:-1], edges[1:])]
+    while True:
+        short = [(b - a, k) for k, (a, b, label) in enumerate(runs)
+                 if k > 0 and label != D and runs[k - 1][2] != D and b - a < min_frames]
+        if not short:
+            return np.repeat(np.array([r[2] for r in runs], np.int8), [b - a for a, b, _ in runs])
+        k = min(short)[1]
+        runs[k - 1][1] = runs[k][1]
+        del runs[k]
+        if k < len(runs) and runs[k][2] == runs[k - 1][2]:
+            runs[k - 1][1] = runs[k][1]
+            del runs[k]
