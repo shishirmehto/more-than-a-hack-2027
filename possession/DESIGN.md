@@ -209,6 +209,20 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 - **Fitting `dead_bias` on the dev set.** Lost because it reads back the generator. The surface replaces it.
 - **Per-frame classifier plus HMM now** (hybrid). Deferred, not rejected. It is the ATD-era `Emission`. Tier-0 needs a table with two live numbers.
 
+## Dev sweeps (2026-10-21)
+
+`params/tier0_v0.json` is the reference decoder. Three sweeps ran on pooled dev with max-min selection. None of them replaced v0.
+
+| sweep | worlds | counts | winner | worst-world spellF1, winner / v0 |
+|---|---|---|---|---|
+| 1 | merge_s {0, 2} x dead_bias {1, 3} | fitted on m0 | `tier0_v1.json` | 0.313 / 0.294 |
+| 2 | merge_s {2, 3, 5} x dead_bias {1, 3} | fitted on m3 | not kept | 0.327 / 0.335 |
+| 3 | as sweep 2 | grid axes | v0 itself | 0.335 / 0.335 |
+
+- **The m0 world contradicts the challenge.** CHALLENGE.md says a touch, a deflection or a won duel without control does not change possession. Raw rule v2 has 33% of spells under 3 s, while m2 and m3 have 16% and 9%, and the public window has 18% (3 of 17). Sweep 1 was selected mostly on m0, so `tier0_v1.json` over-segments. It predicts 23 possessions on the public window against 17, and its spellF1 there is 0.310 against v0's 0.412. Use merge_s 2 or more for dev worlds.
+- **Counted transition probabilities lose to hand-set ones.** The m3 counts give p_dead_after_poss 0.44 and p_flip_after_dead 0.56. Swapping them into v0 costs 0.025 and 0.006 spellF1 on the binding world, measured. The chain is misspecified (tempered, independent emissions), so the maximum-likelihood counts are not the spellF1 optimum. `fit-dev` now accepts `--q`, `--p-dead-after-poss` and `--p-flip-after-dead` as grid axes that override the counts.
+- **Tier-0 has plateaued.** In sweep 3 the top 10 candidates lie within 0.004 of each other, and v0 is interior on every axis. MAP lost to marginal in sweeps 1 and 2. Further gains need a richer emission from the ATD, not chain tuning.
+
 ## Open questions and risks
 
 - Does the real ATD drop the ball more on dead frames than alive ones? The public window gives P(missing | GT D) 0.34 and P(missing | GT alive) 0.065, which cannot both hold match-wide (overall 0.407). Who answers it, and can Smart Tagging set-piece windows be crossed with the ATD mask once the data lands?
@@ -225,4 +239,4 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 
 ## Next implementation step
 
-Implement `half.py`, `score.py`, `challenge._halves_from_baseline_raw` and the `decoder.py` forward-backward, then make `selfcheck.oracle_scores_one`, `baseline_raw_round_trip` and `decoder_known_answer` pass, which yields a valid 199,319-row CSV from `baseline_raw.csv` before any Metrica code exists.
+Done: every stub except `fragment_slots` and `challenge.load_geometry`, and the three sweeps above. Next is the ATD path. Implement `challenge.load_geometry` once the data lands, then a richer `Emission` from team-paired features (ball speed and possessor distance, for example) scored on the merge_s {2, 3, 5} dev worlds against v0.
