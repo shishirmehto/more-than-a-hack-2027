@@ -164,9 +164,9 @@ def _sweep(args: argparse.Namespace) -> int:
     from . import bench, metrica
 
     base = Decoder.load(args.params)
+    rhos = list(dict.fromkeys(args.dead_bias))
     for rule, seed in itertools.product([metrica.RuleV2.parse(key) for key in args.rule], args.seed):
-        worlds = bench.worlds([rule], args.dead_bias, seeds=[seed])
-        by_rho = {rho: worlds[bench.world_key(rule, f"r{rho:g}", seed)] for rho in args.dead_bias}
+        by_rho = dict(zip(rhos, bench.worlds([rule], rhos, seeds=[seed]).values()))
         print(f"rule {rule.key} seed {seed}")
         print(bench.surface(base, by_rho, args.belief).round(4).to_string())
     return 0

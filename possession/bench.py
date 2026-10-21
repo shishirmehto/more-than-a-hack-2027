@@ -170,10 +170,11 @@ def pooled(cases: Sequence[Case]) -> Case:
 
 def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
            mode: Literal["renewal", "transplant"] = "renewal") -> dict[str, list[Case]]:
-    """dev_cases for every (rule, dead_bias, seed), keyed by world_key ("m2_r1", "h3p3_r1_s2"),
-    rule-major, seed innermost. "transplant" ignores dead_bias, so it builds one world per (rule, seed),
-    keyed "{rule.key}_transplant[_s{seed}]". Labels load once per rule; dropout is drawn per world,
-    because the renewal draw reads the labels."""
+    """dev_cases for every (rule, dead_bias, seed), keyed "{rule.key}_r{dead_bias:g}" ("m2_r1"), plus
+    "_s{seed}" for a seed other than 0 ("h3p3_r1_s2"), so a seed-0 key reads as it did before seeds
+    were an axis. Rule-major, seed innermost. "transplant" ignores dead_bias, so it builds one world
+    per (rule, seed), keyed "{rule.key}_transplant[_s{seed}]". Labels load once per rule; dropout is
+    drawn per world, because the renewal draw reads the labels."""
     out = {}
     for rule in rules:
         clean = metrica.load(rule)
@@ -181,14 +182,9 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
                       else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
         for generator, params in generators.items():
             for seed in seeds:
-                out[world_key(rule, generator, seed)] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
+                key = f"{rule.key}_{generator}" + (f"_s{seed}" if seed else "")
+                out[key] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
     return out
-
-
-def world_key(rule: RuleV2, generator: str, seed: int) -> str:
-    """"{rule.key}_{generator}", plus "_s{seed}" for a seed other than 0, so a seed-0 key reads as it
-    did before seeds were an axis."""
-    return f"{rule.key}_{generator}" + (f"_s{seed}" if seed else "")
 
 
 def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:

@@ -57,7 +57,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     rows.append(_row("pooled", by_merge, sum(parse_s.values())))
     print(pd.DataFrame(rows).to_string(index=False))
     print()
-    print(pd.DataFrame([_spell_row(rule, data_dir) for rule in SPELL_RULES]).to_string(index=False))
+    loaded = {RuleV2(m): halves for m, halves in by_merge.items()}
+    spells = [_spell_row(rule, loaded.get(rule) or load(rule, data_dir=data_dir)) for rule in SPELL_RULES]
+    print(pd.DataFrame(spells).to_string(index=False))
     return 0
 
 
@@ -83,8 +85,8 @@ def _row(name: str, halves: dict[float, Sequence[CleanHalf]], parse_seconds: flo
     return row
 
 
-def _spell_row(rule: RuleV2, data_dir: str | None) -> dict[str, object]:
-    seconds = np.concatenate([spell_seconds(h.labels) for h in load(rule, data_dir=data_dir)])
+def _spell_row(rule: RuleV2, halves: Sequence[CleanHalf]) -> dict[str, object]:
+    seconds = np.concatenate([spell_seconds(h.labels) for h in halves])
     return {"rule": rule.key, "spells": len(seconds), "mean s": round(float(seconds.mean()), 1),
             "median s": round(float(np.median(seconds)), 1), "% under 3 s": round(100 * float((seconds < 3).mean()), 1)}
 
