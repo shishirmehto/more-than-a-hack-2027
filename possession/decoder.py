@@ -50,12 +50,10 @@ from numpy.typing import NDArray
 
 from .half import A, D, FPS, H, Half
 
-N_STATES = 4  # H, A, D_after_H, D_after_A
+N_STATES = 4
 STATE_LABEL = np.array([H, A, D, D], dtype=np.int8)
 _DH, _DA = 2, 3
 
-# Missing-rate clip for Tier0Emission. The floor keeps log(m) finite on a half whose decode window
-# has no missing frame (its pre-kickoff rows may still be missing and are part of loglik's output).
 _M_FLOOR, _M_CAP = 1e-6, 0.98
 
 
@@ -105,7 +103,7 @@ class Tier0Emission:
         m_a = min(max(r / (a0 + (1 - a0) * rho), _M_FLOOR), _M_CAP)
         m_d = min(max(rho * m_a, _M_FLOOR), _M_CAP)
         seen = np.log([1 - m_a, 1 - m_a, 1 - m_d])
-        table = np.array([                                   # row = token + 1: NO_TEAM, HOME, AWAY
+        table = np.array([
             np.log([m_a, m_a, m_d]),
             np.log([q, 1 - q, 0.5]) + seen,
             np.log([1 - q, q, 0.5]) + seen,
@@ -185,7 +183,7 @@ class Decoded:
 @dataclass(frozen=True, slots=True)
 class Decoder:
     """An immutable, JSON-serialisable decoder. `decode` is a pure function of (self, half)."""
-    emission: Tier0Emission  # widen to a union when the ATD-era emission exists
+    emission: Tier0Emission
     params: DecoderParams
 
     def decode(self, half: Half) -> Decoded:
@@ -271,8 +269,6 @@ def _number(name: str, value: object, lo: float, hi: float, *, integer: bool = F
         raise ValueError(f"{name} = {value!r} outside its range")
 
 
-# --- internals: kept private, exercised through Decoder.decode -----------------------------------------
-
 @dataclass(frozen=True, slots=True)
 class _Chain:
     """trans float64 [4,4] row-stochastic per block; init float64 [4] (0.5, 0.5, 0, 0)."""
@@ -344,7 +340,7 @@ def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float
         alpha += (a0, a1, a2, a3)
 
     b0 = b1 = b2 = b3 = 1.0
-    beta = [b0, b1, b2, b3]                 # built from the last block backwards
+    beta = [b0, b1, b2, b3]
     for e0, e1, e2, e3 in ek[:0:-1]:
         w0, w1, w2, w3 = e0 * b0, e1 * b1, e2 * b2, e3 * b3
         x0 = t00 * w0 + t01 * w1 + t02 * w2 + t03 * w3
@@ -393,9 +389,9 @@ def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
     entry_w = [[(q, round(math.log(1 - cont_p[q]) + math.log(w), 12)) for q, w in row] for row in _switch_into(p)]
     log_pi = [round(math.log(0.5), 12)] * 2 + [-math.inf] * 2
 
-    ent = [[-math.inf] * K for _ in range(nb + 1)]   # ent[s][c]: best score of a fresh c segment at s
+    ent = [[-math.inf] * K for _ in range(nb + 1)]
     ent_from = [[-1] * K for _ in range(nb + 1)]
-    start = [None] * nb                                # start[t][c]: segment start of the best path
+    start = [None] * nb
 
     def fill_entry(s: int, V: list[float]) -> None:
         for c in range(K):

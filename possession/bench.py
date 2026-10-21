@@ -48,7 +48,6 @@ from .metrica import RuleV2
 
 PUBLIC_GT = Path(__file__).resolve().parents[1] / "evaluation" / "gt" / f"{challenge.GAME}_possession_gt_public.csv"
 
-# bench.run refuses a prediction with more switches than this many times the GT's segments.
 MAX_SWITCH_RATIO = 10
 
 SELECTION = ("max over candidates of the min pooled-dev spellF1 across worlds, ties by the mean; "
@@ -206,9 +205,6 @@ def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: in
     return pd.DataFrame(rows)
 
 
-# One model's decodes keyed by a half's content (id and tokens, the decoder's whole input while
-# Half.features is None), never by world or case name: two worlds share a decode only when their
-# draws are byte-identical, which today's merge rule happens to give, not something it promises.
 _Memo = dict[tuple[str, bytes], NDArray[np.int8]]
 
 
@@ -327,7 +323,7 @@ def paired_delta(a: Decoder, b: Decoder, case: Case, *, n_draws: int = 1000, see
     n_gt = flags[0].shape[1]
 
     def spell_f1(hits: NDArray[np.bool_], picks: NDArray[np.int64], predicted: int) -> NDArray[np.float64]:
-        tp = hits[:, picks].sum(axis=-1)                      # [n_ious, n_draws]
+        tp = hits[:, picks].sum(axis=-1)
         fp, fn = np.maximum(0, predicted - tp), n_gt - tp
         f1 = np.where(tp > 0, 2.0 * tp / np.maximum(2 * tp + fp + fn, 1), 0.0)
         return f1.mean(axis=0)

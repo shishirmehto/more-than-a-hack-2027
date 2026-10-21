@@ -231,13 +231,11 @@ def decoder_known_answer() -> None:
         mirrored = model.decode(Half(HalfId("known_answer", 1, 120), swapped)).codes
         assert np.array_equal(mirrored, np.where(out.codes == D, D, 1 - out.codes)), stride
 
-    # "map" ties every switch position inside a flat block, so only the block itself is pinned there.
     model = Decoder(emission, DecoderParams(stride=1, decode_rule="map", min_poss_frames=25, min_dead_frames=50))
     sw = _switches(model.decode(Half(HalfId("known_answer", 1, 120), tok)).codes)
     assert len(sw) == 3 and sw[0] == (120, D, H) and sw[2] == (1820, A, H), sw
     assert sw[1][1:] == (H, A) and 720 <= sw[1][0] <= 1020, sw
 
-    # No evidence at all: H and A tie exactly in theory, and the rounding rule resolves it to H.
     blind_half = Half(HalfId("blind", 1, 10), np.full(3000, NO_TEAM, np.int8))
     blind = Decoder(emission, DecoderParams(stride=1)).decode(blind_half)
     assert _switches(blind.codes) == [(10, D, H)], _switches(blind.codes)
@@ -257,7 +255,7 @@ def marginal_equals_enumeration() -> None:
 
     rng = np.random.default_rng(0)
     nb = 7
-    paths = np.array(np.meshgrid(*[np.arange(4)] * nb, indexing="ij")).reshape(nb, -1).T   # [4^7, nb]
+    paths = np.array(np.meshgrid(*[np.arange(4)] * nb, indexing="ij")).reshape(nb, -1).T
     for trial in range(20):
         p = DecoderParams(poss_mean_s=0.2 + trial * 0.05, dead_mean_s=0.15 + trial * 0.03,
                           p_dead_after_poss=0.1 + trial * 0.04, p_flip_after_dead=0.85 - trial * 0.03, stride=1)
@@ -361,7 +359,7 @@ def _expanded_score(labels: np.ndarray, E: np.ndarray, p: DecoderParams) -> floa
         code = int(labels[lo])
         if code == D and team is None:
             return -math.inf
-        s = 2 + team if code == D else code             # D_after_H = 2, D_after_A = 3
+        s = 2 + team if code == D else code
         team = team if code == D else code
         sub = [k[s] - 1] * (hi - lo) if n_seg == 0 else [min(j, k[s] - 1) for j in range(hi - lo)]
         states += [index[s, j] for j in sub]
@@ -617,7 +615,7 @@ def submission_is_byte_stable() -> None:
                            cwd=REPO, check=True, capture_output=True)
         first, second = (out.read_bytes() for out in outs)
         assert hashlib.sha256(first).hexdigest() == hashlib.sha256(second).hexdigest()
-        score.read_codes(outs[0], N_ROWS)  # raises unless pm.validate_submission passes
+        score.read_codes(outs[0], N_ROWS)
 
     lines = first.decode("ascii").split("\n")
     assert lines[0] == "frame,label" and lines[-1] == "" and len(lines) - 1 == 199_320, len(lines)

@@ -109,7 +109,6 @@ class Trigger:
 
 _STOPPING_LOSSES = ("OFFSIDE", "FORCED", "END HALF", "HAND BALL")
 
-# Stoppage openers: D starts at anchor + 1. CARD and ADVANTAGE are never openers.
 DEAD_TRIGGERS: tuple[Trigger, ...] = (
     Trigger("BALL OUT", None, "end"),
     Trigger("SHOT", ("OUT", "GOAL"), "end"),
@@ -119,24 +118,19 @@ DEAD_TRIGGERS: tuple[Trigger, ...] = (
     Trigger("CHALLENGE", ("FAULT",), "start"),
 )
 
-# Events whose start does NOT close a stoppage; every other event's start is a restart.
 NOT_RESTART: tuple[Trigger, ...] = (
     Trigger("CARD", None, "start"),
     Trigger("FAULT RECEIVED", None, "start"),
     Trigger("CHALLENGE", ("FAULT",), "start"),
 )
 
-# A restart the openers missed: if the frame before one of these is alive, the stoppage runs from
-# the latest earlier end frame (CARD excluded) to the restart.
 FALLBACK_RESTART: tuple[Trigger, ...] = (
     Trigger("SET PIECE", None, "start"),
     Trigger("*", ("GOAL KICK",), "start"),
 )
 
-# The owner is the team of the latest of these by start frame. CARRY exists only in Game 3.
 OWNER_KINDS: frozenset[str] = frozenset({"SET PIECE", "PASS", "SHOT", "RECOVERY", "CARRY"})
 
-# The period's first match is the kickoff; a period with none starts at its first event.
 KICKOFF = Trigger("SET PIECE", ("KICK OFF",), "start")
 
 
@@ -167,7 +161,7 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     openers = np.concatenate([anchor[t.anchor][matches(t, events)] for t in DEAD_TRIGGERS])
     is_restart = ~np.any([matches(t, events) for t in NOT_RESTART], axis=0)
     restarts = start[is_restart]
-    last_dead_frame = np.append(restarts - 1, n - 1)  # a stoppage with no later restart runs to the period's end
+    last_dead_frame = np.append(restarts - 1, n - 1)
     dead = _covered(n, openers + 1, last_dead_frame[np.searchsorted(restarts, openers, side="right")])
 
     not_card = types != "CARD"
@@ -181,7 +175,6 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
 
     owned = np.isin(types, list(OWNER_KINDS))
     owner_start, owner_team = start[owned], teams[owned]
-    # Team 0 / 1 are the label codes H / A; slot 0 is "no owner event yet".
     owner = np.append(D, owner_team).astype(np.int8)[np.searchsorted(owner_start, np.arange(n), side="right")]
 
     kickoffs = start[matches(KICKOFF, events)]

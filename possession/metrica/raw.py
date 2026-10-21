@@ -30,22 +30,19 @@ from .fetch import paths, root
 
 PITCH_M = (105.0, 68.0)
 _EPTS_SLOTS = 22
-_EPTS_LINE_VALUES = 1 + 2 * _EPTS_SLOTS + 2  # frame, x,y per slot, ball x,y
+_EPTS_LINE_VALUES = 1 + 2 * _EPTS_SLOTS + 2
 
-# One row per event. `type` and `subtypes` are upper-cased and stripped at parse time so the rule
-# module matches strings without case logic. Game 3 JSON subtypes (null | dict | list) all become a
-# frozenset; its CARRY events are kept (the rule module decides whether they own the ball).
 EVENT_COLUMNS: tuple[str, ...] = (
-    "team",      # int8   0 home / 1 away
-    "type",      # str    "PASS", "SET PIECE", "BALL OUT", ...
-    "subtypes",  # frozenset[str]
-    "period",    # int8   1 | 2
-    "start",     # int32  source Frame number
-    "end",       # int32  source Frame number
+    "team",
+    "type",
+    "subtypes",
+    "period",
+    "start",
+    "end",
 )
 
 # Normalised coordinates may leave [0, 1] (the ball goes over the touchline, players stand behind
-# the goal line). Anything beyond this window means a misparsed column, not football.
+# the goal line).
 _NORM_WINDOW = (-0.2, 1.2)
 
 _TRACKING_CSV_LEAD = ["Period", "Frame", "Time [s]"]
@@ -73,7 +70,7 @@ class RawPeriod:
 class RawGame:
     game: int
     periods: tuple[RawPeriod, RawPeriod]
-    events: pd.DataFrame  # EVENT_COLUMNS, sorted by (period, start), stable on source row order
+    events: pd.DataFrame
 
 
 def parse_game(game: int, data_dir: str | Path | None = None) -> RawGame:
@@ -116,7 +113,6 @@ def _parse_epts_game(tracking_txt: Path, meta_xml: Path, events_json: Path, game
     team_ids = [team.get("id") for team in meta.find(".//Teams").iter("Team")]
     slot_team = _epts_slot_team(meta, team_ids)
 
-    # One pass: ':' and ';' become ',' so a line is `frame, 22 x 2 player values, ball x, ball y`.
     text = tracking_txt.read_text()
     flat = np.fromstring(",".join(text.split()).translate(str.maketrans(":;", ",,")), sep=",")
     if flat.size % _EPTS_LINE_VALUES:

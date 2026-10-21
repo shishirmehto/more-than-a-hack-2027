@@ -27,15 +27,14 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
-import games  # repo-root module, stdlib only; frozen
+import games
 
-from . import score  # no cycle: score imports half only
+from . import score
 from .half import D, NO_TEAM, Block, Geometry, Half, HalfId, Layout
 
-GAME = games.GAME  # "BAR-ATH"
+GAME = games.GAME
 
-# Kickoff rows (submission rows == tactical video frames), published in FAQ.md and equal to
-# starter/load_smart_tagging.KICKOFF_VIDEO_FRAMES. games.anchor_video_frame is off by one; not used.
+# games.anchor_video_frame is off by one; not used.
 KICKOFF_ROW: dict[int, int] = {1: 11185, 2: 113742}
 
 BASELINE_RAW = Path(__file__).resolve().parents[1] / "evaluation" / "results" / "baseline_raw.csv"

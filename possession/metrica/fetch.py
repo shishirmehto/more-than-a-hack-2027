@@ -22,12 +22,11 @@ import urllib.request
 from pathlib import Path
 from typing import BinaryIO
 
-import games  # repo-root module, stdlib only; frozen
+import games
 
 COMMIT = "e706dd506b360d69d9d123d5b8026e7294b13996"
 RAW_URL = "https://raw.githubusercontent.com/metrica-sports/sample-data/{commit}/{path}"
 
-# Repo-relative paths per game, as listed by the GitHub tree API at COMMIT.
 FILES: dict[int, dict[str, str]] = {
     1: {"events": "data/Sample_Game_1/Sample_Game_1_RawEventsData.csv",
         "home": "data/Sample_Game_1/Sample_Game_1_RawTrackingData_Home_Team.csv",
@@ -40,8 +39,6 @@ FILES: dict[int, dict[str, str]] = {
         "tracking": "data/Sample_Game_3/Sample_Game_3_tracking.txt"},
 }
 
-# Committed next to this file: {"commit": COMMIT, "files": {path: {"sha256": ..., "bytes": ...}}}.
-# Verified on every fetch; `fetch(write_manifest=True)` regenerates it from the local files when the pin moves.
 MANIFEST = Path(__file__).with_name("manifest.json")
 
 

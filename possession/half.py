@@ -24,12 +24,8 @@ from numpy.typing import NDArray
 
 FPS = 25
 
-# Scorer contract. score.py asserts these equal pm.H/A/D/X at import, so this is the single copy
-# the package owns and pm remains the authority.
 H, A, D, X = 0, 1, 2, 3
 
-# Team token space of `Half.nearest_team`. HOME == H and AWAY == A on purpose: a token is "the
-# label this frame would have if the nearest player's team had the ball".
 HOME, AWAY, NO_TEAM = 0, 1, -1
 
 # pm.valid_runs splits runs at X; match_transitions has no run guard and pairs transitions across

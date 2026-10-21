@@ -22,8 +22,8 @@ from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
-import games  # single source of truth for match constants (CLAUDE.md); never re-typed here
-import evaluation.possession_metrics as pm  # noqa: E402  the ONLY import of pm in the package
+import games
+import evaluation.possession_metrics as pm
 
 from .half import A, D, H, X, Layout, check_codes
 
@@ -54,7 +54,7 @@ class Scores:
     trans12_f1: float
     trans25_f1: float
     n_graded: int
-    spell_ci: tuple[float, float] | None = None  # (low, high) when bootstrap_n > 0
+    spell_ci: tuple[float, float] | None = None
 
     def as_row(self) -> dict[str, float | int | None]:
         """Flat dict in field order, with spell_ci split into spell_lo / spell_hi at the end."""
