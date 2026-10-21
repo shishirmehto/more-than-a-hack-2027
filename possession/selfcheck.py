@@ -23,10 +23,10 @@ import numpy as np
 
 import games
 
-from . import challenge, decoder, score
+from . import challenge, decoder, dropout, score
 from .decoder import Decoder, DecoderParams, Tier0Emission
-from .half import (A, AWAY, D, FPS, H, HOME, NO_TEAM, X, Block, Geometry, Half, HalfId, Layout,
-                   check_codes)
+from .half import (A, AWAY, D, FPS, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
+                   Layout, check_codes)
 
 REPO = Path(__file__).resolve().parents[1]
 PUBLIC_GT = REPO / "evaluation" / "gt" / "BAR-ATH_possession_gt_public.csv"
@@ -397,15 +397,77 @@ def map_equals_expanded_viterbi() -> None:
         assert np.array_equal(got, expected), (trial, min_poss, min_dead)
 
 
+def _synthetic_clean(n_halves: int = 8, n: int = 250_000, kickoff: int = 500) -> list[CleanHalf]:
+    """Dev-like halves with no data on disk: alive and dead strata interleaved in ~100-frame
+    segments (alive share ~0.6), a ball on a Lissajous path, one home and one away slot."""
+    out = []
+    t = np.arange(n, dtype=np.float32)
+    ball = np.stack([50 + 40 * np.sin(t / 37), 34 + 20 * np.cos(t / 53)], axis=1).astype(np.float32)
+    players = np.broadcast_to(np.array([[30, 34], [70, 34]], np.float32), (n, 2, 2))
+    for half in range(1, n_halves + 1):
+        rng = np.random.default_rng(half)
+        labels = np.full(n, D, np.int8)
+        i, team = kickoff, H
+        while i < n:
+            length = int(rng.geometric(1 / 100))
+            if rng.random() < 0.6:
+                labels[i:i + length] = team
+                team = A if team == H else H
+            i += length
+        geometry = Geometry(ball.copy(), players.copy(), np.array([HOME, AWAY], np.int8), (105.0, 68.0))
+        out.append(CleanHalf(HalfId("synthetic", half, kickoff), geometry, labels, {}))
+    return out
+
+
 def dropout_hits_both_constraints() -> None:
-    """[needs data] solve_rates worked example (a=0.6, target=0.407, rho=11.5 -> 0.078, 0.90). On each
-    CleanHalf and rho in {0.75, 1, 3, 11}: realised overall rate within tolerance of 0.407, and realised
-    P(missing | dead) / P(missing | alive) within 15% of the ratio implied by the (p_alive, p_dead) that
-    solve_rates RETURNED. That is rho itself unless the 0.98 cap fired (rho 11 on G3, alive share 0.68,
-    saturates near 7); cap-hit cells are reported with their effective ratio, never asserted against rho.
-    No observed frame differs from the filled ball (no native-NaN leak); same seed -> identical masks,
-    other seed -> different."""
-    raise Skip("needs workstream B/C")
+    """solve_rates worked example (a=0.6, target=0.407, rho=11.5 -> 0.0783, 0.9001), its cap branch
+    (a=0.68, rho=11 -> 0.1374 / 0.98, effective ratio 7.13, the G3 saturation) and its loud failure.
+    The committed baseline_raw pool: 146 missing / 145 present runs over [kickoff, n), 155,923 frames,
+    64,079 missing. On eight synthetic CleanHalf (2M frames, no data on disk) and rho in {1, 3}, where
+    the cap does not bind: every half's realised overall rate within tolerance of 0.407, and pooled
+    realised P(missing | dead) / P(missing | alive) within 15% of rho. No observed frame's token
+    differs from the clean geometry's (no leak); same seed -> identical tokens, other seed ->
+    different. "transplant" ignores dead_bias and its decode window is a cyclic window of the real
+    mask."""
+    p_alive, p_dead = dropout.solve_rates(0.6, 0.407, 11.5, 0.98)
+    assert (round(p_alive, 4), round(p_dead, 4)) == (0.0783, 0.9001), (p_alive, p_dead)
+    p_alive, p_dead = dropout.solve_rates(0.68, 0.407, 11.0, 0.98)
+    assert (round(p_alive, 4), p_dead, round(p_dead / p_alive, 2)) == (0.1374, 0.98, 7.13), (p_alive, p_dead)
+    _raises(ValueError, dropout.solve_rates, 0.5, 0.99, 3.0, 0.98)
+
+    pool = dropout.RunPool.from_halves(challenge.halves("baseline_raw"))
+    got = (len(pool.missing), len(pool.present), len(pool.mask), int(pool.mask.sum()), int(pool.missing.sum()))
+    assert got == (146, 145, 155_923, 64_079, 64_079), got
+
+    clean = _synthetic_clean()
+    clean_tokens = [challenge.nearest_team(c.geometry) for c in clean]
+    dead = np.concatenate([c.labels[c.id.kickoff:] for c in clean]) == D
+    drawn = {}
+    for rho in (1.0, 3.0):
+        params = dropout.DropoutParams(dead_bias=rho)
+        halves = dropout.challengeify(clean, params, 0, pool)
+        drawn[rho] = halves
+        for h, tokens in zip(halves, clean_tokens):
+            seen = h.nearest_team != NO_TEAM
+            assert np.array_equal(h.nearest_team[seen], tokens[seen]), (rho, h.id)
+            rate = float((~seen[h.id.kickoff:]).mean())
+            assert abs(rate - params.target_missing_rate) <= params.tolerance, (rho, h.id, rate)
+        missing = np.concatenate([h.nearest_team[h.id.kickoff:] == NO_TEAM for h in halves])
+        ratio = float(missing[dead].mean() / missing[~dead].mean())
+        assert abs(ratio / rho - 1) <= 0.15, (rho, ratio)
+
+    again = dropout.challengeify(clean, dropout.DropoutParams(dead_bias=3.0), 0, pool)
+    assert all(np.array_equal(x.nearest_team, y.nearest_team) for x, y in zip(again, drawn[3.0]))
+    other = dropout.challengeify(clean, dropout.DropoutParams(dead_bias=3.0), 1, pool)
+    assert not any(np.array_equal(x.nearest_team, y.nearest_team) for x, y in zip(other, drawn[3.0]))
+
+    flat, biased = (dropout.challengeify(clean[:2], dropout.DropoutParams(mode="transplant", dead_bias=rho), 0, pool)
+                    for rho in (1.0, 11.0))
+    hay = np.tile(pool.mask, 3).tobytes()
+    for x, y in zip(flat, biased):
+        assert np.array_equal(x.nearest_team, y.nearest_team), x.id
+        window = (x.nearest_team[x.id.kickoff:] == NO_TEAM).tobytes()
+        assert hay.find(window) >= 0, x.id
 
 
 def rule_v2_reproduces_measurements() -> None:

@@ -20,6 +20,8 @@ bench sweeps both and reports the surface; see bench.surface.
 from __future__ import annotations
 
 import dataclasses
+import math
+import zlib
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Literal, Sequence
@@ -28,7 +30,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from . import challenge
-from .half import D, CleanHalf, Geometry, Half
+from .half import D, NO_TEAM, CleanHalf, Geometry, Half, HalfId
 
 
 class Stream(IntEnum):
@@ -59,8 +61,19 @@ class RunPool:
 
     @staticmethod
     def from_halves(halves: Sequence[Half]) -> RunPool:
-        """Run lengths of (nearest_team == NO_TEAM) / its complement over each half's [kickoff, n)."""
-        raise NotImplementedError
+        """Run lengths of (nearest_team == NO_TEAM) / its complement over each half's [kickoff, n).
+
+        Runs truncated by a half's edges are kept. On baseline_raw this gives 146 missing and 145
+        present runs (150 / 149 only when half 2's pre-kickoff stretch is counted too)."""
+        masks = [h.nearest_team[h.id.kickoff:] == NO_TEAM for h in halves]
+        missing = np.concatenate([_run_lengths(m) for m in masks]).astype(np.int32)
+        present = np.concatenate([_run_lengths(~m) for m in masks]).astype(np.int32)
+        if missing.size == 0 or present.size == 0:
+            raise ValueError("a run pool needs at least one missing and one present run")
+        mask = np.concatenate(masks)
+        for a in (missing, present, mask):
+            a.setflags(write=False)
+        return RunPool(missing=missing, present=present, mask=mask)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,14 +118,14 @@ def challengeify(clean: Sequence[CleanHalf], params: DropoutParams, seed: int,
     shared (read-only), only ball_xy is copied, so re-drawing a world for a new dead_bias costs one
     nearest_team pass per half, not a copy of 100 MB.
     """
-    # TODO: pool = pool or RunPool.from_halves(challenge.halves("baseline_raw"))
-    # TODO: for each CleanHalf c:
-    #           seen = _seen_mask(c, params, seed, pool)                       # bool [n]
-    #           ball = np.where(seen[:, None], c.geometry.ball_xy, np.nan)
-    #           g = dataclasses.replace(c.geometry, ball_xy=ball)
-    #           out.append(challenge.observe(g, c.id))
-    # TODO(deferred hook): g = fragment_slots(g, rng(SLOT_FRAGMENTATION), ...)  before observe.
-    raise NotImplementedError
+    if pool is None:
+        pool = RunPool.from_halves(challenge.halves("baseline_raw"))
+    out = []
+    for c in clean:
+        seen = _seen_mask(c, params, seed, pool)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        out.append(challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id))
+    return out
 
 
 def solve_rates(alive_share: float, target: float, dead_bias: float, cap: float) -> tuple[float, float]:
@@ -125,7 +138,16 @@ def solve_rates(alive_share: float, target: float, dead_bias: float, cap: float)
     < 0 or > cap (target unreachable for this half): a loud failure, never a silently wrong world.
     Worked check: a = 0.6, target = 0.407, rho = 11.5 -> p_alive 0.078, p_dead 0.90.
     """
-    raise NotImplementedError
+    a, rho = alive_share, dead_bias
+    p_alive = target / (a + (1 - a) * rho)
+    p_dead = rho * p_alive
+    if p_dead > cap:
+        p_dead = cap
+        p_alive = (target - (1 - a) * cap) / a if a > 0 else -1.0
+    if not (0 <= p_alive <= cap and 0 <= p_dead <= cap):
+        raise ValueError(f"target {target} unreachable: alive share {a}, dead_bias {rho}, cap {cap} "
+                         f"give p_alive {p_alive:.4f}, p_dead {p_dead:.4f}")
+    return p_alive, p_dead
 
 
 def missing_mask(n: int, rate: float, pool: RunPool, rng: np.random.Generator) -> NDArray[np.bool_]:
@@ -138,10 +160,22 @@ def missing_mask(n: int, rate: float, pool: RunPool, rng: np.random.Generator) -
     construction on synthetic truth: realised overall 0.39-0.43 at target 0.407, realised
     P(missing | dead), P(missing | alive) = 0.83, 0.27 at dead_bias 3.
     """
-    # TODO: k = int(2.5 * n / (E_m + c * E_p)) + 8 cycles; lens = interleave(present_k, missing_k);
-    #       out = np.repeat(tile([False, True], k), lens); off = rng.integers(0, lens[0] + lens[1]);
-    #       return out[off:off + n].
-    raise NotImplementedError
+    if rate <= 0:
+        return np.zeros(n, dtype=bool)
+    if rate >= 1:
+        return np.ones(n, dtype=bool)
+    e_m, e_p = float(pool.missing.mean()), float(pool.present.mean())
+    c = e_m * (1 - rate) / (rate * e_p)
+    k = int(2.5 * n / (e_m + c * e_p)) + 8
+    lens, off = np.empty(0, dtype=np.int64), None
+    while off is None or lens.sum() < off + n:
+        present = np.maximum(1, np.rint(c * rng.choice(pool.present, k))).astype(np.int64)
+        missing = rng.choice(pool.missing, k).astype(np.int64)
+        lens = np.concatenate([lens, np.column_stack([present, missing]).ravel()])
+        if off is None:
+            off = int(rng.integers(0, lens[0] + lens[1]))
+    out = np.repeat(np.tile([False, True], len(lens) // 2), lens)
+    return out[off:off + n]
 
 
 def _seen_mask(c: CleanHalf, params: DropoutParams, seed: int, pool: RunPool) -> NDArray[np.bool_]:
@@ -152,11 +186,47 @@ def _seen_mask(c: CleanHalf, params: DropoutParams, seed: int, pool: RunPool) ->
         dead  = labels == D on [kickoff, n)      alive = otherwise on [kickoff, n)      prekick = [0, kickoff)
         p_alive, p_dead = solve_rates(alive.mean(), target, dead_bias, max_rate)
         seen[alive] = ~mask_alive[alive];  seen[dead] = ~mask_dead[dead];  seen[:kickoff] = ~mask_prekick
-    where each mask is missing_mask over the whole half with its own Stream. Re-draw (attempt k = 0..N)
-    until |realised overall rate - target| <= tolerance over the decode window; keep the closest after
-    max_attempts. The realised overall / P(m|dead) / P(m|alive) go into the Case provenance.
+    where each mask is missing_mask over its own span (alive and dead over [kickoff, n), pre-kickoff
+    over [0, kickoff)) with its own Stream; with a random phase that equals cutting it out of a
+    whole-half draw. Re-draw (attempt k = 0..N) until |realised overall rate - target| <= tolerance
+    over the decode window; keep the closest after max_attempts. The realised overall / P(m|dead) /
+    P(m|alive) go into the Case provenance.
     """
-    raise NotImplementedError
+    n, k0 = c.geometry.n, c.id.kickoff
+    pre = missing_mask(k0, params.prekickoff_missing_rate, pool, _rng(seed, c.id, Stream.PREKICK_MASK))
+    if params.mode == "transplant":
+        start = int(_rng(seed, c.id, Stream.TRANSPLANT_OFFSET).integers(0, len(pool.mask)))
+        window = pool.mask[(start + np.arange(n - k0)) % len(pool.mask)]
+        return ~np.concatenate([pre, window])
+    if params.mode != "renewal":
+        raise ValueError(f"dropout mode must be 'renewal' or 'transplant', got {params.mode!r}")
+
+    dead = c.labels[k0:] == D
+    p_alive, p_dead = solve_rates(1.0 - float(dead.mean()), params.target_missing_rate, params.dead_bias,
+                                  params.max_rate)
+    best, best_err = None, math.inf
+    for attempt in range(params.max_attempts):
+        alive_mask = missing_mask(n - k0, p_alive, pool, _rng(seed, c.id, Stream.ALIVE_MASK, attempt))
+        dead_mask = missing_mask(n - k0, p_dead, pool, _rng(seed, c.id, Stream.DEAD_MASK, attempt))
+        missing = np.where(dead, dead_mask, alive_mask)
+        err = abs(float(missing.mean()) - params.target_missing_rate)
+        if err < best_err:
+            best, best_err = missing, err
+        if err <= params.tolerance:
+            break
+    return ~np.concatenate([pre, best])
+
+
+def _rng(seed: int, id: HalfId, stream: Stream, attempt: int = 0) -> np.random.Generator:
+    """SeedSequence([seed, game, half, stream]), child `attempt`. The game key is the crc32 of the
+    match name, not its position in the input, so drawing one game alone reproduces its draws."""
+    entropy = [seed, zlib.crc32(id.match.encode()), id.half, int(stream)]
+    return np.random.default_rng(np.random.SeedSequence(entropy, spawn_key=(attempt,)))
+
+
+def _run_lengths(mask: NDArray[np.bool_]) -> NDArray[np.int64]:
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], mask.astype(np.int8), [0]))))
+    return edges[1::2] - edges[::2]
 
 
 def fragment_slots(g: Geometry, rng: np.random.Generator) -> Geometry:
