@@ -17,7 +17,7 @@ import pandas as pd
 import games
 
 from . import bench, challenge, decoder, dropout, metrica, score
-from .decoder import Decoder, DecoderParams, Tier0Emission
+from .decoder import Decoder, DecoderParams, State, Tier0Emission
 from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
 
@@ -192,7 +192,9 @@ def decoder_known_answer() -> None:
         assert np.array_equal(mirrored, np.where(out.codes == D, D, 1 - out.codes)), stride
 
     model = Decoder(emission, DecoderParams(stride=1, decode_rule="map", min_poss_frames=25, min_dead_frames=50))
-    sw = _switches(model.decode(Half(HalfId("known_answer", 1, 120), tok)).codes)
+    decoded = model.decode(Half(HalfId("known_answer", 1, 120), tok))
+    assert decoded.posterior is None
+    sw = _switches(decoded.codes)
     assert len(sw) == 3 and sw[0] == (120, D, H) and sw[2] == (1820, A, H), sw
     assert sw[1][1:] == (H, A) and 720 <= sw[1][0] <= 1020, sw
 
@@ -211,7 +213,7 @@ def marginal_equals_enumeration() -> None:
 
     rng = np.random.default_rng(0)
     nb = 7
-    paths = np.array(np.meshgrid(*[np.arange(4)] * nb, indexing="ij")).reshape(nb, -1).T
+    paths = np.array(np.meshgrid(*[np.arange(decoder.N_STATES)] * nb, indexing="ij")).reshape(nb, -1).T
     for trial in range(20):
         p = DecoderParams(poss_mean_s=0.2 + trial * 0.05, dead_mean_s=0.15 + trial * 0.03,
                           p_dead_after_poss=0.1 + trial * 0.04, p_flip_after_dead=0.85 - trial * 0.03, stride=1)
@@ -266,19 +268,19 @@ def _expanded_hmm(p: DecoderParams):
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
     cont = [(m - kc) / (m - kc + 1) for m, kc in zip(mean, k)]
-    states = [(s, j) for s in range(4) for j in range(k[s])]
+    states = [(s, j) for s in State for j in range(k[s])]
     index = {state: i for i, state in enumerate(states)}
     log_t = np.full((len(states), len(states)), -np.inf)
-    for s in range(4):
+    for s in State:
         for j in range(k[s] - 1):
             log_t[index[s, j], index[s, j + 1]] = 0.0
         last = index[s, k[s] - 1]
         log_t[last, last] = math.log(cont[s])
-        for d in range(4):
+        for d in State:
             if d != s and trans[s, d] > 0:
                 log_t[last, index[d, 0]] = math.log(1 - cont[s]) + math.log(trans[s, d] / (1 - trans[s, s]))
     log_pi = np.full(len(states), -np.inf)
-    log_pi[[index[0, k[0] - 1], index[1, k[1] - 1]]] = math.log(0.5)
+    log_pi[[index[State.H, k[State.H] - 1], index[State.A, k[State.A] - 1]]] = math.log(0.5)
     label = decoder.STATE_LABEL[[s for s, _ in states]]
     return k, index, log_t, log_pi, label
 
@@ -301,12 +303,14 @@ def _expanded_viterbi(E: np.ndarray, p: DecoderParams) -> tuple[float, np.ndarra
 def _expanded_score(labels: np.ndarray, E: np.ndarray, p: DecoderParams) -> float:
     k, index, log_t, log_pi, label = _expanded_hmm(p)
     bounds = np.concatenate((np.flatnonzero(np.r_[True, labels[1:] != labels[:-1]]), [len(labels)]))
+    poss_state = {H: State.H, A: State.A}
+    dead_state_after = {H: State.D_AFTER_H, A: State.D_AFTER_A}
     states, team = [], None
     for n_seg, (lo, hi) in enumerate(zip(bounds[:-1], bounds[1:])):
         code = int(labels[lo])
         if code == D and team is None:
             return -math.inf
-        s = 2 + team if code == D else code
+        s = dead_state_after[team] if code == D else poss_state[code]
         team = team if code == D else code
         sub = [k[s] - 1] * (hi - lo) if n_seg == 0 else [min(j, k[s] - 1) for j in range(hi - lo)]
         states += [index[s, j] for j in sub]

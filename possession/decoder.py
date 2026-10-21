@@ -4,17 +4,28 @@ import dataclasses
 import json
 import math
 from dataclasses import dataclass
+from enum import IntEnum
 from pathlib import Path
-from typing import Literal, Mapping
+from typing import Literal, Mapping, NamedTuple, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .half import A, AWAY, D, FPS, H, HOME, NO_TEAM, Half
 
-N_STATES = 4
-STATE_LABEL = np.array([H, A, D, D], dtype=np.int8)
-_DH, _DA = 2, 3
+
+class State(IntEnum):
+    """The chain's states; each value is the state's row and column in the chain's matrices. The two
+    D states both emit label D and remember who had the ball before the stoppage."""
+    H = 0
+    A = 1
+    D_AFTER_H = 2
+    D_AFTER_A = 3
+
+
+N_STATES = len(State)
+STATE_LABEL = np.array([{State.H: H, State.A: A, State.D_AFTER_H: D, State.D_AFTER_A: D}[s] for s in State],
+                       dtype=np.int8)
 
 _M_FLOOR, _M_CAP = 1e-6, 0.98
 
@@ -78,6 +89,7 @@ class DecoderParams:
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
+    They bind interior segments only: a half's first and last segments can be shorter.
     Checked at construction: temper and both means > 0, both probabilities in (0, 1), stride and both
     minimums integers >= 1; "marginal" requires both minimums 1; "map" requires each mean, in blocks,
     above its minimum in blocks.
@@ -108,7 +120,7 @@ class DecoderParams:
                 raise ValueError("decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")
         elif self.decode_rule == "map":
             mean, k = _blocks(self)
-            for name, s in (("poss", H), ("dead", _DH)):
+            for name, s in (("poss", State.H), ("dead", State.D_AFTER_H)):
                 if mean[s] <= k[s]:
                     raise ValueError(f"decode_rule 'map' needs {name}_mean_s above min_{name}_frames "
                                      f"in blocks of {self.stride}")
@@ -123,9 +135,12 @@ if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
 
 @dataclass(frozen=True, slots=True)
 class Decoded:
-    """codes: int8 [n] in {0,1,2}, never X. Frames [0, kickoff) are D with posterior (0, 0, 1)."""
+    """codes:     int8 [n] in {0,1,2}, never X. Frames [0, kickoff) are D.
+    posterior: float32 [n, 3] P(H, A, D | all evidence) under "marginal", (0, 0, 1) before kickoff.
+               None under "map", which finds one best path and has no posterior.
+    """
     codes: NDArray[np.int8]
-    posterior: NDArray[np.float32]
+    posterior: NDArray[np.float32] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,21 +156,21 @@ class Decoder:
           1. frames [0, half.id.kickoff) are D by rule (the challenge grades half 2's first 2934 frames
              as D; an X head would be back-filled with the first label and become a false 117 s spell).
           2. decode [kickoff, n) from a uniform start over {H, A}.
-          3. codes = argmax over round(posterior, 9). The rounding makes exact symmetric ties (a flat
-             block at the start of a half) resolve to the lower label on every machine instead of on
-             1-ulp noise.
+          3. "map": codes are the labels of the MAP path. "marginal": codes = argmax over
+             round(posterior, 9). The rounding makes exact symmetric ties (a flat block at the start of
+             a half) resolve to the lower label on every machine instead of on 1-ulp noise.
         """
         p, kickoff = self.params, half.id.kickoff
         ev = self.emission.loglik(half)[kickoff:].astype(np.float64)
         m = ev.shape[0]
         E = p.temper * np.add.reduceat(ev, np.arange(0, m, p.stride), axis=0)
-        if p.decode_rule == "marginal":
-            post_blocks = _forward_backward(E, _chain(p))
-        else:
-            post_blocks = np.eye(3)[_map(E, p)]
+        if p.decode_rule == "map":
+            codes = np.full(half.n, D, dtype=np.int8)
+            codes[kickoff:] = np.repeat(_map(E, p), p.stride)[:m]
+            return Decoded(codes=codes, posterior=None)
         post = np.empty((half.n, 3), dtype=np.float64)
         post[:kickoff] = (0.0, 0.0, 1.0)
-        post[kickoff:] = np.repeat(post_blocks, p.stride, axis=0)[:m]
+        post[kickoff:] = np.repeat(_forward_backward(E, _chain(p)), p.stride, axis=0)[:m]
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
@@ -219,30 +234,46 @@ class _Chain:
     init: NDArray[np.float64]
 
 
+_T = TypeVar("_T")
+
+
+def _by_state(poss: _T, dead: _T) -> list[_T]:
+    """One value per State, in State order: `poss` for H and A, `dead` for both D states."""
+    return [dead if STATE_LABEL[s] == D else poss for s in State]
+
+
 def _blocks(p: DecoderParams) -> tuple[list[float], list[int]]:
-    mean = [p.poss_mean_s * FPS / p.stride] * 2 + [p.dead_mean_s * FPS / p.stride] * 2
-    k = [math.ceil(p.min_poss_frames / p.stride)] * 2 + [math.ceil(p.min_dead_frames / p.stride)] * 2
+    mean = _by_state(p.poss_mean_s * FPS / p.stride, p.dead_mean_s * FPS / p.stride)
+    k = _by_state(math.ceil(p.min_poss_frames / p.stride), math.ceil(p.min_dead_frames / p.stride))
     return mean, k
 
 
-def _switch_into(p: DecoderParams) -> list[list[tuple[int, float]]]:
+class _Switch(NamedTuple):
+    source: State
+    weight: float
+
+
+def _switch_into(p: DecoderParams) -> dict[State, tuple[_Switch, ...]]:
+    """For each state, the states whose segment can end by switching into it, each with
+    P(the next segment is this state | the source segment ends). The order of a row is _map's
+    tie-break: on an exact tie the earlier source wins."""
     pd, pf = p.p_dead_after_poss, p.p_flip_after_dead
-    return [
-        [(A, 1 - pd), (_DH, 1 - pf), (_DA, pf)],
-        [(H, 1 - pd), (_DA, 1 - pf), (_DH, pf)],
-        [(H, pd)],
-        [(A, pd)],
-    ]
+    return {
+        State.H: (_Switch(State.A, 1 - pd), _Switch(State.D_AFTER_H, 1 - pf), _Switch(State.D_AFTER_A, pf)),
+        State.A: (_Switch(State.H, 1 - pd), _Switch(State.D_AFTER_A, 1 - pf), _Switch(State.D_AFTER_H, pf)),
+        State.D_AFTER_H: (_Switch(State.H, pd),),
+        State.D_AFTER_A: (_Switch(State.A, pd),),
+    }
 
 
 def _chain(p: DecoderParams) -> _Chain:
     mean, _ = _blocks(p)
     hazard = [min(1.0 / m, 0.5) for m in mean]
     trans = np.diag([1 - h for h in hazard])
-    for c, row in enumerate(_switch_into(p)):
-        for q, w in row:
-            trans[q, c] = hazard[q] * w
-    return _Chain(trans=trans, init=np.array([0.5, 0.5, 0.0, 0.0]))
+    for target, row in _switch_into(p).items():
+        for source, weight in row:
+            trans[source, target] = hazard[source] * weight
+    return _Chain(trans=trans, init=np.array(_by_state(0.5, 0.0)))
 
 
 def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float64]:
@@ -269,7 +300,7 @@ def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float
         alpha += (a0, a1, a2, a3)
 
     b0 = b1 = b2 = b3 = 1.0
-    beta = [b0, b1, b2, b3]
+    beta_last_block_first = [b0, b1, b2, b3]
     for e0, e1, e2, e3 in ek[:0:-1]:
         w0, w1, w2, w3 = e0 * b0, e1 * b1, e2 * b2, e3 * b3
         x0 = t00 * w0 + t01 * w1 + t02 * w2 + t03 * w3
@@ -278,11 +309,11 @@ def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float
         x3 = t30 * w0 + t31 * w1 + t32 * w2 + t33 * w3
         s = x0 + x1 + x2 + x3
         b0, b1, b2, b3 = x0 / s, x1 / s, x2 / s, x3 / s
-        beta += (b0, b1, b2, b3)
+        beta_last_block_first += (b0, b1, b2, b3)
 
-    g = np.array(alpha).reshape(nb, 4) * np.array(beta).reshape(nb, 4)[::-1]
+    g = np.array(alpha).reshape(nb, 4) * np.array(beta_last_block_first).reshape(nb, 4)[::-1]
     g /= (g[:, 0] + g[:, 1] + g[:, 2] + g[:, 3])[:, None]
-    return np.stack([g[:, 0], g[:, 1], g[:, 2] + g[:, 3]], axis=1)
+    return np.stack([g[:, State.H], g[:, State.A], g[:, State.D_AFTER_H] + g[:, State.D_AFTER_A]], axis=1)
 
 
 def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
@@ -297,12 +328,14 @@ def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
     mean, k = _blocks(p)
     cont_p = [(m - kc) / (m - kc + 1) for m, kc in zip(mean, k)]
     log_c = [round(math.log(c), 12) for c in cont_p]
-    entry_w = [[(q, round(math.log(1 - cont_p[q]) + math.log(w), 12)) for q, w in row] for row in _switch_into(p)]
-    log_pi = [round(math.log(0.5), 12)] * 2 + [-math.inf] * 2
+    switch_into = _switch_into(p)
+    entry_w = [[(source, round(math.log(1 - cont_p[source]) + math.log(weight), 12))
+                for source, weight in switch_into[c]] for c in State]
+    log_pi = _by_state(round(math.log(0.5), 12), -math.inf)
 
-    ent = [[-math.inf] * K for _ in range(nb + 1)]
-    ent_from = [[-1] * K for _ in range(nb + 1)]
-    start = [None] * nb
+    entry_score = [[-math.inf] * K for _ in range(nb + 1)]
+    entry_source = [[-1] * K for _ in range(nb + 1)]
+    segment_start = [None] * nb
 
     def fill_entry(s: int, V: list[float]) -> None:
         for c in range(K):
@@ -311,24 +344,24 @@ def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
                 v = V[q] + w
                 if v > best:
                     best, arg = v, q
-            ent[s][c], ent_from[s][c] = best, arg
+            entry_score[s][c], entry_source[s][c] = best, arg
 
     V = [log_pi[c] + ll[0][c] for c in range(K)]
-    start[0] = [0] * K
+    segment_start[0] = [0] * K
     fill_entry(1, V)
     for t in range(1, nb):
-        lt, ct1, prev_start = ll[t], C[t + 1], start[t - 1]
-        V_t, row = [0.0] * K, [0] * K
+        lt, ct1, prev_start = ll[t], C[t + 1], segment_start[t - 1]
+        V_t, start_t = [0.0] * K, [0] * K
         for c in range(K):
             cont = V[c] + log_c[c] + lt[c]
             s = t - k[c] + 1
             if s >= 1:
-                new = ent[s][c] + ct1[c] - C[s][c]
+                new = entry_score[s][c] + ct1[c] - C[s][c]
                 if new > cont:
-                    V_t[c], row[c] = new, s
+                    V_t[c], start_t[c] = new, s
                     continue
-            V_t[c], row[c] = cont, prev_start[c]
-        V, start[t] = V_t, row
+            V_t[c], start_t[c] = cont, prev_start[c]
+        V, segment_start[t] = V_t, start_t
         if t + 1 < nb:
             fill_entry(t + 1, V)
 
@@ -336,7 +369,7 @@ def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
     best_v, tail = V[best_c], None
     for c in range(K):
         for s in range(max(1, nb - k[c] + 1), nb):
-            v = ent[s][c] + C[nb][c] - C[s][c]
+            v = entry_score[s][c] + C[nb][c] - C[s][c]
             if v > best_v:
                 best_v, best_c, tail = v, c, s
 
@@ -344,10 +377,10 @@ def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
     t, c = nb - 1, best_c
     if tail is not None:
         labels[tail:] = STATE_LABEL[c]
-        t, c = tail - 1, ent_from[tail][c]
+        t, c = tail - 1, entry_source[tail][c]
     while True:
-        s = start[t][c]
+        s = segment_start[t][c]
         labels[s:t + 1] = STATE_LABEL[c]
         if s == 0:
             return labels
-        t, c = s - 1, ent_from[s][c]
+        t, c = s - 1, entry_source[s][c]

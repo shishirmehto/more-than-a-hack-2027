@@ -96,7 +96,7 @@ The seam is the evidence matrix. The chain knows nothing about balls or teams. A
 
 Four states: H, A, D_after_H, D_after_A. Both D states emit label D. D remembers the last possessor so a stoppage can carry a flip prior (3 of the 4 public-window D stretches change team, inferred from the segment table, n=4). Durations are geometric with per-class means. Evidence is tempered by a scalar alpha. Frames [0, kickoff) are D by rule. A missing ball is flat evidence unless the explicit `dead_bias` belief is set. Decoding runs on blocks of 5 frames.
 
-Interface depth: `Decoder.decode(half)` is the whole decoding API. It hides the chain, scaling, block aggregation, kickoff handling and tie rounding. The caller supplies a `Half` and receives codes plus a posterior.
+Interface depth: `Decoder.decode(half)` is the whole decoding API. It hides the chain, scaling, block aggregation, kickoff handling and tie rounding. The caller supplies a `Half` and receives codes plus, under the default marginal rule, a posterior.
 
 **Why posterior marginals and not Viterbi** (the grounding's default). Measured on a synthetic proxy: spells with median 6 s and 25% dead, and the REAL baseline_raw missing masks, 6 seeds by 2 halves, scored with `pm.evaluate`. Experiments `experiments/e1c_alpha_sweep.py` and `e1e_correlated_noise.py`.
 
