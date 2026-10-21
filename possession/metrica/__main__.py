@@ -6,10 +6,8 @@ post-final-whistle dropped). `alive` is the share of non-D frames, over the bloc
 tracking frames. `spells` are maximal H or A runs; `m0` is the raw rule and `m1`..`m3` are
 RuleV2(merge_s=1, 2, 3). `ball NaN` is whether any ball_xy still has a NaN after `load`; it must be "no".
 
-A second table gives the pooled spell lengths per label rule (SPELL_RULES): rule v2 at merge_s 0, 2, 3
-and 5, then the controlled-possession rule at a few (hold_s, min_passes). Compare it with the public
-window (17 spells, mean 14.2 s, median 7.6 s, 18% under 3 s) as a check on the convention, never to
-pick one.
+A second table gives the pooled spell lengths per label rule in SPELL_RULES. DESIGN.md's spell table
+(Dev sweeps) sets them beside the public window as a check on the convention, never to pick one.
 """
 from __future__ import annotations
 

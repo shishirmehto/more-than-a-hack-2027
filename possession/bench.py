@@ -16,8 +16,8 @@ deterministic. Same inputs, same table, bit for bit.
 Selection protocol (the part a person would otherwise improvise):
   * a "world" is a DevSpec: label rule x dead_bias x dropout seed. The first two are UNKNOWN for the
     real match (label convention; real P(missing | dead)), so no single world is ground truth; the
-    seed is noise, and a world axis because in sweep 4 it moved v0 from rank 1 to 76 of 162, which
-    paired_delta (one draw, GT possessions resampled) cannot see;
+    seed is noise, and a world axis because it moves the ranking more than paired_delta (one draw,
+    GT possessions resampled) can see (DESIGN.md, sweeps 4 and 5);
   * a decoder is scored on every world; the winner maximises the MINIMUM pooled spellF1 across worlds,
     ties broken by the mean (max-min). Measured on a synthetic proxy, a decoder that believes
     dead_bias = 3 scores 0.34 / 0.48 / 0.52 across worlds {1, 3, 11} while one that believes 1

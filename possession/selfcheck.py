@@ -536,7 +536,6 @@ def controlled_rule_known_answer() -> None:
     for rule, want in expected.items():
         got = runs(rule)
         assert got == want, (rule, got)
-        assert [r for r in got if r[2] == D] == [(0, 10, D), (401, 450, D)], (rule, got)
     _raises(ValueError, metrica.RuleV2, hold_s=-1.0)
     _raises(ValueError, metrica.RuleV2, min_passes=-1)
     _raises(ValueError, metrica.RuleV2, 1.0, 2.0)

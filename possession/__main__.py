@@ -1,17 +1,17 @@
 """Thin shell: parse flags, call one function, print. No logic lives here (boundary-discipline).
 
-    fetch-metrica [--write-manifest]      metrica.fetch (add --write-manifest on the very first run)
-    fit-dev    --seed S ... --rule KEY ... --dead-bias R ... --out P [grid flags]
-                                          worlds -> bench.fit_dev -> params JSON (+ <stem>_grid.csv beside it)
-    sweep      --params P --dead-bias 1 3 11 --belief 1 3 11
-                                          bench.surface over worlds, prints the generator x belief table
-    score      --params P ... [--dev] [--public] [--rule KEY ...] [--dead-bias R ...] [--mode transplant] [--paired]
-                                          bench.run, prints the table, writes data/derived/runs/<name>.csv;
-                                          --paired adds bench.paired_delta of each later model against the first
-    make-submission --params P --out F    challenge.halves("baseline_raw") -> Decoder.decode -> score.write_submission
-                                          reads ONLY committed inputs (baseline_raw.csv + the params JSON):
-                                          no RNG, no Metrica on disk, byte-for-byte reproducible
-    selfcheck                             selfcheck.run()
+    fetch-metrica    metrica.fetch (add --write-manifest on the very first run)
+    fit-dev          worlds -> bench.fit_dev -> params JSON (+ <stem>_grid.csv beside it)
+    sweep            bench.surface over worlds, prints the generator x belief table
+    score            bench.run, prints the table, writes data/derived/runs/<name>.csv;
+                     --paired adds bench.paired_delta of each later model against the first
+    make-submission  challenge.halves("baseline_raw") -> Decoder.decode -> score.write_submission;
+                     reads ONLY committed inputs (baseline_raw.csv + the params JSON):
+                     no RNG, no Metrica on disk, byte-for-byte reproducible
+    selfcheck        selfcheck.run()
+
+fit-dev, sweep and score take the world flags --rule, --dead-bias and --seed, each a list, crossed
+into worlds. Each command's --help lists its flags.
 
 bench, metrica and selfcheck are imported inside the commands that use them, so make-submission never
 loads the dev harness (selfcheck.public_case_predict_equals_submission checks this).
