@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+import pandas as pd
 
 import games
 
@@ -495,6 +496,68 @@ def rule_v2_reproduces_measurements() -> None:
             assert (h.labels[:h.id.kickoff] == D).all() and int(h.labels.max()) <= D, h.id
 
 
+def controlled_rule_known_answer() -> None:
+    """label_period on a hand-built period (kickoff 10, a throw-in stoppage [401, 450), a free kick
+    at 600 with no stoppage before it) under hold_s 2 (50 frames) and min_passes 3, each alone and
+    together, as literal runs. Pins: an A run of 30 frames is rejected; one of 40 frames with three A
+    passes stands only when the pass proxy is on; a long run with no passes stands only when the hold
+    proxy is on; the first run after the stoppage stands although 20 frames long; a 10-frame run
+    holding its team's SET PIECE stands. D frames and the kickoff equal rule v2's in every variant,
+    the default rule is v2, negative fields raise, and the world keys read m0 / m2 / h3p3 / h2m1."""
+    rows = [(H, "SET PIECE", {"KICK OFF"}, 10, 10), (H, "PASS", set(), 20, 30), (A, "RECOVERY", set(), 100, 100),
+            (H, "RECOVERY", set(), 130, 130), (A, "RECOVERY", set(), 200, 200),
+            *[(A, "PASS", set(), f, f + 5) for f in (205, 215, 225)], (H, "RECOVERY", set(), 240, 240),
+            (H, "BALL OUT", set(), 400, 400), (A, "SET PIECE", {"THROW IN"}, 450, 450),
+            (H, "RECOVERY", set(), 470, 470), (A, "RECOVERY", set(), 480, 480), (A, "PASS", set(), 590, 599),
+            (H, "SET PIECE", {"FREE KICK"}, 600, 600), (A, "RECOVERY", set(), 610, 700)]
+    events = pd.DataFrame([{"team": team, "type": kind, "subtypes": frozenset(subtypes), "period": 1,
+                            "start": start, "end": end} for team, kind, subtypes, start, end in rows])
+
+    def runs(rule: metrica.RuleV2) -> list[tuple[int, int, int]]:
+        out = metrica.rule.label_period(events, frame0=0, n=1000, rule=rule)
+        assert out.kickoff == 10, out.kickoff
+        return [(a, b, int(code)) for a, b, code in score.segments(out.labels, [(0, len(out.labels))])]
+
+    tail = [(401, 450, D), (450, 600, A), (600, 610, H)]
+    expected = {
+        metrica.RuleV2(): [(0, 10, D), (10, 100, H), (100, 130, A), (130, 200, H), (200, 240, A), (240, 401, H),
+                           (401, 450, D), (450, 470, A), (470, 480, H), (480, 600, A), (600, 610, H), (610, 701, A)],
+        metrica.RuleV2(hold_s=2.0): [(0, 10, D), (10, 401, H), *tail, (610, 701, A)],
+        metrica.RuleV2(min_passes=3): [(0, 10, D), (10, 200, H), (200, 401, A), (401, 450, D), (450, 600, A),
+                                       (600, 701, H)],
+        metrica.RuleV2(hold_s=2.0, min_passes=3): [(0, 10, D), (10, 200, H), (200, 240, A), (240, 401, H), *tail,
+                                                   (610, 701, A)],
+    }
+    for rule, want in expected.items():
+        got = runs(rule)
+        assert got == want, (rule, got)
+        assert [r for r in got if r[2] == D] == [(0, 10, D), (401, 450, D)], (rule, got)
+    _raises(ValueError, metrica.RuleV2, hold_s=-1.0)
+    _raises(ValueError, metrica.RuleV2, min_passes=-1)
+    keys = [metrica.RuleV2(*fields).key for fields in ((0.0, 0.0, 0), (2.0, 0.0, 0), (0.0, 3.0, 3), (1.0, 2.0, 0))]
+    assert keys == ["m0", "m2", "h3p3", "h2m1"], keys
+
+
+def controlled_rule_measurements() -> None:
+    """[needs data] Pooled spells under the controlled rule at merge_s 0: hold_s 2 / 3 / 5 with
+    min_passes 3 -> 818 / 709 / 582, hold_s 5 alone -> 578 (the pass proxy binds only from about 4 s),
+    min_passes 3 alone -> 454. Every half's D frames and kickoff equal raw rule v2's: the filter only
+    moves frames between H and A. Skips like rule_v2_reproduces_measurements."""
+    try:
+        raw = metrica.load(metrica.RuleV2())
+    except IOError:
+        raise Skip(f"no Metrica sample data under {Path(games.DATA_DIR) / 'metrica_sample'} "
+                   "(set MTAH_DATA_DIR or run fetch-metrica)") from None
+
+    rules = [metrica.RuleV2(hold_s=h, min_passes=p) for h, p in ((2.0, 3), (3.0, 3), (5.0, 3), (5.0, 0), (0.0, 3))]
+    by_rule = {rule.key: metrica.load(rule) for rule in rules}
+    pooled = {key: sum(_n_spells(h.labels) for h in halves) for key, halves in by_rule.items()}
+    assert pooled == {"h2p3": 818, "h3p3": 709, "h5p3": 582, "h5": 578, "p3": 454}, pooled
+    for halves in by_rule.values():
+        for h, v2 in zip(halves, raw):
+            assert h.id == v2.id and np.array_equal(h.labels == D, v2.labels == D), h.id
+
+
 def public_case_predict_equals_submission() -> None:
     """bench.public_case().predict(v0) is array-equal, half by half, to the rows __main__.make_submission
     writes for params/tier0_v0.json: the file scored on the public window is the file written. And a
@@ -553,6 +616,8 @@ CHECKS: tuple[Callable[[], None], ...] = (
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     rule_v2_reproduces_measurements,
+    controlled_rule_known_answer,
+    controlled_rule_measurements,
     public_case_predict_equals_submission,
     submission_is_byte_stable,
 )
