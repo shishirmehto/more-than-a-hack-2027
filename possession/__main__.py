@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from . import challenge, score, selfcheck
+from . import challenge, score
 from .decoder import Decoder
 
 NOT_WIRED = ("fetch-metrica", "fit-dev", "sweep", "score")
@@ -53,6 +53,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "make-submission":
         print(make_submission(args.params, args.out))
         return 0
+    from . import selfcheck
+
     return selfcheck.run()
 
 

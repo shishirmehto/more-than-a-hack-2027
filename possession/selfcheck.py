@@ -23,7 +23,7 @@ import numpy as np
 
 import games
 
-from . import challenge, decoder, dropout, score
+from . import bench, challenge, decoder, dropout, metrica, score
 from .decoder import Decoder, DecoderParams, Tier0Emission
 from .half import (A, AWAY, D, FPS, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
@@ -470,10 +470,52 @@ def dropout_hits_both_constraints() -> None:
         assert hay.find(window) >= 0, x.id
 
 
+def _n_spells(labels: np.ndarray) -> int:
+    starts = np.concatenate(([0], np.flatnonzero(labels[1:] != labels[:-1]) + 1))
+    return int((labels[starts] != D).sum())
+
+
 def rule_v2_reproduces_measurements() -> None:
-    """[needs data] alive share 55.1 / 58.4 / 67.9 %, raw spells 364 / 322 / 387 (merge_s = 0), and
-    333 / 297 / 348 at merge_s = 1; labels[:kickoff] all D; no X anywhere inside a block."""
-    raise Skip("needs workstream B/C")
+    """[needs data] Per game, alive share over TRACKING frames (provenance source_frames, the
+    explorers' denominator) 55.1 / 58.4 / 67.9 %; H/A spells 364 / 322 / 387 at merge_s = 0 and
+    333 / 297 / 348 at merge_s = 1; pooled spells 1073 / 978 / 825 / 721 at merge_s 0 / 1 / 2 / 3;
+    labels[:kickoff] all D; no X anywhere inside a block. Skips when the Metrica files are not under
+    games.DATA_DIR (MTAH_DATA_DIR)."""
+    try:
+        by_merge = {m: metrica.load(metrica.RuleV2(m)) for m in (0.0, 1.0, 2.0, 3.0)}
+    except IOError as missing:
+        raise Skip(f"no Metrica sample data under {Path(games.DATA_DIR) / 'metrica_sample'} "
+                   "(set MTAH_DATA_DIR or run fetch-metrica)") from None
+
+    pooled = tuple(sum(_n_spells(h.labels) for h in halves) for halves in by_merge.values())
+    assert pooled == (1073, 978, 825, 721), pooled
+    per_game = []
+    for game in metrica.GAMES:
+        raw, merged = ([h for h in by_merge[m] if h.id.match == f"metrica_g{game}"] for m in (0.0, 1.0))
+        alive = sum(int((h.labels != D).sum()) for h in raw)
+        tracking = sum(int(h.provenance["source_frames"]) for h in raw)
+        per_game.append((round(100 * alive / tracking, 1), sum(_n_spells(h.labels) for h in raw),
+                         sum(_n_spells(h.labels) for h in merged)))
+    assert per_game == [(55.1, 364, 333), (58.4, 322, 297), (67.9, 387, 348)], per_game
+    for halves in by_merge.values():
+        for h in halves:
+            assert (h.labels[:h.id.kickoff] == D).all() and int(h.labels.max()) <= D, h.id
+
+
+def public_case_predict_equals_submission() -> None:
+    """bench.public_case().predict(v0) is array-equal, half by half, to the rows __main__.make_submission
+    writes for params/tier0_v0.json: the file scored on the public window is the file written. And a
+    fresh interpreter that imports the submission path has not imported bench (no Metrica, no RNG)."""
+    from . import __main__ as cli
+
+    case = bench.public_case()
+    predicted = case.predict(Decoder.load(PARAMS_V0))
+    with tempfile.TemporaryDirectory() as tmp:
+        written = case.layout.cut(score.read_codes(cli.make_submission(PARAMS_V0, Path(tmp) / "v0.csv"), N_ROWS))
+    assert [p.shape for p in predicted] == [(79467,), (79390,)], [p.shape for p in predicted]
+    assert all(np.array_equal(p, w) for p, w in zip(predicted, written))
+    probe = "import sys, possession.__main__; sys.exit(int('possession.bench' in sys.modules))"
+    assert subprocess.run([sys.executable, "-c", probe], cwd=REPO).returncode == 0, "submission path imports bench"
 
 
 def submission_is_byte_stable() -> None:
@@ -481,7 +523,7 @@ def submission_is_byte_stable() -> None:
     sha256; file is 199,320 lines (header + rows), frames 0..199318 in order, every row in HADX, X
     exactly on the 40,462 rows outside games.half_video_blocks, the 2,934 graded pre-kickoff rows of
     half 2 D, pm.validate_submission passes, and the file's public-window score equals the score of
-    the same params decoded in memory (bench.run does not exist yet; this is its path minus the table)."""
+    the same params decoded in memory (public_case_predict_equals_submission pins the bench side)."""
     with tempfile.TemporaryDirectory() as tmp:
         outs = [Path(tmp) / f"run{i}.csv" for i in (1, 2)]
         for out in outs:
@@ -526,6 +568,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     rule_v2_reproduces_measurements,
+    public_case_predict_equals_submission,
     submission_is_byte_stable,
 )
 
@@ -539,15 +582,15 @@ def run() -> int:
             check()
         except Skip as why:
             counts["skip"] += 1
-            print(f"{check.__name__:<34} skip: {why}")
+            print(f"{check.__name__:<38} skip: {why}")
             continue
         except Exception as error:
             counts["FAIL"] += 1
             where = traceback.extract_tb(error.__traceback__)[-1]
-            print(f"{check.__name__:<34} FAIL {type(error).__name__}: {error} "
+            print(f"{check.__name__:<38} FAIL {type(error).__name__}: {error} "
                   f"({where.filename.rsplit('/', 1)[-1]}:{where.lineno})")
             continue
         counts["ok"] += 1
-        print(f"{check.__name__:<34} ok   {time.perf_counter() - t0:.2f} s")
+        print(f"{check.__name__:<38} ok   {time.perf_counter() - t0:.2f} s")
     print(", ".join(f"{v} {k}" for k, v in counts.items()))
     return 1 if counts["FAIL"] else 0
