@@ -219,7 +219,8 @@ class Layout:
         edge = 0
         for b in self.blocks:
             if b.n < 1 or b.origin - edge < GAP_X:
-                raise ValueError(f"block {b} needs n >= 1 and >= {GAP_X} X rows before it (previous edge {edge})")
+                raise ValueError(f"block {b} needs n >= 1 and >= {GAP_X} X rows before it "
+                                 f"(previous edge {edge})")
             edge = b.origin + b.n
         if self.n_total - edge < GAP_X:
             raise ValueError(f"n_total {self.n_total} leaves fewer than {GAP_X} X rows after the last block")

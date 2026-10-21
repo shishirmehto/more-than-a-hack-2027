@@ -9,6 +9,7 @@ need nothing but the committed repo.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import subprocess
 import sys
@@ -220,7 +221,8 @@ def decoder_known_answer() -> None:
     assert sw[1][1:] == (H, A) and 720 <= sw[1][0] <= 1020, sw
 
     # No evidence at all: H and A tie exactly in theory, and the rounding rule resolves it to H.
-    blind = Decoder(emission, DecoderParams(stride=1)).decode(Half(HalfId("blind", 1, 10), np.full(3000, NO_TEAM, np.int8)))
+    blind_half = Half(HalfId("blind", 1, 10), np.full(3000, NO_TEAM, np.int8))
+    blind = Decoder(emission, DecoderParams(stride=1)).decode(blind_half)
     assert _switches(blind.codes) == [(10, D, H)], _switches(blind.codes)
 
 
@@ -246,12 +248,68 @@ def marginal_equals_enumeration() -> None:
         E = rng.normal(0.0, 1.0, size=(nb, 3))
         weight = chain.init[paths[:, 0]] * np.exp(E[0, decoder.STATE_LABEL[paths[:, 0]]])
         for t in range(1, nb):
-            weight = weight * chain.trans[paths[:, t - 1], paths[:, t]] * np.exp(E[t, decoder.STATE_LABEL[paths[:, t]]])
+            step = chain.trans[paths[:, t - 1], paths[:, t]]
+            weight = weight * step * np.exp(E[t, decoder.STATE_LABEL[paths[:, t]]])
         labels = decoder.STATE_LABEL[paths]
         brute = np.stack([[weight[labels[:, t] == k].sum() for k in (H, A, D)] for t in range(nb)])
         brute /= brute.sum(axis=1, keepdims=True)
         got = decoder._forward_backward(E, chain)
         assert np.abs(got - brute).max() < 1e-12, (trial, np.abs(got - brute).max())
+
+
+def fit_counts_known_answer() -> None:
+    """decoder.fit on one hand-counted half. Labels D 10 | H 50, D 20, A 30, H 40 | X 10 | A 20: the
+    observed transitions are H->D, D->A, A->H only (H->X and the lone A after X are truncated), so
+    p_dead_after_poss = (1 + 1) / (2 + 2) = 0.5 and p_flip_after_dead = (1 + 1) / (1 + 2) = 2/3.
+    Tokens on the 140 alive frames: 20 missing, 90 correct, 30 wrong, so q = (90 + 1) / (120 + 2).
+    Grid fields and the emission's dead_bias / alive_share come back untouched."""
+    labels = _segments([(D, 10), (H, 50), (D, 20), (A, 30), (H, 40), (X, 10), (A, 20)])
+    tok = _segments([(NO_TEAM, 10),
+                     (HOME, 30), (AWAY, 10), (NO_TEAM, 10),            # H 50
+                     (NO_TEAM, 20),                                     # D 20
+                     (AWAY, 20), (HOME, 10),                            # A 30
+                     (HOME, 25), (AWAY, 5), (NO_TEAM, 10),             # H 40
+                     (HOME, 10),                                        # X 10
+                     (AWAY, 15), (HOME, 5)])                           # A 20
+    base = Decoder(Tier0Emission(q=0.5, dead_bias=3.0, alive_share=0.7),
+                   DecoderParams(temper=0.02, poss_mean_s=4.0, stride=1))
+    got = decoder.fit([(Half(HalfId("fit", 1, 10), tok), labels)], base)
+    assert got.emission == Tier0Emission(q=91 / 122, dead_bias=3.0, alive_share=0.7), got.emission
+    assert got.params == DecoderParams(temper=0.02, poss_mean_s=4.0, stride=1,
+                                       p_dead_after_poss=0.5, p_flip_after_dead=2 / 3), got.params
+
+
+def params_load_guards() -> None:
+    """Decoder.load round-trips params/tier0_v0.json through save byte for byte, and refuses a missing
+    field, an unknown field, q = 1, stride 0, "marginal" with a minimum duration, and "map" whose
+    mean is not above its minimum in blocks; it accepts "map" one block above."""
+    v0 = Decoder.load(PARAMS_V0)
+    assert v0 == Decoder(Tier0Emission(q=0.78, dead_bias=1.0, alive_share=0.6), DecoderParams()), v0
+    text = PARAMS_V0.read_text()
+    doc = json.loads(text)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "p.json"
+        v0.save(path, doc["provenance"])
+        assert path.read_text() == text
+
+        def load_with(section: str, **change) -> Decoder:
+            edited = json.loads(text)
+            for key, value in change.items():
+                if value is None:
+                    del edited[section][key]
+                else:
+                    edited[section][key] = value
+            path.write_text(json.dumps(edited))
+            return Decoder.load(path)
+
+        _raises(ValueError, load_with, "params", temper=None)
+        _raises(ValueError, load_with, "params", smoothing=3)
+        _raises(ValueError, load_with, "emission", q=1.0)
+        _raises(ValueError, load_with, "params", stride=0)
+        _raises(ValueError, load_with, "params", min_poss_frames=25)
+        _raises(ValueError, load_with, "params", decode_rule="map", stride=5, poss_mean_s=1.0, min_poss_frames=25)
+        ok = load_with("params", decode_rule="map", stride=5, poss_mean_s=1.2, min_poss_frames=25)
+        assert (ok.params.decode_rule, ok.params.min_poss_frames) == ("map", 25), ok.params
 
 
 def _expanded_hmm(p: DecoderParams):
@@ -396,6 +454,8 @@ CHECKS: tuple[Callable[[], None], ...] = (
     public_window_crosstab,
     decoder_known_answer,
     marginal_equals_enumeration,
+    fit_counts_known_answer,
+    params_load_guards,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     rule_v2_reproduces_measurements,
