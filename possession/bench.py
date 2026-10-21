@@ -23,8 +23,9 @@ Selection protocol (the part a person would otherwise improvise):
   * per-game rows are reported next to the pooled row so a win that lives in one game is visible;
   * paired_delta before reading any gap: two decoders on one case share their GT spells, so compare
     on those, not on two unpaired intervals.
-Decode costs ~0.06 s per half at stride 5 (measured); pm.evaluate ~0.3 s on the pooled dev layout,
-3 ms on the public window. A 135-config x 3-world grid is a few minutes.
+Measured here: decoding the six dev halves takes 0.19 s at stride 5 ("map" 0.18-0.42 s) and
+pm.evaluate on dev_pooled 0.04-0.12 s, so sweep 1 (288 candidates x 4 worlds, params/tier0_v1.json)
+ran in 300 s.
 """
 from __future__ import annotations
 
