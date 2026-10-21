@@ -14,7 +14,7 @@ Determinism: no randomness outside dropout.challengeify (seeded, per-stream); de
 deterministic. Same inputs, same table, bit for bit.
 
 Selection protocol (the part a person would otherwise improvise):
-  * a "world" is a DevSpec: merge_s x dead_bias (x seed). Both axes are UNKNOWN for the real match
+  * a "world" is a DevSpec: label rule x dead_bias (x seed). Both axes are UNKNOWN for the real match
     (label convention; real P(missing | dead)), so no single world is ground truth;
   * a decoder is scored on every world; the winner maximises the MINIMUM pooled spellF1 across worlds,
     ties broken by the mean (max-min). Measured on a synthetic proxy, a decoder that believes
@@ -63,7 +63,7 @@ class Flicker(ValueError):
 class DevSpec:
     """One dev world. Everything that shapes the dev data, nothing else.
 
-    rule:      label rule (merge_s axis).
+    rule:      label rule (merge_s and controlled-possession hold_s / min_passes axes).
     dropout:   generator (dead_bias axis, target rate, ...).
     seed:      dropout seed; labels are seed-free.
     ball_fill: how native Metrica NaN are replaced before dropout ("hold" | "linear").
@@ -166,18 +166,19 @@ def pooled(cases: Sequence[Case]) -> Case:
     return next(c for c in cases if c.name == "dev_pooled")
 
 
-def worlds(merge_s: Sequence[float], dead_bias: Sequence[float], *, seed: int = 0,
+def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seed: int = 0,
            mode: Literal["renewal", "transplant"] = "renewal") -> dict[str, list[Case]]:
-    """dev_cases for every (merge_s, dead_bias), keyed "m{merge_s:g}_r{dead_bias:g}", merge_s-major.
-    "transplant" ignores dead_bias, so it builds one world per merge_s, keyed "m{merge_s:g}_transplant".
-    Labels load once per merge_s; dropout is drawn per world, because the renewal draw reads the labels."""
+    """dev_cases for every (rule, dead_bias), keyed "{rule.key}_r{dead_bias:g}" ("m2_r1", "h3p3_r1"),
+    rule-major. "transplant" ignores dead_bias, so it builds one world per rule, keyed
+    "{rule.key}_transplant". Labels load once per rule; dropout is drawn per world, because the renewal
+    draw reads the labels."""
     out = {}
-    for m in merge_s:
-        clean = metrica.load(RuleV2(m))
+    for rule in rules:
+        clean = metrica.load(rule)
         generators = ({"transplant": DropoutParams(mode="transplant")} if mode == "transplant"
                       else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
         for key, params in generators.items():
-            out[f"m{m:g}_{key}"] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
+            out[f"{rule.key}_{key}"] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
     return out
 
 
