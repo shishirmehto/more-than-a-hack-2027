@@ -17,7 +17,7 @@ bakeoff; a labelled proxy, to be re-run on the Metrica dev set):
         (spellF1 0.02 vs 0.35), while at a tuned temper the two were within 0.02.
       "map": exact most-likely segmentation under shifted-geometric durations with a hard minimum
         (`min_poss_frames`, `min_dead_frames`), by prefix sums in O(n K^2). Equal to Viterbi on the
-        expanded chain-state HMM to 7e-14 (bakeoff probe); 0.21 s per 79k-frame half at stride 1.
+        expanded chain-state HMM to 7e-14 (bakeoff probe); 0.17-0.20 s per 79k-frame half at stride 1.
     "marginal" supports only min durations of 1 (a minimum needs the expanded chain; measured worth
     +0.006..0.008 at 1 s and negative from 2 s under posterior decoding, so it is not offered).
   * D remembers who last had the ball (D_after_H, D_after_A). A stoppage then carries the flip prior
@@ -32,8 +32,9 @@ bakeoff; a labelled proxy, to be re-run on the Metrica dev set):
     geometry-derived dev tokens whose errors are bursty.
 
 Decoding runs per half, on blocks of `stride` frames (evidence summed per block, partial last block
-allowed), then upsampled. Measured: K = 4 forward-backward costs 0.31 s per 79k-frame half at stride 1
-and 0.06 s at stride 5, so a 100-config x 3-world x 6-half grid is minutes, not hours.
+allowed), then upsampled. Measured on the baseline_raw halves: K = 4 forward-backward costs 0.17 s per
+79k-frame half at stride 1 and 0.03 s at stride 5, so a 100-config x 3-world x 6-half grid is minutes,
+not hours.
 """
 from __future__ import annotations
 
@@ -130,7 +131,7 @@ class DecoderParams:
     dead_mean_s:        mean D stretch in seconds.                                              (grid)
     p_dead_after_poss:  P(next segment is D | a possession ends).                               (fit)
     p_flip_after_dead:  P(next possession is the OTHER team | a D stretch ends).                (fit)
-    stride:             frames per decode block. Speed knob: 5 by default, 1 allowed (0.31 s per half).
+    stride:             frames per decode block. Speed knob: 5 by default, 1 allowed (0.17 s per half).
     decode_rule:        "marginal" | "map", see the module docstring.                         (grid)
     min_poss_frames:    hard minimum H/A segment length in frames; "map" only, 1 = none.        (grid)
     min_dead_frames:    hard minimum D segment length in frames; "map" only, 1 = none.          (grid)
