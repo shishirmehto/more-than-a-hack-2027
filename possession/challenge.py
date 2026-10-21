@@ -90,4 +90,5 @@ def _halves_from_baseline_raw() -> tuple[Half, Half]:
 def load_geometry(data_dir: str | Path | None = None) -> tuple[Geometry, Geometry]:
     raise NotImplementedError(
         "challenge.load_geometry: the ATD parser is not written yet (the gated data is not on disk). "
-        "Use halves('baseline_raw') until it lands; the docstring states what it must return.")
+        "Use halves('baseline_raw') until it lands; possession/DESIGN.md, 'Where the ATD plugs in', "
+        "states what it must return.")
