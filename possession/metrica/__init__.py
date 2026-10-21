@@ -19,6 +19,8 @@ Three internal modules, split by the knowledge each owns, not by pipeline order:
     fetch.py  where the files are and that they are the right bytes
     raw.py    the two file formats (CSV pair + CSV events, EPTS txt + xml + JSON events)
     rule.py   what football events mean for who has the ball
+
+`python -m possession.metrica` prints the acceptance table for the labels (see __main__.py).
 """
 from __future__ import annotations
 
@@ -31,7 +33,7 @@ from numpy.typing import NDArray
 from ..half import CleanHalf, Geometry, HalfId
 from . import raw
 from .fetch import COMMIT, fetch
-from .rule import RuleV2, label_period
+from .rule import VERSION, RuleV2, label_period
 
 __all__ = ["COMMIT", "fetch", "load", "RuleV2"]
 
@@ -40,23 +42,27 @@ GAMES = (1, 2, 3)
 
 def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hold",
          games: tuple[int, ...] = GAMES, data_dir: str | Path | None = None) -> tuple[CleanHalf, ...]:
-    """Parse + label + fill. Raises one readable error naming every missing file and the fetch command.
+    """Parse + label + fill. A game whose files are missing raises one error naming them and the fetch command.
 
     Parsing (raw.parse_game) is memoised per (game, data_dir): sweeps that re-label with other
     `merge_s` or re-draw dropout never re-read 183 MB. Labelling is ~0.1 s per game.
     """
-    # TODO: halves = []
-    #       for g in games:
-    #           raw_game = raw.parse_game(g, str(data_dir))                 # cached
-    #           for period in raw_game.periods:
-    #               ev = raw_game.events[raw_game.events.period == period.period]
-    #               pl = label_period(ev, frame0=period.frame0, n=len(period.ball_xy), rule=rule)
-    #               geom = Geometry(fill_ball(period.ball_xy[:pl.stop], ball_fill),
-    #                               period.players_xy[:pl.stop], period.slot_team, raw.PITCH_M)
-    #               halves.append(CleanHalf(HalfId(f"metrica_g{g}", period.period, pl.kickoff),
-    #                                       geom, pl.labels, provenance))
-    #       return tuple(halves)
-    raise NotImplementedError
+    data_dir = None if data_dir is None else str(data_dir)
+    halves = []
+    for game in games:
+        parsed = raw.parse_game(game, data_dir)
+        for period in parsed.periods:
+            events = parsed.events[parsed.events["period"] == period.period]
+            n = len(period.ball_xy)
+            labelled = label_period(events, frame0=period.frame0, n=n, rule=rule)
+            geometry = Geometry(fill_ball(period.ball_xy[:labelled.stop], ball_fill),
+                                period.players_xy[:labelled.stop], period.slot_team, raw.PITCH_M)
+            provenance = {"rule": VERSION, "merge_s": rule.merge_s, "pre_kickoff": "D", "ball_fill": ball_fill,
+                          "sample_data_commit": COMMIT, "source_frame0": period.frame0,
+                          "source_frames": n, "block_frames": labelled.stop}
+            halves.append(CleanHalf(HalfId(f"metrica_g{game}", period.period, labelled.kickoff),
+                                    geometry, labelled.labels, provenance))
+    return tuple(halves)
 
 
 def fill_ball(ball_xy: NDArray[np.float32], how: Literal["hold", "linear"]) -> NDArray[np.float32]:
@@ -67,6 +73,16 @@ def fill_ball(ball_xy: NDArray[np.float32], how: Literal["hold", "linear"]) -> N
     the ball. "linear": np.interp over indices; gives the dead ball a constant velocity that a
     ball-speed feature would read as live play (a different leak), so it is the option, not the default.
     """
-    # TODO: idx = np.flatnonzero(~np.isnan(ball_xy[:, 0])); hold -> idx of last observed via
-    #       np.maximum.accumulate(where(observed, arange, 0)), head -> first observed; linear -> np.interp per axis.
-    raise NotImplementedError
+    n = len(ball_xy)
+    observed = ~np.isnan(ball_xy).any(axis=1)
+    if not observed.any():
+        raise ValueError("ball is never observed in this half")
+    if how == "hold":
+        first = int(np.argmax(observed))
+        last_seen = np.maximum.accumulate(np.where(observed, np.arange(n), first))
+        return ball_xy[last_seen]
+    if how == "linear":
+        seen = np.flatnonzero(observed)
+        return np.stack([np.interp(np.arange(n), seen, ball_xy[seen, axis]) for axis in (0, 1)],
+                        axis=1).astype(np.float32)
+    raise ValueError(f"ball_fill must be 'hold' or 'linear', got {how!r}")
