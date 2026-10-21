@@ -107,8 +107,8 @@ class Case:
         self.gt.setflags(write=False)
 
     def predict(self, model: Decoder) -> list[NDArray[np.int8]]:
-        """One int8 [block.n] per half: `model.decode(h).codes`. Used for scoring AND for the submission,
-        so the file that gets scored on the public window is the file that gets written."""
+        """One int8 [block.n] per half: `model.decode(h).codes`. make-submission decodes the same
+        halves without a Case; selfcheck.public_case_predict_equals_submission pins the two equal."""
         return [model.decode(h).codes for h in self.halves]
 
 
@@ -137,7 +137,7 @@ def _dev_cases(clean: Sequence[CleanHalf], halves: Sequence[Half]) -> list[Case]
 def public_case(source: Literal["baseline_raw", "atd"] = "baseline_raw") -> Case:
     """BAR-ATH: challenge.halves(source), challenge.layout(), GT = public CSV via score.read_codes
     (evaluation/gt/BAR-ATH_possession_gt_public.csv; real labels only on rows [11185, 18685)).
-    Also the submission case: make-submission writes `case.predict(model)` through score.write_submission."""
+    make-submission decodes the same two halves without building this case."""
     layout = challenge.layout()
     return Case("public", layout, tuple(challenge.halves(source)), score.read_codes(PUBLIC_GT, layout.n_total))
 

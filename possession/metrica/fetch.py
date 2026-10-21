@@ -20,6 +20,7 @@ import os
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import BinaryIO
 
 import games  # repo-root module, stdlib only; frozen
 
@@ -44,21 +45,22 @@ FILES: dict[int, dict[str, str]] = {
 MANIFEST = Path(__file__).with_name("manifest.json")
 
 
-def data_dir_default() -> Path:
-    """games.DATA_DIR / "metrica_sample". Honours MTAH_DATA_DIR like every other asset path."""
-    return Path(games.DATA_DIR) / "metrica_sample"
+def root(data_dir: str | Path | None = None) -> Path:
+    """data_dir, or games.DATA_DIR / "metrica_sample" when None. Honours MTAH_DATA_DIR like every
+    other asset path."""
+    return Path(games.DATA_DIR) / "metrica_sample" if data_dir is None else Path(data_dir)
 
 
 def paths(game: int, data_dir: str | Path | None = None) -> dict[str, Path]:
     """Local paths for one game, like games.require: raises ONE IOError naming every missing file
     plus the exact command to run (`python -m possession fetch-metrica`). Existence only, no hashing
     (hashing 183 MB on every load would be the wrong cost); `fetch` is where bytes are verified."""
-    root = _root(data_dir)
-    found = {role: _local(root, rel) for role, rel in FILES[game].items()}
+    folder = root(data_dir)
+    found = {role: _local(folder, rel) for role, rel in FILES[game].items()}
     missing = [str(path) for path in found.values() if not path.is_file()]
     if missing:
         raise IOError("Metrica sample data not found:\n  {}\n\nRun `python -m possession fetch-metrica` "
-                      "(about 183 MB into {}).".format("\n  ".join(missing), root))
+                      "(about 183 MB into {}).".format("\n  ".join(missing), folder))
     return found
 
 
@@ -70,23 +72,19 @@ def fetch(data_dir: str | Path | None = None, *, write_manifest: bool = False) -
     both digests. With write_manifest=True the digests are recorded instead of compared (local
     files are hashed, missing ones downloaded). ~183 MB total.
     """
-    root = _root(data_dir)
+    folder = root(data_dir)
     expected = {} if write_manifest else _read_manifest()
     recorded: dict[str, dict[str, object]] = {}
     local = []
     for files in FILES.values():
         for rel in files.values():
-            dest = _local(root, rel)
-            want = None if write_manifest else expected[rel]["sha256"]
+            dest = _local(folder, rel)
+            want = expected[rel]["sha256"] if expected else None
             recorded[rel] = _ensure(rel, dest, want)
             local.append(dest)
     if write_manifest:
         _write_manifest(recorded)
     return local
-
-
-def _root(data_dir: str | Path | None) -> Path:
-    return data_dir_default() if data_dir is None else Path(data_dir)
 
 
 def _local(root: Path, rel: str) -> Path:
@@ -110,19 +108,22 @@ def _write_manifest(files: dict[str, dict[str, object]]) -> None:
     os.replace(tmp, MANIFEST)
 
 
-def _hash_file(path: Path) -> tuple[str, int]:
+def _copy_hashing(src: BinaryIO, dst: BinaryIO | None = None) -> tuple[str, int]:
+    """Read `src` to its end in 1 MiB chunks, writing each to `dst` when given: (sha256 hex, bytes)."""
     digest, size = hashlib.sha256(), 0
-    with open(path, "rb") as f:
-        while chunk := f.read(1 << 20):
-            digest.update(chunk)
-            size += len(chunk)
+    while chunk := src.read(1 << 20):
+        if dst is not None:
+            dst.write(chunk)
+        digest.update(chunk)
+        size += len(chunk)
     return digest.hexdigest(), size
 
 
 def _ensure(rel: str, dest: Path, want: str | None) -> dict[str, object]:
     """Leave `dest` holding the bytes whose sha256 is `want` (any bytes if None); return its manifest entry."""
     if dest.is_file():
-        have, size = _hash_file(dest)
+        with open(dest, "rb") as f:
+            have, size = _copy_hashing(f)
         if want is None or have == want:
             print(f"ok       {rel}")
             return {"sha256": have, "bytes": size}
@@ -130,17 +131,13 @@ def _ensure(rel: str, dest: Path, want: str | None) -> dict[str, object]:
     fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=dest.name + ".", suffix=".part")
     tmp = Path(tmp_name)
     try:
-        digest, size = hashlib.sha256(), 0
         with os.fdopen(fd, "wb") as out, urllib.request.urlopen(RAW_URL.format(commit=COMMIT, path=rel), timeout=60) as resp:
-            while chunk := resp.read(1 << 20):
-                out.write(chunk)
-                digest.update(chunk)
-                size += len(chunk)
-        if want is not None and digest.hexdigest() != want:
-            raise ValueError(f"{rel}: downloaded sha256 {digest.hexdigest()}, manifest says {want}")
+            have, size = _copy_hashing(resp, out)
+        if want is not None and have != want:
+            raise ValueError(f"{rel}: downloaded sha256 {have}, manifest says {want}")
         os.replace(tmp, dest)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
     print(f"fetched  {rel}  {size:,} bytes")
-    return {"sha256": digest.hexdigest(), "bytes": size}
+    return {"sha256": have, "bytes": size}

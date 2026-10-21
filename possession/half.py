@@ -226,15 +226,12 @@ class Layout:
             raise ValueError(f"n_total {self.n_total} leaves fewer than {GAP_X} X rows after the last block")
 
     @staticmethod
-    def synthetic(sizes: Sequence[int], gap: int = GAP_X) -> Layout:
-        """gap, then each block followed by gap. n_total = gap + sum(size + gap).
-        Raises ValueError if gap < GAP_X: a short gap would let pm.match_transitions pair transitions across halves."""
-        if gap < GAP_X:
-            raise ValueError(f"gap {gap} < GAP_X {GAP_X}")
-        blocks, origin = [], gap
+    def synthetic(sizes: Sequence[int]) -> Layout:
+        """GAP_X X rows, then each block followed by GAP_X X rows. n_total = GAP_X + sum(size + GAP_X)."""
+        blocks, origin = [], GAP_X
         for size in sizes:
             blocks.append(Block(origin=origin, n=int(size)))
-            origin += int(size) + gap
+            origin += int(size) + GAP_X
         return Layout(n_total=origin, blocks=tuple(blocks))
 
     def assemble(self, parts: Sequence[NDArray[np.int8]]) -> NDArray[np.int8]:

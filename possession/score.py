@@ -15,12 +15,11 @@ from __future__ import annotations
 
 import fnmatch
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Sequence
 
 import numpy as np
-import pandas as pd
 from numpy.typing import NDArray
 
 import games  # single source of truth for match constants (CLAUDE.md); never re-typed here
@@ -58,25 +57,23 @@ class Scores:
     spell_ci: tuple[float, float] | None = None  # (low, high) when bootstrap_n > 0
 
     def as_row(self) -> dict[str, float | int | None]:
-        """Flat dict; spell_ci split into spell_lo / spell_hi. Column order is stable."""
-        lo, hi = self.spell_ci if self.spell_ci is not None else (None, None)
-        return {
-            "spell_f1": self.spell_f1, "macro_f1": self.macro_f1,
-            "n_pred_spells": self.n_pred_spells, "n_gt_spells": self.n_gt_spells,
-            "mean_spell_s": self.mean_spell_s, "gt_mean_spell_s": self.gt_mean_spell_s,
-            "f1_h": self.f1_h, "f1_a": self.f1_a, "f1_d": self.f1_d,
-            "alive_dead_f1": self.alive_dead_f1,
-            "trans12_f1": self.trans12_f1, "trans25_f1": self.trans25_f1,
-            "n_graded": self.n_graded, "spell_lo": lo, "spell_hi": hi,
-        }
+        """Flat dict in field order, with spell_ci split into spell_lo / spell_hi at the end."""
+        row = {f.name: getattr(self, f.name) for f in fields(self) if f.name != "spell_ci"}
+        row["spell_lo"], row["spell_hi"] = self.spell_ci if self.spell_ci is not None else (None, None)
+        return row
 
 
 def _assemble_checked(layout: Layout, gt: NDArray[np.int8],
                       preds: Sequence[NDArray[np.int8]]) -> NDArray[np.int8]:
-    """The range guard: GT in 0..3 and scorer-length, every prediction in 0..2 (no X inside a half)."""
+    """The range guard: GT in 0..3 and scorer-length, then _assemble_preds."""
     check_codes(gt, allow_x=True)
     if len(gt) != layout.n_total:
         raise ValueError(f"gt has {len(gt)} rows, layout {layout.n_total}")
+    return _assemble_preds(layout, preds)
+
+
+def _assemble_preds(layout: Layout, preds: Sequence[NDArray[np.int8]]) -> NDArray[np.int8]:
+    """Every prediction in 0..2 (no X inside a half), assembled with X outside the blocks."""
     for p in preds:
         check_codes(p, allow_x=False)
     return layout.assemble(preds)
@@ -132,6 +129,24 @@ def valid_runs(gt: NDArray[np.int8]) -> list[tuple[int, int]]:
     return pm.valid_runs(gt)
 
 
+def segments(codes: NDArray[np.int8], runs: Sequence[tuple[int, int]]) -> list[tuple[int, int, int]]:
+    """pm.segments: (start, stop, code) of each constant-label run, encoded inside each run separately."""
+    check_codes(codes, allow_x=True)
+    return pm.segments(codes, runs)
+
+
+def possession_spells(codes: NDArray[np.int8], runs: Sequence[tuple[int, int]]) -> list[tuple[int, int, int]]:
+    """pm.possession_spells: the segments whose code is H or A, the possessions the metric counts."""
+    check_codes(codes, allow_x=True)
+    return pm.possession_spells(codes, runs)
+
+
+def transitions(codes: NDArray[np.int8], runs: Sequence[tuple[int, int]]) -> list[tuple[int, int, int]]:
+    """pm.transitions: (frame, from_code, to_code) of each label change inside a run."""
+    check_codes(codes, allow_x=True)
+    return pm.transitions(codes, runs)
+
+
 def matched_flags(layout: Layout, gt: NDArray[np.int8],
                   preds: Sequence[NDArray[np.int8]]) -> tuple[NDArray[np.bool_], int]:
     """(flags, n_pred_spells). flags: bool [len(pm.SPELL_IOUS), n_gt_spells], True where a GT
@@ -165,14 +180,14 @@ def read_codes(path: str | Path, n_expected: int | None = None) -> NDArray[np.in
 
 
 def write_submission(layout: Layout, preds: Sequence[NDArray[np.int8]], path: str | Path) -> Path:
-    """Assemble, validate with pm.validate_submission, then write `frame,label` to `path`.
+    """Assemble (range-checked), then write `frame,label` to `path`.
 
     Byte-for-byte reproducibility lives here: header `frame,label`, one `{i},{L}` line per row, LF
     newlines written explicitly (no platform newline translation, no pandas to_csv), labels from
-    "HADX"[code]. Writes to `path` via a temp file in the same directory and an atomic rename, so a
-    crash never leaves a half file that run_evaluation.py would score. The temp file is read back
-    through read_codes before the rename. Refuses a path whose file name matches baseline_*.csv
-    (those are committed) or *_possession_gt*.
+    pm.LABELS[code]. Writes to `path` via a temp file in the same directory and an atomic rename, so a
+    crash never leaves a half file that run_evaluation.py would score. Before the rename the temp
+    file is read back through read_codes, which runs pm.validate_submission on the written bytes.
+    Refuses a path whose file name matches baseline_*.csv (those are committed) or *_possession_gt*.
     """
     path = Path(path)
     for pattern in REFUSED_NAMES:
@@ -181,13 +196,8 @@ def write_submission(layout: Layout, preds: Sequence[NDArray[np.int8]], path: st
     n = games.source_frames("tactical")
     if layout.n_total != n:
         raise ValueError(f"layout has {layout.n_total} rows, the submission needs {n}")
-    for p in preds:
-        check_codes(p, allow_x=False)
-    codes = layout.assemble(preds)
-    letters = np.array(list("HADX"))[codes]
-    reason = pm.validate_submission(pd.DataFrame({"frame": np.arange(n), "label": letters}), n)
-    if reason:
-        raise ValueError(f"assembled submission is invalid: {reason}")
+    codes = _assemble_preds(layout, preds)
+    letters = np.array(pm.LABELS)[codes]
 
     text = "frame,label\n" + "".join(f"{i},{c}\n" for i, c in enumerate(letters.tolist()))
     tmp = path.with_name(f".{path.name}.tmp")  # not *.csv, so run_evaluation.py never globs it

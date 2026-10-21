@@ -29,7 +29,6 @@ from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, 
                    Layout, check_codes)
 
 REPO = Path(__file__).resolve().parents[1]
-PUBLIC_GT = REPO / "evaluation" / "gt" / "BAR-ATH_possession_gt_public.csv"
 PARAMS_V0 = REPO / "params" / "tier0_v0.json"
 N_ROWS = 199_319
 
@@ -51,8 +50,7 @@ def _segments(spec: list[tuple[int, int]]) -> np.ndarray:
 
 
 def _switches(codes: np.ndarray) -> list[tuple[int, int, int]]:
-    at = np.flatnonzero(codes[1:] != codes[:-1]) + 1
-    return [(int(i), int(codes[i - 1]), int(codes[i])) for i in at]
+    return score.transitions(codes, [(0, len(codes))])
 
 
 def _spell_f1_is_evaluate(layout: Layout, gt: np.ndarray, preds: list[np.ndarray]) -> float:
@@ -80,7 +78,7 @@ def oracle_scores_one() -> None:
     assert 0 < _spell_f1_is_evaluate(layout, synthetic_gt, [np.roll(block, 70)] * 6) < 1
 
     public = challenge.layout()
-    gt = score.read_codes(PUBLIC_GT, N_ROWS)
+    gt = score.read_codes(bench.PUBLIC_GT, N_ROWS)
     preds = [np.where(part == X, D, part).astype(np.int8) for part in public.cut(gt)]
     s = score.evaluate(public, gt, preds)
     assert (s.spell_f1, s.macro_f1, s.n_gt_spells, s.n_pred_spells, s.n_graded) == (1.0, 1.0, 17, 17, 7500), s
@@ -94,12 +92,12 @@ def oracle_scores_one() -> None:
 
 def layout_splits_halves() -> None:
     """pm.valid_runs(Layout.synthetic([100, 100]).assemble([...no X inside...])) == exactly two runs,
-    each of the block's size; Layout.synthetic(..., gap=10) raises (GAP_X = 500 is the floor)."""
+    each of the block's size; Layout refuses fewer than GAP_X = 500 X rows before, between or after
+    its blocks."""
     layout = Layout.synthetic([100, 100])
     assert layout.n_total == 1700, layout
     runs = score.valid_runs(layout.assemble([np.full(100, H, np.int8)] * 2))
     assert runs == [(500, 600), (1100, 1200)], runs
-    _raises(ValueError, Layout.synthetic, [100, 100], gap=10)
     assert Layout(1100, (Block(500, 100),)).n_total == 1100
     _raises(ValueError, Layout, 1700, (Block(500, 100), Block(650, 100)))
     _raises(ValueError, Layout, 1100, (Block(499, 100),))
@@ -196,7 +194,7 @@ def public_window_crosstab() -> None:
     """Token vs public GT on rows [11185, 18685): GT D (1469) -> NO_TEAM 494 / HOME 790 / AWAY 185.
     The numbers that proved baseline_raw's D is a mask; a regression here means someone relabelled it.
     The H and A rows are pinned too: GT H (3454) -> 5 / 2750 / 699, GT A (2577) -> 386 / 551 / 1640."""
-    gt = score.read_codes(PUBLIC_GT, N_ROWS)[11185:18685]
+    gt = score.read_codes(bench.PUBLIC_GT, N_ROWS)[11185:18685]
     first = challenge.layout().blocks[0].origin
     token = challenge.halves("baseline_raw")[0].nearest_team[11185 - first:18685 - first]
     table = [[int(((gt == g) & (token == t)).sum()) for t in (NO_TEAM, HOME, AWAY)] for g in (H, A, D)]
@@ -467,8 +465,7 @@ def dropout_hits_both_constraints() -> None:
 
 
 def _n_spells(labels: np.ndarray) -> int:
-    starts = np.concatenate(([0], np.flatnonzero(labels[1:] != labels[:-1]) + 1))
-    return int((labels[starts] != D).sum())
+    return len(score.possession_spells(labels, [(0, len(labels))]))
 
 
 def rule_v2_reproduces_measurements() -> None:
@@ -518,8 +515,8 @@ def submission_is_byte_stable() -> None:
     """make-submission twice, in two separate processes, from params/tier0_v0.json -> identical
     sha256; file is 199,320 lines (header + rows), frames 0..199318 in order, every row in HADX, X
     exactly on the 40,462 rows outside games.half_video_blocks, the 2,934 graded pre-kickoff rows of
-    half 2 D, pm.validate_submission passes, and the file's public-window score equals the score of
-    the same params decoded in memory (public_case_predict_equals_submission pins the bench side)."""
+    half 2 D, and pm.validate_submission passes. public_case_predict_equals_submission pins the
+    written rows to the in-memory decode."""
     with tempfile.TemporaryDirectory() as tmp:
         outs = [Path(tmp) / f"run{i}.csv" for i in (1, 2)]
         for out in outs:
@@ -528,7 +525,7 @@ def submission_is_byte_stable() -> None:
                            cwd=REPO, check=True, capture_output=True)
         first, second = (out.read_bytes() for out in outs)
         assert hashlib.sha256(first).hexdigest() == hashlib.sha256(second).hexdigest()
-        codes = score.read_codes(outs[0], N_ROWS)
+        score.read_codes(outs[0], N_ROWS)  # raises unless pm.validate_submission passes
 
     lines = first.decode("ascii").split("\n")
     assert lines[0] == "frame,label" and lines[-1] == "" and len(lines) - 1 == 199_320, len(lines)
@@ -541,13 +538,6 @@ def submission_is_byte_stable() -> None:
     assert set(labels[graded].tolist()) == {"H", "A", "D"}
     assert (labels[~graded] == "X").all() and int((~graded).sum()) == 40_462
     assert (labels[110_808:113_742] == "D").all()
-
-    layout = challenge.layout()
-    gt = score.read_codes(PUBLIC_GT, N_ROWS)
-    from_file = score.evaluate(layout, gt, layout.cut(codes))
-    model = Decoder.load(PARAMS_V0)
-    in_memory = score.evaluate(layout, gt, [model.decode(h).codes for h in challenge.halves("baseline_raw")])
-    assert from_file == in_memory, (from_file, in_memory)
 
 
 CHECKS: tuple[Callable[[], None], ...] = (

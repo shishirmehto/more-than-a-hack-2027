@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from .fetch import data_dir_default, paths
+from .fetch import paths, root
 
 PITCH_M = (105.0, 68.0)
 _EPTS_SLOTS = 22
@@ -84,8 +84,7 @@ def parse_game(game: int, data_dir: str | Path | None = None) -> RawGame:
     a sane window (-0.2..1.2 before scaling; the ball may be off-pitch); both periods present; every
     event's start frame falls inside its period's frame range.
     """
-    root = data_dir_default() if data_dir is None else Path(data_dir)
-    return _parse_cached(game, str(root.resolve()))
+    return _parse_cached(game, str(root(data_dir).resolve()))
 
 
 @functools.cache

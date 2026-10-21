@@ -41,7 +41,7 @@ GAMES = (1, 2, 3)
 
 
 def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hold",
-         games: tuple[int, ...] = GAMES, data_dir: str | Path | None = None) -> tuple[CleanHalf, ...]:
+         data_dir: str | Path | None = None) -> tuple[CleanHalf, ...]:
     """Parse + label + fill. A game whose files are missing raises one error naming them and the fetch command.
 
     Parsing (raw.parse_game) is memoised per (game, data_dir): sweeps that re-label with other
@@ -49,17 +49,18 @@ def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hol
     game, and a warm `load` of all six halves is about 0.04 s.
     """
     halves = []
-    for game in games:
+    for game in GAMES:
         parsed = raw.parse_game(game, data_dir)
         for period in parsed.periods:
             events = parsed.events[parsed.events["period"] == period.period]
             n = len(period.ball_xy)
             labelled = label_period(events, frame0=period.frame0, n=n, rule=rule)
-            geometry = Geometry(fill_ball(period.ball_xy[:labelled.stop], ball_fill),
-                                period.players_xy[:labelled.stop], period.slot_team, raw.PITCH_M)
+            stop = len(labelled.labels)
+            geometry = Geometry(fill_ball(period.ball_xy[:stop], ball_fill),
+                                period.players_xy[:stop], period.slot_team, raw.PITCH_M)
             provenance = {"rule": VERSION, "merge_s": rule.merge_s, "pre_kickoff": "D", "ball_fill": ball_fill,
                           "sample_data_commit": COMMIT, "source_frame0": period.frame0,
-                          "source_frames": n, "block_frames": labelled.stop}
+                          "source_frames": n, "block_frames": stop}
             halves.append(CleanHalf(HalfId(f"metrica_g{game}", period.period, labelled.kickoff),
                                     geometry, labelled.labels, provenance))
     return tuple(halves)

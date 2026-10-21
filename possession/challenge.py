@@ -48,11 +48,17 @@ def layout() -> Layout:
     games.half_video_blocks(GAME).
 
     (half, first, last) -> Block(origin=first, n=last - first + 1) = (11185, 79467), (110808, 79390).
-    Kickoff local index = KICKOFF_ROW[half] - first (0 and 2934).
     """
     blocks = tuple(Block(origin=first, n=last - first + 1)
                    for _, first, last in games.half_video_blocks(GAME))
     return Layout(n_total=games.source_frames("tactical"), blocks=blocks)
+
+
+def _half_ids() -> tuple[HalfId, HalfId]:
+    """One HalfId per block of layout(), in half order. Kickoff local index = KICKOFF_ROW[half] - the
+    block's origin (0 and 2934)."""
+    h1, h2 = (HalfId(GAME, half, KICKOFF_ROW[half] - b.origin) for half, b in enumerate(layout().blocks, start=1))
+    return h1, h2
 
 
 def nearest_team(g: Geometry) -> NDArray[np.int8]:
@@ -90,17 +96,15 @@ def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
            data_dir: str | Path | None = None) -> tuple[Half, Half]:
     """The two decoder inputs for BAR-ATH from the chosen source. THE seam; see module docstring."""
     if source == "baseline_raw":
-        return _halves_from_baseline_raw(BASELINE_RAW)
+        return _halves_from_baseline_raw()
     if source == "atd":
-        first = {half: first for half, first, _ in games.half_video_blocks(GAME)}
-        g1, g2 = load_geometry(data_dir)
-        return (observe(g1, HalfId(GAME, 1, KICKOFF_ROW[1] - first[1])),
-                observe(g2, HalfId(GAME, 2, KICKOFF_ROW[2] - first[2])))
+        (g1, g2), (id1, id2) = load_geometry(data_dir), _half_ids()
+        return observe(g1, id1), observe(g2, id2)
     raise ValueError(f"unknown source {source!r}; have 'baseline_raw', 'atd'")
 
 
 @functools.cache
-def _halves_from_baseline_raw(path: Path) -> tuple[Half, Half]:
+def _halves_from_baseline_raw() -> tuple[Half, Half]:
     """baseline_raw.csv -> tier-0 Halves. READ THIS BEFORE TOUCHING.
 
     In that file label D means "ball not observed" (85,831 rows == 199,319 - 113,488 ball-present
@@ -110,10 +114,10 @@ def _halves_from_baseline_raw(path: Path) -> tuple[Half, Half]:
 
     Cached per process (every dev world's dropout pool reads it); a Half's arrays are read-only.
     """
-    codes = score.read_codes(path, n_expected=games.source_frames("tactical"))
+    full = layout()
+    codes = score.read_codes(BASELINE_RAW, n_expected=full.n_total)
     token = np.where(codes == D, NO_TEAM, codes).astype(np.int8)
-    h1, h2 = (Half(HalfId(GAME, half, KICKOFF_ROW[half] - first), token[first:last + 1].copy())
-              for half, first, last in games.half_video_blocks(GAME))
+    h1, h2 = (Half(id, part.copy()) for id, part in zip(_half_ids(), full.cut(token)))
     return h1, h2
 
 

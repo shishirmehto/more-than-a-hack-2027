@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from .. import score
 from ..half import D, FPS
 
 VERSION = "v2"
@@ -38,10 +39,9 @@ class RuleV2:
 
 @dataclass(frozen=True, slots=True)
 class PeriodLabels:
-    """labels: int8 [stop] in {0,1,2}. kickoff: local index. stop: exclusive end of the block."""
+    """labels: int8 in {0,1,2} over the block, local frames [0, len(labels)). kickoff: local index."""
     labels: NDArray[np.int8]
     kickoff: int
-    stop: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,12 +96,12 @@ def matches(trigger: Trigger, events: pd.DataFrame) -> NDArray[np.bool_]:
 
 
 def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> PeriodLabels:
-    """One period's events -> labels over local frames [0, stop).
+    """One period's events -> labels over local frames [0, stop), stop = the last event end + 1.
 
     events: rows of one period in raw.EVENT_COLUMNS, `start`/`end` in source Frame numbers.
     frame0: source Frame of local index 0.  n: tracking frames in the period.
 
-    Invariants of the result: values in {0,1,2}; labels[:kickoff] == D; kickoff < stop <= n;
+    Invariants of the result: values in {0,1,2}; labels[:kickoff] == D; kickoff < len(labels) <= n;
     deterministic (stable sorts only, ties resolved to the later source row).
     """
     events = events.sort_values("start", kind="stable")
@@ -137,7 +137,7 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
     labels = labels[:stop]
     if rule.merge_s > 0:
         labels = _merge_short(labels, rule.merge_s * FPS)
-    return PeriodLabels(labels, kickoff, stop)
+    return PeriodLabels(labels, kickoff)
 
 
 def _covered(n: int, first: NDArray[np.int64], last: NDArray[np.int64]) -> NDArray[np.bool_]:
@@ -151,8 +151,7 @@ def _merge_short(labels: NDArray[np.int8], min_frames: float) -> NDArray[np.int8
     """Repeatedly take the shortest possession run under min_frames that directly follows another
     possession run (leftmost on ties) and give it that run's label, until none is left. Shortest
     first is what reproduces the measured spell counts; a plain left-to-right pass does not."""
-    edges = np.concatenate([[0], np.flatnonzero(labels[1:] != labels[:-1]) + 1, [len(labels)]])
-    runs = [[int(a), int(b), int(labels[a])] for a, b in zip(edges[:-1], edges[1:])]
+    runs = [list(segment) for segment in score.segments(labels, [(0, len(labels))])]
     while True:
         short = [(b - a, k) for k, (a, b, label) in enumerate(runs)
                  if k > 0 and label != D and runs[k - 1][2] != D and b - a < min_frames]

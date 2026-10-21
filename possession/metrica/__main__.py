@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
+from .. import score
 from ..half import D, FPS, CleanHalf
 from . import GAMES, RuleV2, load, raw
 
@@ -24,8 +25,7 @@ MERGES = (0.0, 1.0, 2.0, 3.0)
 
 def spell_seconds(labels: NDArray[np.int8]) -> NDArray[np.float64]:
     """Durations in seconds of the maximal H or A runs of one half."""
-    edges = np.concatenate([[0], np.flatnonzero(labels[1:] != labels[:-1]) + 1, [len(labels)]])
-    return np.diff(edges)[labels[edges[:-1]] != D] / FPS
+    return np.array([b - a for a, b, _ in score.possession_spells(labels, [(0, len(labels))])], np.float64) / FPS
 
 
 def main(argv: Sequence[str] | None = None) -> int:

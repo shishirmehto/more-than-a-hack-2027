@@ -65,7 +65,7 @@ preds = [model.decode(h).codes for h in halves]   # unchanged
 | module | owns | public surface | hides |
 |---|---|---|---|
 | `half.py` | codes, `Geometry`, `Half`, `CleanHalf`, `Layout` | the types, `check_codes` | array freezing, origin arithmetic |
-| `score.py` | the only import of `pm` | `evaluate`, `spell_f1`, `write_submission`, `read_codes`, `matched_flags` | import style, range guard, assembly, newline and rename discipline |
+| `score.py` | the only import of `pm` | `evaluate`, `spell_f1`, `write_submission`, `read_codes`, `matched_flags`, pm's run helpers | import style, range guard, assembly, newline and rename discipline |
 | `challenge.py` | BAR-ATH: blocks, kickoffs, the tier-0 token, baseline_raw, the ATD seam | `halves(source)`, `layout`, `observe`, `nearest_team` | the "D means missing" translation, the ATD grammar |
 | `metrica/` | the sample data | `fetch`, `load`, `RuleV2` | pinned URLs, sha256, two file formats, label rule v2, native-NaN fill |
 | `dropout.py` | challenge-ification | `challengeify`, `DropoutParams` | rate solving, renewal masks, RNG streams |
