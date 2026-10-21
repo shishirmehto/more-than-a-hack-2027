@@ -465,6 +465,11 @@ def dropout_hits_both_constraints() -> None:
         assert hay.find(window) >= 0, x.id
 
 
+def _no_metrica() -> Skip:
+    return Skip(f"no Metrica sample data under {Path(games.DATA_DIR) / 'metrica_sample'} "
+                "(set MTAH_DATA_DIR or run fetch-metrica)")
+
+
 def _n_spells(labels: np.ndarray) -> int:
     return len(score.possession_spells(labels, [(0, len(labels))]))
 
@@ -477,9 +482,8 @@ def rule_v2_reproduces_measurements() -> None:
     games.DATA_DIR (MTAH_DATA_DIR)."""
     try:
         by_merge = {m: metrica.load(metrica.RuleV2(m)) for m in (0.0, 1.0, 2.0, 3.0)}
-    except IOError as missing:
-        raise Skip(f"no Metrica sample data under {Path(games.DATA_DIR) / 'metrica_sample'} "
-                   "(set MTAH_DATA_DIR or run fetch-metrica)") from None
+    except IOError:
+        raise _no_metrica() from None
 
     pooled = tuple(sum(_n_spells(h.labels) for h in halves) for halves in by_merge.values())
     assert pooled == (1073, 978, 825, 721), pooled
@@ -546,8 +550,7 @@ def controlled_rule_measurements() -> None:
     try:
         raw = metrica.load(metrica.RuleV2())
     except IOError:
-        raise Skip(f"no Metrica sample data under {Path(games.DATA_DIR) / 'metrica_sample'} "
-                   "(set MTAH_DATA_DIR or run fetch-metrica)") from None
+        raise _no_metrica() from None
 
     rules = [metrica.RuleV2(hold_s=h, min_passes=p) for h, p in ((2.0, 3), (3.0, 3), (5.0, 3), (5.0, 0), (0.0, 3))]
     by_rule = {rule.key: metrica.load(rule) for rule in rules}
@@ -556,6 +559,25 @@ def controlled_rule_measurements() -> None:
     for halves in by_rule.values():
         for h, v2 in zip(halves, raw):
             assert h.id == v2.id and np.array_equal(h.labels == D, v2.labels == D), h.id
+
+
+def worlds_seed_axis() -> None:
+    """[needs data] bench.worlds([RuleV2(2.0)], [1.0, 3.0], seeds=[0, 2]) keys its worlds m2_r1,
+    m2_r1_s2, m2_r3, m2_r3_s2 in that order. Its seed-0 world has the tokens of bench.dev_cases at
+    seed 0, its seed-2 world differs from them on every half, and both share one GT: the seed draws
+    dropout, never labels. Skips like rule_v2_reproduces_measurements."""
+    rule = metrica.RuleV2(2.0)
+    try:
+        got = bench.worlds([rule], [1.0, 3.0], seeds=[0, 2])
+    except IOError:
+        raise _no_metrica() from None
+
+    assert list(got) == ["m2_r1", "m2_r1_s2", "m2_r3", "m2_r3_s2"], list(got)
+    seed0, seed2 = bench.pooled(got["m2_r3"]), bench.pooled(got["m2_r3_s2"])
+    direct = bench.pooled(bench.dev_cases(bench.DevSpec(rule, dropout.DropoutParams(dead_bias=3.0), seed=0)))
+    assert all(np.array_equal(a.nearest_team, b.nearest_team) for a, b in zip(seed0.halves, direct.halves))
+    assert not any(np.array_equal(a.nearest_team, b.nearest_team) for a, b in zip(seed0.halves, seed2.halves))
+    assert np.array_equal(seed0.gt, seed2.gt)
 
 
 def public_case_predict_equals_submission() -> None:
@@ -618,6 +640,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     rule_v2_reproduces_measurements,
     controlled_rule_known_answer,
     controlled_rule_measurements,
+    worlds_seed_axis,
     public_case_predict_equals_submission,
     submission_is_byte_stable,
 )
