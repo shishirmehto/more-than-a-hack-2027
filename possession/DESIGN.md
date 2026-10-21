@@ -119,10 +119,10 @@ Two effects. With weak evidence the MAP path hands whole stretches to the flat-e
 
 ### The Metrica dev set
 
-`metrica.load(RuleV2(merge_s))` returns six `CleanHalf`. `dropout.challengeify(clean, DropoutParams, seed)` returns six `Half`. Everything shaping a world is in `DevSpec`, namely `merge_s`, `dead_bias`, target rate, seed and fill rule.
+`metrica.load(RuleV2(merge_s, hold_s, min_passes))` returns six `CleanHalf`. `dropout.challengeify(clean, DropoutParams, seed)` returns six `Half`. Everything shaping a world is in `DevSpec`, namely the label rule, `dead_bias`, target rate, seed and fill rule.
 
 - **Parse raw, no kloppy.** Two format parsers behind one `RawGame`. Coordinates to metres, no y flip. Periods split on the `Period` column. G3 slot team is asserted constant across substitution windows.
-- **Labels from events only (rule v2).** Pure function `label_period(events, frame0, n, rule)`. Dead openers, restart closers, restart fallback, owner timeline, optional merge, all in the TODO pseudocode. Acceptance numbers are the explorers' (alive share 55.1/58.4/67.9%, raw spells 364/322/387).
+- **Labels from events only (rule v2).** Pure function `label_period(events, frame0, n, rule)`. Dead openers, restart closers, restart fallback, owner timeline, optional controlled-possession filter, optional merge. Acceptance numbers are the explorers' (alive share 55.1/58.4/67.9%, raw spells 364/322/387).
 - **Pre-kickoff is D, post-whistle is trimmed.** A half block starts at the period's first tracking frame and ends at the last event end plus one. Frames before kickoff are D. This mirrors the challenge's graded half 2 (2,934 D frames) and exercises the kickoff rule in dev. An X head would be back-filled by `pm.fill_abstentions` into a false spell, so D it is.
 - **Native NaN fill.** Default `hold` (forward-fill, back-fill the head). It is a parameter, not an open question. The reason is that `linear` gives a dead ball a constant velocity that a ball-speed feature would read as live play, which is a different leak.
 - **Dropout.** Alternating renewal process. Missing runs are resampled from baseline_raw's 150 real runs, present runs from its 149 real runs, scaled by the closed form `c = E[m](1-r)/(r E[p])` so the stationary rate is `r`. One mask for alive frames, one for dead frames, selected by label. `solve_rates(a, target, rho, cap)` solves both constraints given the half's alive share `a`. They are `a*p_alive + (1-a)*p_dead = 0.407` and `p_dead = rho * p_alive`, with a cap and a loud failure if unreachable. Pre-kickoff is its own stratum at 0.19 (564 of 2934 missing in the real half-2 stretch). A prototype of this generator (**measured**, `e2_dead_bias_surface.py`) realised an overall rate of 0.39 to 0.43 at target 0.407, and at rho 3 a P(missing | dead) of 0.83 and a P(missing | alive) of 0.27.
@@ -142,7 +142,7 @@ Every scoring problem is a `Case`, so a decoder is scored by the same two calls 
 | 11 | 0.435 | 0.523 | 0.520 |
 | min over worlds | 0.435 | 0.336 | 0.336 |
 
-Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it costs 0.09 in the dead-heavy world, so the surface is informative and asymmetric. The selection rule is therefore max-min over worlds, ties by mean. Worlds are `merge_s` times `dead_bias` (both unknown for the real match). The `dead_bias` key is the requested ratio. Above roughly 8 the 0.98 per-state cap binds on high-alive halves and the effective ratio saturates (G3, alive share 0.68, at 11 gives about 7; the proxy's 78%-alive truth gave 4.2). `bench.run` recomputes the realised rates from each case's tokens and prints them beside its scores, so a table never reports a ratio the data did not have. `dead_bias` is never fitted on the dev set, because fitting it there reads back the generator's own setting. Nothing else is fitted by counting either. `q`, `p_dead_after_poss` and `p_flip_after_dead` are grid axes like alpha, the two mean durations and the belief, because the counted values lost on the dev objective (see Dev sweeps). Decode costs about 0.06 s per half at stride 5, so the 135-config by 3-world grid is a few minutes (**measured** decode time, grid size by arithmetic). `paired_delta` bootstraps the GT possessions two decoders share before anyone believes a gap under 0.04 (`score --paired`).
+Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it costs 0.09 in the dead-heavy world, so the surface is informative and asymmetric. The selection rule is therefore max-min over worlds, ties by mean. Worlds are the label rule times `dead_bias` (both unknown for the real match). The `dead_bias` key is the requested ratio. Above roughly 8 the 0.98 per-state cap binds on high-alive halves and the effective ratio saturates (G3, alive share 0.68, at 11 gives about 7; the proxy's 78%-alive truth gave 4.2). `bench.run` recomputes the realised rates from each case's tokens and prints them beside its scores, so a table never reports a ratio the data did not have. `dead_bias` is never fitted on the dev set, because fitting it there reads back the generator's own setting. Nothing else is fitted by counting either. `q`, `p_dead_after_poss` and `p_flip_after_dead` are grid axes like alpha, the two mean durations and the belief, because the counted values lost on the dev objective (see Dev sweeps). Decode costs about 0.06 s per half at stride 5, so the 135-config by 3-world grid is a few minutes (**measured** decode time, grid size by arithmetic). `paired_delta` bootstraps the GT possessions two decoders share before anyone believes a gap under 0.04 (`score --paired`).
 
 ### Where invariants live
 
@@ -211,22 +211,42 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 
 ## Dev sweeps (2026-10-21)
 
-`params/tier0_v0.json` is the reference decoder. Three sweeps ran on pooled dev with max-min selection. None of them replaced v0.
+`params/tier0_v0.json` is the reference decoder. Four sweeps ran on pooled dev with max-min selection. None of them replaced v0.
 
 | sweep | worlds | counts | winner | worst-world spellF1, winner / v0 |
 |---|---|---|---|---|
 | 1 | merge_s {0, 2} x dead_bias {1, 3} | fitted on m0 | `tier0_v1.json` | 0.313 / 0.294 |
 | 2 | merge_s {2, 3, 5} x dead_bias {1, 3} | fitted on m3 | not kept | 0.327 / 0.335 |
 | 3 | as sweep 2 | grid axes | v0 itself | 0.335 / 0.335 |
+| 4 | controlled h{2, 3, 5}p3 x dead_bias {1, 3} | grid axes | v0 itself | 0.328 / 0.328 |
 
-- **The m0 world contradicts the challenge.** CHALLENGE.md says a touch, a deflection or a won duel without control does not change possession. Raw rule v2 has 33% of spells under 3 s, while m2 and m3 have 16% and 9%, and the public window has 18% (3 of 17). Sweep 1 was selected mostly on m0, so `tier0_v1.json` over-segments. It predicts 23 possessions on the public window against 17, and its spellF1 there is 0.310 against v0's 0.412. Use merge_s 2 or more for dev worlds.
+- **The m0 world contradicts the challenge.** CHALLENGE.md says a touch, a deflection or a won duel without control does not change possession. Raw rule v2 has 33% of spells under 3 s, while m2 and m3 have 16% and 9%, and the public window has 18% (3 of 17). Sweep 1 was selected mostly on m0, so `tier0_v1.json` over-segments. It predicts 23 possessions on the public window against 17, and its spellF1 there is 0.310 against v0's 0.412. Use the controlled worlds below, or merge_s 2 or more.
 - **Counted transition probabilities lose to hand-set ones.** The m3 counts give p_dead_after_poss 0.44 and p_flip_after_dead 0.56. Swapping them into v0 costs 0.025 and 0.006 spellF1 on the binding world, measured. The chain is misspecified (tempered, independent emissions), so the maximum-likelihood counts are not the spellF1 optimum. `fit-dev` no longer counts, and every chain field is a grid axis that defaults to v0.
 - **Tier-0 has plateaued.** In sweep 3 the top 10 candidates lie within 0.004 of each other, and v0 is interior on every axis. MAP lost to marginal in sweeps 1 and 2. Further gains need a richer emission from the ATD, not chain tuning.
+- **Controlled possession is the faithful dev convention.** `RuleV2(hold_s, min_passes)` applies CHALLENGE.md's definition. Inside live play, a run of the other team takes possession only if it lasts `hold_s` seconds, holds `min_passes` of its completed passes, or holds its own set piece. Otherwise its frames stay with the last team. The first run after a stoppage always stands, and D frames and kickoffs equal rule v2's (`selfcheck.controlled_rule_measurements`). "A few seconds" and "more than two consecutive passes" give the worlds h2p3, h3p3 and h5p3. Pooled spell lengths, measured (`python -m possession.metrica`):
+
+  | rule | spells | mean s | median s | under 3 s |
+  |---|---|---|---|---|
+  | m0 (raw v2) | 1073 | 9.7 | 5.1 | 33.4% |
+  | m2 | 825 | 12.6 | 8.2 | 16.4% |
+  | m3 | 721 | 14.4 | 10.2 | 8.6% |
+  | m5 | 595 | 17.5 | 12.6 | 9.2% |
+  | h2p3 | 818 | 12.7 | 8.3 | 15.8% |
+  | h3p3 | 709 | 14.7 | 10.3 | 8.5% |
+  | h5p3 | 582 | 17.9 | 12.9 | 8.6% |
+  | h5 (no pass proxy) | 578 | 18.0 | 13.1 | 8.7% |
+  | p3 (no hold proxy) | 454 | 22.9 | 16.5 | 9.7% |
+  | public window | 17 | 14.2 | 7.6 | 18% (3 of 17) |
+
+  The public row checks the convention and picks nothing. The pass proxy binds only from about 4 s: no rejected run shorter than 3 s holds two completed passes (h3p2 equals h3), so h2p3 and h3p3 equal h2 and h3. Passes alone reject every long run without a pass and are too coarse.
+- **merge_s was a fair proxy.** At equal thresholds the controlled labels differ from the merged ones on 0.5% (2 s), 0.9% (3 s) and 2.2% (5 s) of live frames, and 97 to 98% of switches fall within 12 frames of each other. The rules differ in where a contested phase goes: `merge_s` can hand it to the next team, while the controlled rule keeps it with the last one. v0 scores within 0.002 of its merge-world scores at 2 and 3 s, and 0.007 to 0.010 lower at 5 s. v1 still loses. On the binding world h5p3_r1, v0 scores 0.3275 and v1 0.3017, a paired delta of -0.026 [-0.037, -0.014].
+- **Sweep 4 keeps v0.** The grid is temper {0.05, 0.1}, poss_mean_s {6, 9, 13}, dead_mean_s {6, 10, 15}, p_dead_after_poss {0.15, 0.25, 0.4} and p_flip_after_dead {0.55, 0.7, 0.85}, with belief 1 and marginal decoding, 162 candidates. It ranks v0 first at seed 0, with the top 10 within 0.006. Promotion needed a max-min win over v0, a paired 90% CI excluding zero on the binding world, and a win again at seed 1. No candidate passed the first test, so `params/` is unchanged.
+- **The dropout seed moves the ranking more than the paired CI shows.** The same grid at seed 1 ranks v0 76th of 162 (min 0.3153), and the rank correlation of the per-candidate min between the two seeds is 0.64. The seed-0 runner-up (dead_mean_s 15, p_dead_after_poss 0.15, p_flip_after_dead 0.85) trails v0 at seed 0 by -0.0026 [-0.0069, 0.0017] on h5p3_r1, and leads at seed 1 by +0.0098 [+0.0052, +0.0145]. `paired_delta` resamples GT possessions within one dropout draw, so it misses the draw-to-draw spread, and v0's min alone moves 0.012 between the seeds. Over both seeds' 12 worlds the runner-up leads (min 0.3249) and v0 is 30th (0.3153). Make the seed a world axis before reading any gap under about 0.01.
 
 ## Open questions and risks
 
 - Does the real ATD drop the ball more on dead frames than alive ones? The public window gives P(missing | GT D) 0.34 and P(missing | GT alive) 0.065, which cannot both hold match-wide (overall 0.407). Who answers it, and can Smart Tagging set-piece windows be crossed with the ATD mask once the data lands?
-- Which label convention does the private GT use? `merge_s` is an axis, not a tuned value. Should we ask the organisers whether a visible-ball goal-kick setup is D or possession, and whether "controlled possession" merges quick RECOVERY/PASS alternations?
+- Which label convention does the private GT use? `merge_s` is an axis, not a tuned value. Should we ask the organisers whether a visible-ball goal-kick setup is D or possession, and what hold time the ground truth uses for "controlled"? The controlled rule's `hold_s` brackets it at 2 to 5 s.
 - Will Metrica token accuracy (79 to 82% on alive ball-visible frames) and its error burstiness transfer to the challenge (77.8% on the public window)? The surface only brackets dropout, not token noise.
 - Should the final submission read the ATD directly instead of the committed `baseline_raw.csv`? Today `baseline_raw.csv` is the only full-match observation and is committed organiser output. "The repo must regenerate the CSV" is satisfied, but the final path should probably be ATD to `Geometry` to `observe`.
 - Does tier-0 D help or hurt spellF1? D comes only from mixed-token stretches. Should the grid include a multiplier on `p_dead_after_poss` down to zero until a real dead-ball cue exists?
@@ -239,4 +259,4 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 
 ## Next implementation step
 
-Done: every stub except `fragment_slots` and `challenge.load_geometry`, and the three sweeps above. Next is the ATD path. Implement `challenge.load_geometry` once the data lands, then a richer `Emission` from team-paired features (ball speed and possessor distance, for example) scored on the merge_s {2, 3, 5} dev worlds against v0.
+Done: every stub except `fragment_slots` and `challenge.load_geometry`, and the three sweeps above. Next is the ATD path. Implement `challenge.load_geometry` once the data lands, then a richer `Emission` from team-paired features (ball speed and possessor distance, for example) scored against v0 on the controlled worlds h{2, 3, 5}p3, over at least two dropout seeds.
