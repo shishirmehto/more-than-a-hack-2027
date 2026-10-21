@@ -60,6 +60,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     fit = sub.add_parser("fit-dev", help="fit counts on the reference world, grid-search, write params + grid")
     _world_flags(fit, merge_s=(0.0, 2.0), dead_bias=(1.0, 3.0))
     fit.add_argument("--out", type=Path, required=True)
+    fit.add_argument("--reference-merge-s", type=float, default=0.0,
+                     help="merge_s of the world whose labels decoder.fit counts (dead_bias 1)")
     fit.add_argument("--temper", type=float, nargs="+", default=[0.02, 0.05, 0.1, 0.2])
     fit.add_argument("--poss-mean-s", type=float, nargs="+", default=[4.0, 6.0, 9.0, 13.0])
     fit.add_argument("--dead-mean-s", type=float, nargs="+", default=[6.0, 10.0, 15.0])
@@ -117,7 +119,8 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
 
     started = time.perf_counter()
     worlds = bench.worlds(args.merge_s, args.dead_bias, seed=args.seed)
-    reference = bench.pooled(bench.dev_cases(bench.DevSpec(seed=args.seed)))
+    reference_spec = bench.DevSpec(bench.RuleV2(args.reference_merge_s), seed=args.seed)
+    reference = bench.pooled(bench.dev_cases(reference_spec))
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "belief": args.belief}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
     if args.map_temper:
@@ -130,7 +133,8 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
     table.to_csv(grid_path, index=False, float_format="%.6f", lineterminator="\n")
     model.save(args.out, {
         "command": shlex.join(["python", "-m", "possession", *argv]),
-        "fit_reference_world": f"merge_s 0, dead_bias 1, renewal dropout, seed {args.seed}: decoder.fit "
+        "fit_reference_world": f"merge_s {args.reference_merge_s:g}, dead_bias 1, renewal dropout, "
+                               f"seed {args.seed}: decoder.fit "
                                "counts on dev_pooled (six Metrica halves)",
         "sweep_worlds": list(worlds),
         "selection": bench.SELECTION,
