@@ -65,7 +65,7 @@ class Flicker(ValueError):
 class DevSpec:
     """One dev world. Everything that shapes the dev data, nothing else.
 
-    rule:      label rule (merge_s and controlled-possession hold_s / min_passes axes).
+    rule:      label rule: a merge_s rule or a controlled-possession rule, never both (RuleV2.key).
     dropout:   generator (dead_bias axis, target rate, ...).
     seed:      dropout seed; labels are seed-free.
     ball_fill: how native Metrica NaN are replaced before dropout ("hold" | "linear").
