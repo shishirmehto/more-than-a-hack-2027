@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import itertools
 from dataclasses import dataclass
 from pathlib import Path
@@ -162,13 +163,23 @@ def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: in
     return pd.DataFrame(rows)
 
 
-_Memo = dict[tuple[str, bytes], NDArray[np.int8]]
+_Memo = dict[object, NDArray[np.int8]]
+
+
+def _decode_key(value: object) -> object:
+    """Every field of a Half, so a field added later joins the key. Arrays key by dtype, shape and
+    bytes, and dataclasses recurse into their fields, because repr elides most of a large array."""
+    if isinstance(value, np.ndarray):
+        return value.dtype.str, value.shape, value.tobytes()
+    if dataclasses.is_dataclass(value):
+        return tuple((f.name, _decode_key(getattr(value, f.name))) for f in dataclasses.fields(value))
+    return repr(value)
 
 
 def _predict(name: str, model: Decoder, case: Case, memo: _Memo) -> list[NDArray[np.int8]]:
     preds = []
     for h in case.halves:
-        key = (repr(h.id), h.nearest_team.tobytes())
+        key = _decode_key(h)
         if key not in memo:
             memo[key] = model.decode(h).codes
         preds.append(memo[key])
