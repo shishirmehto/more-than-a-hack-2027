@@ -30,14 +30,14 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal, Mapping, Sequence
+from typing import Callable, Literal, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
 from . import challenge, dropout, metrica, score
-from .decoder import Decoder
+from .decoder import Decoder, DecoderParams, Tier0Emission
 from .half import D, NO_TEAM, X, Half, Layout, check_codes
 from .dropout import DropoutParams
 from .metrica import RuleV2
@@ -46,6 +46,11 @@ PUBLIC_GT = Path(__file__).resolve().parents[1] / "evaluation" / "gt" / f"{chall
 
 # bench.run refuses a prediction with more switches than this many times the GT's segments.
 MAX_SWITCH_RATIO = 10
+
+SELECTION = ("max over candidates of the min pooled-dev spellF1 across worlds, ties by the mean; "
+             "NaN (refused as flicker) in any world disqualifies")
+
+Grid = Mapping[str, Sequence[object]]
 
 
 class Flicker(ValueError):
@@ -171,6 +176,28 @@ def dropout_stats(halves: Sequence[Half], labels: Sequence[NDArray[np.int8]]) ->
             "prekickoff": rate(pre, np.ones(len(pre), dtype=bool))}
 
 
+def pooled(cases: Sequence[Case]) -> Case:
+    """The world's "dev_pooled" case: the one selection reads."""
+    return next(c for c in cases if c.name == "dev_pooled")
+
+
+def worlds(merge_s: Sequence[float], dead_bias: Sequence[float], *, seed: int = 0,
+           mode: Literal["renewal", "transplant"] = "renewal",
+           data_dir: str | Path | None = None) -> dict[str, list[Case]]:
+    """dev_cases for every (merge_s, dead_bias), keyed "m{merge_s:g}_r{dead_bias:g}", merge_s-major.
+    "transplant" ignores dead_bias, so it builds one world per merge_s, keyed "m{merge_s:g}_transplant"."""
+    out = {}
+    for m in merge_s:
+        if mode == "transplant":
+            out[f"m{m:g}_transplant"] = dev_cases(DevSpec(RuleV2(m), DropoutParams(mode="transplant"), seed,
+                                                          data_dir=data_dir))
+            continue
+        for rho in dead_bias:
+            out[f"m{m:g}_r{rho:g}"] = dev_cases(DevSpec(RuleV2(m), DropoutParams(dead_bias=rho), seed,
+                                                        data_dir=data_dir))
+    return out
+
+
 def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
     """One row per (model, case): model, case, then score.Scores.as_row() columns.
 
@@ -213,10 +240,21 @@ def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequ
     raise NotImplementedError
 
 
-def fit_dev(worlds: Mapping[str, Sequence[Case]], grid: Mapping[str, Sequence[float]]) -> tuple[Decoder, pd.DataFrame]:
-    """decoder.fit on the pooled labels (counts), then grid over (temper, poss_mean_s, dead_mean_s,
-    belief) scored on every world's dev_pooled case; returns (best by max-min, the whole grid table).
-    The table is written next to the params JSON so a reader can see how flat the optimum is."""
+def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *, reference: Case,
+            base: Decoder = Decoder(Tier0Emission(), DecoderParams()),
+            on_row: Callable[[dict[str, object]], None] | None = None) -> tuple[Decoder, pd.DataFrame]:
+    """decoder.fit on the reference case's labels (counts) ONCE, then every candidate of `grids` scored
+    on every world's dev_pooled case; returns (best by max-min, the whole grid table).
+
+    reference: the pooled case the counts come from (merge_s 0, dead_bias 1, seed 0 by convention).
+               Not refitted per world: robustness to the label convention is what max-min measures.
+    grids:     a union of Cartesian products, one Mapping per sub-grid, so the "marginal" and "map"
+               decode rules can sweep different axes in one table. Keys are DecoderParams fields plus
+               "belief" (Tier0Emission.dead_bias). Fields a sub-grid omits keep the fitted value.
+    on_row:    called with each finished row (progress for long sweeps).
+    The table has one row per candidate, ranked by SELECTION (rank 1 = returned decoder); a world on
+    which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies. It is
+    written next to the params JSON so a reader can see how flat the optimum is."""
     raise NotImplementedError
 
 
