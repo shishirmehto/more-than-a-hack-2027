@@ -66,6 +66,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     fit.add_argument("--poss-mean-s", type=float, nargs="+", default=[4.0, 6.0, 9.0, 13.0])
     fit.add_argument("--dead-mean-s", type=float, nargs="+", default=[6.0, 10.0, 15.0])
     fit.add_argument("--belief", type=float, nargs="+", default=[1.0, 3.0])
+    for counted in ("q", "p-dead-after-poss", "p-flip-after-dead"):
+        fit.add_argument(f"--{counted}", type=float, nargs="*", default=[],
+                         help="grid axis overriding the fitted count; omit to keep the count")
     fit.add_argument("--map-temper", type=float, nargs="*", default=[0.1, 0.2, 0.5, 1.0],
                      help="temper axis of the decode_rule='map' sub-grid; give none to skip it")
     fit.add_argument("--map-min-poss-frames", type=int, nargs="+", default=[1, 50])
@@ -122,6 +125,7 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
     reference_spec = bench.DevSpec(bench.RuleV2(args.reference_merge_s), seed=args.seed)
     reference = bench.pooled(bench.dev_cases(reference_spec))
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "belief": args.belief}
+    shared |= {k: v for k in ("q", "p_dead_after_poss", "p_flip_after_dead") if (v := getattr(args, k))}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
     if args.map_temper:
         grids.append({"decode_rule": ["map"], "temper": args.map_temper,

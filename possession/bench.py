@@ -260,7 +260,10 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *, refe
                Not refitted per world: robustness to the label convention is what max-min measures.
     grids:     a union of Cartesian products, one Mapping per sub-grid, so the "marginal" and "map"
                decode rules can sweep different axes in one table. Keys are DecoderParams fields plus
-               "belief" (Tier0Emission.dead_bias). Fields a sub-grid omits keep the fitted value.
+               "belief" (Tier0Emission.dead_bias) and "q". Fields a sub-grid omits keep the fitted value;
+               a counted field given as an axis overrides its count, because on the dev objective the
+               counts lose to hand-set values (sweep 2: fitted p_dead_after_poss 0.44 vs 0.25 cost
+               ~0.025 spellF1 on the binding world).
     on_row:    called with each finished row (progress for long sweeps).
     The table has one row per candidate, ranked by SELECTION (rank 1 = returned decoder); a world on
     which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies. It is
@@ -300,7 +303,8 @@ def _candidates(fitted: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
         keys = list(grid)
         for values in itertools.product(*(grid[k] for k in keys)):
             cfg = dict(zip(keys, values))
-            emission = replace(fitted.emission, dead_bias=cfg.pop("belief", fitted.emission.dead_bias))
+            emission = replace(fitted.emission, dead_bias=cfg.pop("belief", fitted.emission.dead_bias),
+                               q=cfg.pop("q", fitted.emission.q))
             out.append(Decoder(emission, replace(fitted.params, **cfg)))
     return out
 
@@ -308,7 +312,8 @@ def _candidates(fitted: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
 def _describe(model: Decoder) -> dict[str, object]:
     p = model.params
     return {"decode_rule": p.decode_rule, "temper": p.temper, "poss_mean_s": p.poss_mean_s,
-            "dead_mean_s": p.dead_mean_s, "belief": model.emission.dead_bias,
+            "dead_mean_s": p.dead_mean_s, "belief": model.emission.dead_bias, "q": model.emission.q,
+            "p_dead_after_poss": p.p_dead_after_poss, "p_flip_after_dead": p.p_flip_after_dead,
             "min_poss_frames": p.min_poss_frames, "min_dead_frames": p.min_dead_frames}
 
 
