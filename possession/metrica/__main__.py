@@ -5,6 +5,11 @@ One row per game plus a pooled row. Frames are per period (P1/P2; the pooled row
 post-final-whistle dropped). `alive` is the share of non-D frames, over the block and over the
 tracking frames. `spells` are maximal H or A runs; `m0` is the raw rule and `m1`..`m3` are
 RuleV2(merge_s=1, 2, 3). `ball NaN` is whether any ball_xy still has a NaN after `load`; it must be "no".
+
+A second table gives the pooled spell lengths per label rule (SPELL_RULES): rule v2 at merge_s 0, 2, 3
+and 5, then the controlled-possession rule at a few (hold_s, min_passes). Compare it with the public
+window (17 spells, mean 14.2 s, median 7.6 s, 18% under 3 s) as a check on the convention, never to
+pick one.
 """
 from __future__ import annotations
 
@@ -21,6 +26,10 @@ from ..half import D, FPS, CleanHalf
 from . import GAMES, RuleV2, load, raw
 
 MERGES = (0.0, 1.0, 2.0, 3.0)
+
+SPELL_RULES = (RuleV2(), RuleV2(2.0), RuleV2(3.0), RuleV2(5.0),
+               RuleV2(hold_s=2.0, min_passes=3), RuleV2(hold_s=3.0, min_passes=3), RuleV2(hold_s=5.0, min_passes=3),
+               RuleV2(hold_s=5.0), RuleV2(min_passes=3))
 
 
 def spell_seconds(labels: NDArray[np.int8]) -> NDArray[np.float64]:
@@ -47,6 +56,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                          parse_s[game]))
     rows.append(_row("pooled", by_merge, sum(parse_s.values())))
     print(pd.DataFrame(rows).to_string(index=False))
+    print()
+    print(pd.DataFrame([_spell_row(rule, data_dir) for rule in SPELL_RULES]).to_string(index=False))
     return 0
 
 
@@ -70,6 +81,12 @@ def _row(name: str, halves: dict[float, Sequence[CleanHalf]], parse_seconds: flo
     row["ball NaN"] = "yes" if any(np.isnan(h.geometry.ball_xy).any() for h in raw_halves) else "no"
     row["parse s"] = round(parse_seconds, 2)
     return row
+
+
+def _spell_row(rule: RuleV2, data_dir: str | None) -> dict[str, object]:
+    seconds = np.concatenate([spell_seconds(h.labels) for h in load(rule, data_dir=data_dir)])
+    return {"rule": rule.key, "spells": len(seconds), "mean s": round(float(seconds.mean()), 1),
+            "median s": round(float(np.median(seconds)), 1), "% under 3 s": round(100 * float((seconds < 3).mean()), 1)}
 
 
 def _per_period(frames: list[int]) -> str:
