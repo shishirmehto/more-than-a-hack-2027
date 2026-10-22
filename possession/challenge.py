@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Literal
 
@@ -20,6 +21,8 @@ KICKOFF_ROW: dict[int, int] = {1: 11185, 2: 113742}
 BASELINE_RAW = Path(__file__).resolve().parents[1] / "evaluation" / "results" / "baseline_raw.csv"
 
 _CHUNK = 20_000
+
+_NORM_LIMIT = 2.0
 
 
 def layout() -> Layout:
@@ -88,7 +91,58 @@ def _halves_from_baseline_raw() -> tuple[Half, Half]:
 
 
 def load_geometry(data_dir: str | Path | None = None) -> tuple[Geometry, Geometry]:
-    raise NotImplementedError(
-        "challenge.load_geometry: the ATD parser is not written yet (the gated data is not on disk). "
-        "Use halves('baseline_raw') until it lands; possession/DESIGN.md, 'Where the ATD plugs in', "
-        "states what it must return.")
+    """The tactical ATD as one Geometry per layout() block; block row i is ATD frame_id origin + i + 1.
+
+    Metres use games' pitch (105.3, 68.0), as baseline.py does. The XML FieldSize says 105 x 68.
+    Speeds are dropped. Raises IOError when the gated files are not on disk.
+    """
+    meta, raw = games.require(["atd_meta", "atd_raw"], GAME, data_dir)
+    return _load_geometry(str(Path(meta).resolve()), str(Path(raw).resolve()))
+
+
+@functools.cache
+def _load_geometry(meta: str, raw: str) -> tuple[Geometry, Geometry]:
+    slot_team = _atd_slot_team(ET.parse(meta).getroot())
+    ball, players = _read_atd(Path(raw), len(slot_team))
+    pitch = games.GAMES[GAME]["pitch"]
+    scale = np.array(pitch, np.float64)
+    g1, g2 = (Geometry((ball[b.origin:b.origin + b.n] * scale).astype(np.float32),
+                       (players[b.origin:b.origin + b.n] * scale).astype(np.float32),
+                       slot_team, pitch)
+              for b in layout().blocks)
+    return g1, g2
+
+
+def _atd_slot_team(meta: ET.Element) -> NDArray[np.int8]:
+    """Slot s is the s-th <Player>, and the first <Team> is home."""
+    team_ids = [team.get("id") for team in meta.iter("Team")]
+    players = list(meta.iter("Player"))
+    if len(team_ids) != 2 or not players:
+        raise ValueError(f"ATD metadata: {len(team_ids)} teams and {len(players)} players")
+    channel_player = {c.get("id"): c.get("playerId") for c in meta.iter("PlayerChannel")}
+    line_order = list(dict.fromkeys(channel_player[ref.get("playerChannelId")]
+                                    for ref in meta.iter("PlayerChannelRef")))
+    if line_order != [p.get("id") for p in players]:
+        raise ValueError("ATD metadata: the raw-line player order is not the <Player> order")
+    return np.array([team_ids.index(p.get("teamId")) for p in players], np.int8)
+
+
+def _read_atd(raw: Path, n_slots: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Normalised ball [n, 2] and players [n, S, 2], NaN where unobserved; row i is frame_id i + 1.
+
+    A line is "frame:x,y,speed;...(S groups):x,y,speed".
+    """
+    lines = raw.read_text().split()
+    width = 1 + 3 * n_slots + 3
+    flat = np.fromstring(",".join(lines).translate(str.maketrans(":;", ",,")), sep=",")
+    if flat.size != len(lines) * width:
+        raise ValueError(f"{raw.name}: {flat.size} values for {len(lines)} lines of {width}")
+    rows = flat.reshape(len(lines), width)
+    n = games.source_frames("tactical", GAME)
+    if not np.array_equal(rows[:, 0], np.arange(1, n + 1)):
+        raise ValueError(f"{raw.name}: frame ids are not 1..{n} in order")
+    ball, players = rows[:, -3:-1], rows[:, 1:-3].reshape(n, n_slots, 3)[..., :2]
+    # The ball reaches y = 1.49 (measured); this only catches a file already in metres.
+    if max(np.nanmax(np.abs(ball)), np.nanmax(np.abs(players))) > _NORM_LIMIT:
+        raise ValueError(f"{raw.name}: coordinates exceed {_NORM_LIMIT}, expected normalised")
+    return ball, players

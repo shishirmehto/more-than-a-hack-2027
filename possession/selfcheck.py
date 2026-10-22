@@ -161,6 +161,17 @@ def baseline_raw_round_trip() -> None:
     assert np.array_equal(whole[inside], codes[inside]), "halves do not map back onto baseline_raw rows"
 
 
+def atd_reproduces_baseline_raw() -> None:
+    try:
+        atd = challenge.halves("atd")
+    except IOError:
+        raise Skip(f"no ATD under {Path(games.DATA_DIR) / 'tactical'} (set MTAH_DATA_DIR)") from None
+    for got, want in zip(atd, challenge.halves("baseline_raw")):
+        assert got.id == want.id and got.n == want.n, (got.id, got.n, want.id, want.n)
+        differ = int((got.nearest_team != want.nearest_team).sum())
+        assert differ == 0, f"half {got.id.half}: {differ} of {got.n} tokens differ from baseline_raw"
+
+
 def public_window_crosstab() -> None:
     gt = score.read_codes(bench.PUBLIC_GT, N_ROWS)[11185:18685]
     first = challenge.layout().blocks[0].origin
@@ -543,6 +554,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     range_guard_fires,
     permutation_invariance,
     baseline_raw_round_trip,
+    atd_reproduces_baseline_raw,
     public_window_crosstab,
     decoder_known_answer,
     marginal_equals_enumeration,
