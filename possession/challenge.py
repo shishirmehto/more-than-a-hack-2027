@@ -133,12 +133,17 @@ def _read_atd(raw: Path, n_slots: int) -> tuple[NDArray[np.float64], NDArray[np.
     A line is "frame:x,y,speed;...(S groups):x,y,speed".
     """
     lines = raw.read_text().split()
-    width = 1 + 3 * n_slots + 3
-    flat = np.fromstring(",".join(lines).translate(str.maketrans(":;", ",,")), sep=",")
-    if flat.size != len(lines) * width:
-        raise ValueError(f"{raw.name}: {flat.size} values for {len(lines)} lines of {width}")
-    rows = flat.reshape(len(lines), width)
     n = games.source_frames("tactical", GAME)
+    if len(lines) != n:
+        raise ValueError(f"{raw.name}: {len(lines)} lines, expected {n}")
+    width = 1 + 3 * n_slots + 3
+    try:
+        flat = np.fromstring(",".join(lines).translate(str.maketrans(":;", ",,")), sep=",")
+    except ValueError as error:
+        raise ValueError(f"{raw.name}: {error}") from None
+    if flat.size != n * width:
+        raise ValueError(f"{raw.name}: {flat.size} values for {n} lines of {width}")
+    rows = flat.reshape(n, width)
     if not np.array_equal(rows[:, 0], np.arange(1, n + 1)):
         raise ValueError(f"{raw.name}: frame ids are not 1..{n} in order")
     ball, players = rows[:, -3:-1], rows[:, 1:-3].reshape(n, n_slots, 3)[..., :2]

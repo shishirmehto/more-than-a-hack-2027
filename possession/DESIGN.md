@@ -49,7 +49,7 @@ worlds = {rho: bench.dev_cases(bench.DevSpec(dropout=dropout.DropoutParams(dead_
 print(bench.surface(base, worlds, beliefs=(1, 3, 11)))   # rows generator dead_bias, cols decoder belief, last row = min over worlds
 ```
 
-Python, the ATD plug-in. This is the whole change when the gated data arrives:
+Python, the ATD plug-in. Switching a caller to the ATD is this one line (adopting it in `make-submission` is the open decision in "Next implementation step"):
 
 ```python
 from possession import challenge, decoder
@@ -84,7 +84,7 @@ This deliberately departs from the grounding's stage-shaped map (`halves / featu
 - `Case`: layout, halves, a scorer-length `gt` assembled from labels (derived, never stored twice). Its realised dropout is derived from halves and `gt` when a table needs it (`dropout_stats`).
 - `Decoder`: frozen `(Tier0Emission, DecoderParams)`, each range-checked at construction, serialisable to JSON.
 
-Geometry is a separate type from `Half` on purpose. `Half` is what both the tier-0 file (no geometry, ever) and the future ATD path (geometry) can supply. Putting geometry on `Half` as an optional field would be "sometimes geometric", which forces an `if` into the decoder (per `type-system-discipline`, no bags of optional fields). The ATD-era `Half` adds a feature field when the gated data lands, with the contract in "Where the ATD plugs in".
+Geometry is a separate type from `Half` on purpose. `Half` is what both the tier-0 file (no geometry, ever) and the ATD path (geometry) can supply. Putting geometry on `Half` as an optional field would be "sometimes geometric", which forces an `if` into the decoder (per `type-system-discipline`, no bags of optional fields). The ATD-era `Half` adds a feature field with the richer `Emission`, with the contract in "Where the ATD plugs in".
 
 ### The decoder
 
@@ -159,7 +159,7 @@ Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it cos
 
 ### Where the ATD plugs in and what it must produce
 
-`challenge.load_geometry()` must return, per half, a `Geometry`: `ball_xy` and `players_xy` in metres (normalised times 105.3 and 68.0), NaN for `N` groups, S=46, `slot_team` from the XML `<Player teamId>` order with the first `<Team>` as home, rows equal to ATD `frame_id - 1` over `games.half_video_blocks`. `observe` turns it into a `Half`. The regression gate is that `observe` reproduces `baseline_raw.csv` on at least 99.99% of frames (exact equality is not promised, float32 can flip a near-tie). Measured on the real ATD (2026-10-22), it reproduces every token, 0 of 158,857 graded frames differ, so `selfcheck.atd_reproduces_baseline_raw` pins exact equality and skips when the data is absent. The parser reads the whole file with one `np.fromstring` (1.7 s), checks the line width and that frame ids run 1..199,319, and refuses metadata whose raw-line player order differs from the `<Player>` list. Its units guard is loose on purpose: the ball reaches a normalised y of 1.49. The XML `FieldSize` says 105 x 68, and the loader uses `games.py`'s 105.3 x 68.0 because the baseline does. Richer evidence is a feature field that `Half` gains when the gated data lands, computed in `observe`. Its columns are per frame, float32, slot-order invariant and team-paired (H then A, so a team swap equals a column-pair swap), NaN where the ball is unobserved, with ball-free columns that stay defined during dropout. Those ball-free columns are where the ATD era can beat tier-0, because a dropout block is 10 s of zero evidence today. Smart Tagging set-piece windows are a second source for the same feature contract.
+`challenge.load_geometry()` must return, per half, a `Geometry`: `ball_xy` and `players_xy` in metres (normalised times 105.3 and 68.0), NaN for `N` groups, S=46, `slot_team` from the XML `<Player teamId>` order with the first `<Team>` as home, rows equal to ATD `frame_id - 1` over `games.half_video_blocks`. `observe` turns it into a `Half`. The regression gate is that `observe` reproduces `baseline_raw.csv` on at least 99.99% of frames (exact equality is not promised, float32 can flip a near-tie). Measured on the real ATD (2026-10-22), it reproduces every token, 0 of 158,857 graded frames differ, so `selfcheck.atd_reproduces_baseline_raw` pins exact equality and skips when the data is absent. The parser reads the whole file with one `np.fromstring` (1.7 s), checks the line width and that frame ids run 1..199,319, and refuses metadata whose raw-line player order differs from the `<Player>` list. Its units guard is loose on purpose: the ball reaches a normalised y of 1.49. The XML `FieldSize` says 105 x 68, and the loader uses `games.py`'s 105.3 x 68.0 because the baseline does. Richer evidence is a feature field that `Half` gains with the richer `Emission`, computed in `observe`. Its columns are per frame, float32, slot-order invariant and team-paired (H then A, so a team swap equals a column-pair swap), NaN where the ball is unobserved, with ball-free columns that stay defined during dropout. Those ball-free columns are where the ATD era can beat tier-0, because a dropout block is 10 s of zero evidence today. Smart Tagging set-piece windows are a second source for the same feature contract.
 
 ### Principles that changed a decision
 
@@ -246,7 +246,7 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 
 ## Open questions and risks
 
-- Does the real ATD drop the ball more on dead frames than alive ones? The public window gives P(missing | GT D) 0.34 and P(missing | GT alive) 0.065, which cannot both hold match-wide (overall 0.407). Who answers it, and can Smart Tagging set-piece windows be crossed with the ATD mask once the data lands?
+- Does the real ATD drop the ball more on dead frames than alive ones? The public window gives P(missing | GT D) 0.34 and P(missing | GT alive) 0.065, which cannot both hold match-wide (overall 0.407). Who answers it, and can Smart Tagging set-piece windows be crossed with the ATD mask? The data is on disk since 2026-10-22, so this is now a measurement.
 - Which label convention does the private GT use? `merge_s` is an axis, not a tuned value. Should we ask the organisers whether a visible-ball goal-kick setup is D or possession, and what hold time the ground truth uses for "controlled"? The controlled rule's `hold_s` brackets it at 2 to 5 s.
 - Will Metrica token accuracy (79 to 82% on alive ball-visible frames) and its error burstiness transfer to the challenge (77.8% on the public window)? The surface only brackets dropout, not token noise.
 - Should the final submission read the ATD directly instead of the committed `baseline_raw.csv`? Today `baseline_raw.csv` is the only full-match observation and is committed organiser output. "The repo must regenerate the CSV" is satisfied, but the final path should probably be ATD to `Geometry` to `observe`.

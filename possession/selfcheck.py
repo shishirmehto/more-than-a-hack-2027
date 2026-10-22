@@ -163,13 +163,21 @@ def baseline_raw_round_trip() -> None:
 
 def atd_reproduces_baseline_raw() -> None:
     try:
-        atd = challenge.halves("atd")
+        games.require(["atd_meta", "atd_raw"], challenge.GAME)
     except IOError:
         raise Skip(f"no ATD under {Path(games.DATA_DIR) / 'tactical'} (set MTAH_DATA_DIR)") from None
-    for got, want in zip(atd, challenge.halves("baseline_raw")):
+    for got, want in zip(challenge.halves("atd"), challenge.halves("baseline_raw")):
         assert got.id == want.id and got.n == want.n, (got.id, got.n, want.id, want.n)
         differ = int((got.nearest_team != want.nearest_team).sum())
         assert differ == 0, f"half {got.id.half}: {differ} of {got.n} tokens differ from baseline_raw"
+
+    # nearest_team is blind to flips, origin shifts and uniform scale; these per-half means are not.
+    means = [(51.04, 36.46, 55.24, 36.62), (51.28, 38.03, 49.72, 35.44)]
+    for g, want in zip(challenge.load_geometry(), means):
+        assert g.pitch_m == games.GAMES[challenge.GAME]["pitch"], g.pitch_m
+        got = np.concatenate([np.nanmean(g.ball_xy, 0, dtype=np.float64),
+                              np.nanmean(g.players_xy, (0, 1), dtype=np.float64)])
+        assert np.allclose(got, want, atol=0.05), np.round(got, 2)
 
 
 def public_window_crosstab() -> None:
