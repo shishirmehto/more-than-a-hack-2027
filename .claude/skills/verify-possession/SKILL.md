@@ -5,7 +5,7 @@ description: Drive and prove the possession labeller CLI (`python -m possession`
 
 # Verify the possession labeller
 
-The user-facing surface is a command-line tool. `python -m possession` builds the submission CSV, runs the invariant checks, scores decoders, and searches decoder settings. The secondary surfaces are `python -m possession.metrica`, which prints the dev-label acceptance tables, and the organisers' scripts `evaluation/validate_submission.py` and `evaluation/run_evaluation.py`, which judge a submission file. Every command is short-lived. There is no server to keep alive.
+The user-facing surface is a command-line tool. `python -m possession` builds the submission CSV, runs the invariant checks, scores decoders, searches decoder settings, and prints the match-wide measurements behind the generator's constants. The secondary surfaces are `python -m possession.metrica`, which prints the dev-label acceptance tables, and the organisers' scripts `evaluation/validate_submission.py` and `evaluation/run_evaluation.py`, which judge a submission file. Every command is short-lived. There is no server to keep alive.
 
 Read `features/README.md` before you drive anything. Each feature file there is the recipe for one user path.
 
@@ -20,7 +20,7 @@ The checkout is ready when the doctor prints no `FAIL` line.
 
 ## Doctor
 
-Run `.claude/skills/verify-possession/scripts/doctor.sh` first, and again whenever a result looks wrong. It is read-only. It checks the Python version, the imports, the committed inputs (`baseline_raw.csv`, the public GT, `params/tier0_v0.json`, `params/tier0_v1.json`, the Metrica manifest) and reports the HEAD commit, the dirty path count, the data folder and how many of the 9 Metrica files are present. It exits 0 when no check fails. A `skip` line for Metrica data means only the dev features are unavailable.
+Run `.claude/skills/verify-possession/scripts/doctor.sh` first, and again whenever a result looks wrong. It is read-only. It checks the Python version, the imports, the committed inputs (`baseline_raw.csv`, the public GT, `params/tier0_v0.json`, `params/tier0_v1.json`, the Metrica manifest) and reports the HEAD commit, the dirty path count, the data folder, how many of the 9 Metrica files are present, and how many of the 3 tactical files (`BAR-ATH_tactical_atd.txt`, `BAR-ATH_tactical_atd.xml`, `BAR-ATH_tactical_smart_tagging.xml`) are present. It exits 0 when no check fails. A `skip` line for Metrica data means only the dev features are unavailable. A `skip` line for the tactical files means `measure`'s real-match sections and two self-checks skip.
 
 If you are inside a `.claude/worktrees/...` worktree, the doctor reports that worktree's HEAD. The data folder still defaults to that worktree's own `data/`, which is usually empty, so set `MTAH_DATA_DIR=/Users/shishirmehto/git/more-than-a-hack-2027/data` there.
 
@@ -34,7 +34,7 @@ Run every command through `scripts/run.sh` so that its proof is saved:
 
 `run.sh` runs the command from the repo root, writes `<label>.cmd`, `<label>.out`, `<label>.err` and `<label>.exit` into the evidence folder, writes `meta.txt` (time, HEAD, dirty count, Python version, data folder) once per run, prints one summary line and exits with the command's own exit code. Use a different label for each command of a run.
 
-The subcommands are `make-submission`, `selfcheck`, `score`, `fit-dev`, `sweep` and `fetch-metrica`. `score`, `fit-dev` and `sweep` take world flags as lists: `--rule` (label rule keys such as `m0`, `m2`, `h3p3`), `--dead-bias` and `--seed`. The feature files give exact invocations.
+The subcommands are `make-submission`, `selfcheck`, `measure`, `score`, `fit-dev`, `sweep` and `fetch-metrica`. `measure` takes no flags. `score`, `fit-dev` and `sweep` take world flags as lists: `--rule` (label rule keys such as `m0`, `m2`, `h3p3`), `--dead-bias` and `--seed`. The feature files give exact invocations.
 
 Isolation rules for parallel runs:
 

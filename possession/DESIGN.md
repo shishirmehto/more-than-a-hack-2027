@@ -20,7 +20,8 @@ Shell, from the repo root:
 
 ```bash
 python -m possession fetch-metrica --write-manifest     # once; later runs verify sha256, ~183 MB into data/metrica_sample/
-python -m possession fit-dev --seed 0 --rule m0 m1 m2 --dead-bias 1 3 11 --out params/tier0_v1.json
+python -m possession measure                            # match-wide aggregates behind the generator's constants; writes nothing
+python -m possession fit-dev --seed 0 --rule m0 m1 m2 --out params/tier0_v1.json   # generator worlds default to dropout.CALIBRATION's bracket (1, 3)
 python -m possession score --params params/tier0_v1.json --dev --public     # table; writes data/derived/runs/
 python -m possession make-submission --params params/tier0_v1.json --out evaluation/results/possession_v1.csv
 python evaluation/run_evaluation.py --bootstrap 1000    # existing scorer, unchanged, scores the CSV on the public window
@@ -38,15 +39,15 @@ table = bench.run({"v1": decoder.Decoder.load("params/tier0_v1.json")}, cases)
 print(table[["model", "case", "spell_f1", "macro_f1", "n_pred_spells", "n_gt_spells"]])
 ```
 
-Python, ask the question the real ATD cannot yet answer, "does it drop the ball more on dead frames?", as a number per decoder choice:
+Python, ask "what does it cost a decoder if the ball drops more on dead frames?", as a number per decoder choice. `measure` reads the real ratio at about 1.8, and the surface brackets it:
 
 ```python
 from possession import bench, decoder, dropout
 
 base = decoder.Decoder.load("params/tier0_v1.json")
 worlds = {rho: bench.dev_cases(bench.DevSpec(dropout=dropout.DropoutParams(dead_bias=rho)))
-          for rho in (1, 3, 11)}
-print(bench.surface(base, worlds, beliefs=(1, 3, 11)))   # rows generator dead_bias, cols decoder belief, last row = min over worlds
+          for rho in dropout.CALIBRATION.surface}            # (1, 1.8, 3)
+print(bench.surface(base, worlds, beliefs=dropout.CALIBRATION.surface))   # rows generator dead_bias, cols decoder belief, last row = min over worlds
 ```
 
 Python, the ATD plug-in. Switching a caller to the ATD is this one line (adopting it in `make-submission` is the open decision in "Next implementation step"):
@@ -66,14 +67,15 @@ preds = [model.decode(h).codes for h in halves]   # unchanged
 |---|---|---|---|
 | `half.py` | codes, `Geometry`, `Half`, `CleanHalf`, `Layout` | the types, `check_codes` | array freezing, origin arithmetic |
 | `score.py` | the only import of `pm` | `evaluate`, `spell_f1`, `write_submission`, `read_codes`, `matched_flags`, pm's run helpers | import style, range guard, assembly, newline and rename discipline |
-| `challenge.py` | BAR-ATH: blocks, kickoffs, the tier-0 token, baseline_raw, the ATD seam | `halves(source)`, `layout`, `observe`, `nearest_team` | the "D means missing" translation, the ATD grammar |
-| `metrica/` | the sample data | `fetch`, `load`, `RuleV2` | pinned URLs, sha256, two file formats, label rule v2, native-NaN fill |
-| `dropout.py` | challenge-ification | `challengeify`, `DropoutParams` | rate solving, renewal masks, RNG streams |
+| `challenge.py` | BAR-ATH: blocks, kickoffs, the tier-0 token, baseline_raw, the ATD seam, Smart Tagging | `halves(source)`, `layout`, `observe`, `nearest_team`, `Tag`, `tags`, `tag_rows` | the "D means missing" translation, the ATD and SportsCode grammars, club names to sides, the tag time-base check |
+| `metrica/` | the sample data | `fetch`, `load`, `RuleV2`, `native_ball_seen` | pinned URLs, sha256, two file formats, label rule v2, native-NaN fill |
+| `dropout.py` | challenge-ification and the generator's measured constants | `challengeify`, `DropoutParams`, `CALIBRATION`, `missing_rates` | rate solving, renewal masks, RNG streams |
+| `measure.py` | how constants are measured: the real ball mask against Smart Tagging, constants counted on Metrica labels | `timeline`, `estimate`, `estimates`, `counted_constants`, `report` | zones, dead-ball proxy definitions, the purity model, run splitting, coverage, the skip policy |
 | `decoder.py` | evidence to labels | `Decoder.decode/replace/fields/save/load`, `Tier0Emission`, `DecoderParams` | chain, forward-backward, blocks, kickoff, tie rounding, range checks |
 | `bench.py` | scoring problems and the selection protocol | `dev_cases`, `public_case`, `run`, `surface`, `fit_dev`, `paired_delta` | which cases exist, worlds, max-min |
 | `selfcheck.py` | the invariants as runnable checks | `run` | |
 
-This deliberately departs from the grounding's stage-shaped map (`halves / features / decode / sources / devset / submit / score`). Load, featurise, decode and submit are execution order, not ownership, and each stage would repeat the half bundle's rules (per `model-the-domain`: "execution order is not ownership"). Here, one module owns each body of knowledge. The longest user-visible chain is `bench -> dropout -> challenge` (three files), and `bench -> metrica -> metrica.rule` for labels.
+This deliberately departs from the grounding's stage-shaped map (`halves / features / decode / sources / devset / submit / score`). Load, featurise, decode and submit are execution order, not ownership, and each stage would repeat the half bundle's rules (per `model-the-domain`: "execution order is not ownership"). Here, one module owns each body of knowledge. The longest user-visible chain is `bench -> dropout -> challenge` (three files), and `bench -> metrica -> metrica.rule` for labels. "Where does the generator's 1.8 come from?" is `dropout.CALIBRATION` -> `measure.estimate` -> `challenge.tag_rows` and `dropout.missing_rates`. Nothing on the submission path imports `measure`, `dropout`, `bench` or `metrica`, and `selfcheck` enforces an allow-list.
 
 ### Data structures first
 
@@ -94,7 +96,7 @@ Half --Emission.loglik--> float [n,3] evidence per label --forward-backward on 4
 
 The seam is the evidence matrix. The chain knows nothing about balls or teams. An `Emission` knows nothing about durations or kickoffs. Tier-0 is one `Emission`. The ATD-era feature model is another, and nothing else moves (per `boundary-discipline`, general mechanism inside and source-specific policy at the edge).
 
-Four states: H, A, D_after_H, D_after_A. Both D states emit label D. D remembers the last possessor so a stoppage can carry a flip prior (3 of the 4 public-window D stretches change team, inferred from the segment table, n=4). Durations are geometric with per-class means. Evidence is tempered by a scalar alpha. Frames [0, kickoff) are D by rule. A missing ball is flat evidence unless the explicit `dead_bias` belief is set. Decoding runs on blocks of 5 frames.
+Four states: H, A, D_after_H, D_after_A. Both D states emit label D. D remembers the last possessor so a stoppage can carry a flip prior. On the Metrica labels 231 of 315 interior D stretches change team under the raw rule, and 176 to 185 under the controlled rules (`python -m possession measure`). Durations are geometric with per-class means. Evidence is tempered by a scalar alpha. Frames [0, kickoff) are D by rule. A missing ball is flat evidence unless the explicit `dead_bias` belief is set. Decoding runs on blocks of 5 frames.
 
 Interface depth: `Decoder.decode(half)` is the whole decoding API. It hides the chain, scaling, block aggregation, kickoff handling and tie rounding. The caller supplies a `Half` and receives codes plus, under the default marginal rule, a posterior.
 
@@ -125,7 +127,7 @@ Two effects. With weak evidence the MAP path hands whole stretches to the flat-e
 - **Labels from events only (rule v2).** Pure function `label_period(events, frame0, n, rule)`. Dead openers, restart closers, restart fallback, owner timeline, then either the controlled-possession filter or the merge (never both). Acceptance numbers are the explorers' (alive share 55.1/58.4/67.9%, raw spells 364/322/387).
 - **Pre-kickoff is D, post-whistle is trimmed.** A half block starts at the period's first tracking frame and ends at the last event end plus one. Frames before kickoff are D. This mirrors the challenge's graded half 2 (2,934 D frames) and exercises the kickoff rule in dev. An X head would be back-filled by `pm.fill_abstentions` into a false spell, so D it is.
 - **Native NaN fill.** Default `hold` (forward-fill, back-fill the head). It is a parameter, not an open question. The reason is that `linear` gives a dead ball a constant velocity that a ball-speed feature would read as live play, which is a different leak.
-- **Dropout.** Alternating renewal process. Missing runs are resampled from baseline_raw's 150 real runs, present runs from its 149 real runs, scaled by the closed form `c = E[m](1-r)/(r E[p])` so the stationary rate is `r`. One mask for alive frames, one for dead frames, selected by label. `solve_rates(a, target, rho, cap)` solves both constraints given the half's alive share `a`. They are `a*p_alive + (1-a)*p_dead = 0.407` and `p_dead = rho * p_alive`, with a cap and a loud failure if unreachable. Pre-kickoff is its own stratum at 0.19 (564 of 2934 missing in the real half-2 stretch). A prototype of this generator (**measured**, `e2_dead_bias_surface.py`) realised an overall rate of 0.39 to 0.43 at target 0.407, and at rho 3 a P(missing | dead) of 0.83 and a P(missing | alive) of 0.27.
+- **Dropout.** Alternating renewal process. Missing runs are resampled from baseline_raw's 146 real missing runs over each half's `[kickoff, n)`, present runs from its 145 present runs, scaled by the closed form `c = E[m](1-r)/(r E[p])` so the stationary rate is `r`. (Over whole blocks the counts are 150 and 149.) One mask for alive frames, one for dead frames, selected by label. `solve_rates(a, target, rho, cap)` solves both constraints given the half's alive share `a`. They are `a*p_alive + (1-a)*p_dead = target` and `p_dead = rho * p_alive`, with a cap and a loud failure if unreachable. The target is `dropout.CALIBRATION.window_rate`, 0.4110 (64,079 of 155,923 decode-window rows missing), the rate on the window the generator applies it to. Pre-kickoff is its own stratum at `CALIBRATION.prekickoff_rate`, 0.1922 (564 of 2,934 missing in the real half-2 stretch). It is inert for scoring, because the decoder reads `[kickoff, n)` only. A prototype of this generator (**measured**, `e2_dead_bias_surface.py`) realised an overall rate of 0.39 to 0.43 at target 0.407, and at rho 3 a P(missing | dead) of 0.83 and a P(missing | alive) of 0.27.
 - **Identity.** Not simulated. `challenge.nearest_team` reduces over slots per frame, so identity-freedom is a tested property (`selfcheck.permutation_invariance`).
 - **Seeds.** `SeedSequence([seed, game, half, stream])` per purpose (per `separate-before-serializing-shared-state`, no actor shares a generator, so adding a half or a stream reshuffles nothing).
 
@@ -142,7 +144,7 @@ Every scoring problem is a `Case`, so a decoder is scored by the same two calls 
 | 11 | 0.435 | 0.523 | 0.520 |
 | min over worlds | 0.435 | 0.336 | 0.336 |
 
-Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it costs 0.09 in the dead-heavy world, so the surface is informative and asymmetric. The selection rule is therefore max-min over worlds, ties by mean. Worlds are the label rule times `dead_bias` (both unknown for the real match) times the dropout seed (noise, see sweep 5). The `dead_bias` key is the requested ratio. Above roughly 8 the 0.98 per-state cap binds on high-alive halves and the effective ratio saturates (G3, alive share 0.68, at 11 gives about 7; the proxy's 78%-alive truth gave 4.2). `bench.run` recomputes the realised rates from each case's tokens and prints them beside its scores, so a table never reports a ratio the data did not have. `dead_bias` is never fitted on the dev set, because fitting it there reads back the generator's own setting. Nothing else is fitted by counting either. `q`, `p_dead_after_poss` and `p_flip_after_dead` are grid axes like alpha, the two mean durations and the belief, because the counted values lost on the dev objective (see Dev sweeps). Decode costs about 0.06 s per half at stride 5, so the 135-config by 3-world grid is a few minutes (**measured** decode time, grid size by arithmetic). `paired_delta` bootstraps the GT possessions two decoders share before anyone believes a gap under 0.04 (`score --paired`).
+Wrongly believing missingness means dead costs 0.10, and wrongly ignoring it costs 0.09 in the dead-heavy world, so the surface is informative and asymmetric. The selection rule is therefore max-min over worlds, ties by mean. Worlds are the label rule (unknown for the real match) times `dead_bias` times the dropout seed (noise, see sweep 5). `measure` reads the real `dead_bias` at about 1.8 from Smart Tagging restarts, but its proxy has biases it cannot see, so `fit-dev` keeps the bracket (1, 3) from `dropout.CALIBRATION` (see "Measurements and constant provenance"). The `dead_bias` key is the requested ratio. Above roughly 8 the 0.98 per-state cap binds on high-alive halves and the effective ratio saturates (G3, alive share 0.68, at 11 gives about 7; the proxy's 78%-alive truth gave 4.2). 11 survives only as an explicit `--dead-bias 11` stress test. `bench.run` recomputes the realised rates from each case's tokens and prints them beside its scores, so a table never reports a ratio the data did not have. `dead_bias` is never fitted on the dev set, because fitting it there reads back the generator's own setting. Nothing else is fitted by counting either. `q`, `p_dead_after_poss` and `p_flip_after_dead` are grid axes like alpha, the two mean durations and the belief, because the counted values lost on the dev objective (see Dev sweeps). Decode costs about 0.06 s per half at stride 5, so the 135-config by 3-world grid is a few minutes (**measured** decode time, grid size by arithmetic). `paired_delta` bootstraps the GT possessions two decoders share before anyone believes a gap under 0.04 (`score --paired`).
 
 ### Where invariants live
 
@@ -192,7 +194,7 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 - We accept one scalar temper in place of a model of burst-correlated token errors (a clean/noisy regime in the emission) in exchange for a four-state chain. The dev tokens are geometry-derived and bursty, so tuning the scalar there is the cheap proxy.
 - We accept geometric durations that are tuned, not fitted, in exchange for not baking Metrica's event convention (30% of raw spells under 2 s) into the challenge decoder.
 - We accept H/A symmetry (no home advantage) in exchange for a decoder that cannot be fooled by a team-label swap and that three games cannot mis-estimate.
-- We accept a stationary dropout generator that ignores play and camera in exchange for a bracketing sweep (`dead_bias` 0.75 to 11) that does not pretend to know the real dependence.
+- We accept a stationary dropout generator that ignores play and camera in exchange for a bracketing sweep (`dead_bias` 1 to 3 around the measured 1.8) that does not pretend to know the real dependence exactly.
 - We accept `hold` fill, which gives a dead ball a stationary position, in exchange for avoiding a constant-velocity dead ball. A ball-speed feature may still read "stationary" as a weak dead cue.
 - We accept block decoding at stride 5 (switches quantised to 5 frames, tolerance in the scorer is 12) in exchange for a 5x faster grid. `stride=1` stays one parameter away.
 - We accept committing selected numbers (`params/*.json`) derived from external public data in exchange for a submission path that never touches Metrica. Re-running the selection needs the fetch.
@@ -211,7 +213,7 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 
 ## Dev sweeps (2026-10-21)
 
-`params/tier0_v0.json` is the reference decoder. The sweeps below ran on pooled dev with max-min selection. None of them replaced v0.
+`params/tier0_v0.json` is the reference decoder. The sweeps below ran on pooled dev with max-min selection. None of them replaced v0. They ran with the generator's old target 0.407, at commits up to `2f57fa0`, so reproducing their numbers needs that commit; later commits target 0.4110 and every dev score moves by draw noise.
 
 | sweep | worlds | counts | winner | worst-world spellF1, winner / v0 |
 |---|---|---|---|---|
@@ -244,9 +246,67 @@ Rejected: boundary refinement (`_refine` / centring, measured at +0.000..0.017),
 - **Sweep 4 keeps v0.** The grid is temper {0.05, 0.1}, poss_mean_s {6, 9, 13}, dead_mean_s {6, 10, 15}, p_dead_after_poss {0.15, 0.25, 0.4} and p_flip_after_dead {0.55, 0.7, 0.85}, with belief 1 and marginal decoding, 162 candidates. It ranks v0 first at seed 0, with the top 10 within 0.006. Promotion needed a max-min win over v0, a paired 90% CI excluding zero on the binding world, and a win again at seed 1. No candidate passed the first test, so `params/` is unchanged.
 - **The dropout seed moves the ranking more than the paired CI shows, so sweep 5 makes it a world axis, and v0 stays.** The sweep 4 grid at seed 1 ranks v0 76th of 162, and the rank correlation of the per-candidate min between seeds 0 and 1 is 0.64. `paired_delta` resamples GT possessions within one dropout draw, so it misses the draw-to-draw spread, and v0's min alone moves 0.012 between the two seeds. Sweep 5 runs the same grid with `--seed 0 1 2`, one world per seed (`bench.worlds(seeds=...)`, keys like `h5p3_r1_s1`), so 18 worlds. Its winner is sweep 4's seed-0 runner-up (dead_mean_s 15, p_dead_after_poss 0.15, p_flip_after_dead 0.85), with min 0.3249 on h5p3_r1 against v0's 0.3153 on h5p3_r1_s1, and v0 ranks 30th with the top 10 within 0.0044. The two decoders bind on different worlds. On the winner's binding world it trails v0 by -0.0026 [-0.0069, 0.0017], and on v0's it leads by +0.0098 [+0.0052, +0.0145]. Held-out seeds 3 and 4 settle it. There the winner's min is 0.3158 against v0's 0.3187, and it leads on only 2 of the 12 worlds, so its edge was seed 1. `params/` is unchanged. Over seeds 0 to 4, v0's score on h5p3_r1 alone ranges from 0.315 to 0.347, about seven times the spread of the grid's top 10, so tier-0 chain tuning sits inside the draw noise. For a future promotion, held-out seeds replace "wins again at seed 1".
 
+## Measurements and constant provenance (2026-10-23)
+
+The organisers' 2026-10-22 and 2026-10-23 rules exclude the public window as a source for any decoder or generator constant and allow match-wide statistics computed by code. `python -m possession measure` re-derives each constant from a permitted source: the tactical ATD ball mask and Smart Tagging (both automatic) for the generator, and the Metrica labels (other games) for the decoder. It prints aggregates only and writes nothing. `selfcheck.measure_pins_calibration` and `controlled_rule_measurements` pin its counts, which an independent probe measured. All numbers below are **measured**.
+
+The ball mask by zone. The decode window is `[kickoff, n)` of each half.
+
+| zone | frames | missing | rate | missing / present runs |
+|---|---|---|---|---|
+| window, half 1 | 79,467 | 32,304 | 0.4065 | 69 / 68 |
+| window, half 2 | 76,456 | 31,775 | 0.4156 | 77 / 77 |
+| window, both | 155,923 | 64,079 | 0.4110 | 146 / 145 |
+| pre-kickoff, half 2 | 2,934 | 564 | 0.1922 | 4 / 5 |
+| graded, both | 158,857 | 64,643 | 0.4069 | 150 / 149 |
+
+The old target 0.407 was the graded row. The generator applies its target on the window, so `CALIBRATION.window_rate` is 0.4110. The ATD mask equals baseline_raw's on every frame, and the two run pools are identical.
+
+The dead-ball proxy. Smart Tagging has 638 instances, 59 of them set pieces: 26 throw-ins (all team "N/A"), 12 corners, 10 goal kicks, 5 free kicks, 4 kick-offs after a goal and the 2 opening kick-offs. The tag time base agrees: the opening kick-off tags contain rows 11185 and 113742. The dead stretch precedes a restart's tag start. P(missing) by offset from the start of each of the 57 restarts:
+
+| offset s | [-15, -10) | [-10, -5) | [-5, 0) | [0, 5) | [5, 10) | [10, 15) |
+|---|---|---|---|---|---|---|
+| P(missing) | 0.639 | 0.633 | 0.732 | 0.613 | 0.285 | 0.177 |
+
+The headline proxy is the 5 s before each restart against the rest of the window: 5,214 of 7,125 against 58,865 of 148,798, a ratio of 1.850. Across 16 definitions (lead 3, 5, 10 or 15 s, tail 0 or 5 s, and the alive side as the rest of the window or only team phases outside every set piece and its 15 s lead), the ratio runs from 1.70 to 2.06, median 1.81. Per restart kind at lead 5 s it runs from 1.21 (goal kick) to 2.53 (corner, kick-off after goal). Untagged window rows are missing 0.555 of the time.
+
+The purity model reads the proxy. If only a share p of the proxy's rows are dead ball and the alive side is clean, the true ratio is `(ratio - (1 - p)) / p` (`measure.corrected`). At p = 0.35 (`measure.PURITY_FLOOR`) the median corrects to 3.31, which rounds to the bracket top 3. World 11 would need p = 8.1%, which a window ending at a restart cannot have.
+
+Players stay tracked through dropout. On missing window frames the tracker holds 18.2 players on average in half 1 and 20.1 in half 2, against 21.4 and 21.5 on present frames. That is what ball-free features can use.
+
+Decoder constants counted on the Metrica labels over each half's `[kickoff, n)`. q is counted on alive frames whose ball the source file observed.
+
+| constant | v0 | m0 | h2p3 | h3p3 | h5p3 |
+|---|---|---|---|---|---|
+| q | 0.78 | 0.8029 | 0.7977 | 0.7927 | 0.7814 |
+| alive_share | 0.6 | 0.6117 | 0.6117 | 0.6117 | 0.6117 |
+| p_dead_after_poss | 0.25 | 0.2950 | 0.3859 | 0.4462 | 0.5456 |
+| p_flip_after_dead | 0.7 | 0.7333 | 0.5873 | 0.5714 | 0.5587 |
+| poss_mean_s | 6.0 | 9.66 | 12.67 | 14.65 | 17.80 |
+| dead_mean_s | 10.0 | 20.95 | 20.95 | 20.95 | 20.95 |
+
+q is counted on 258,085 frames per rule, and q per half runs from 0.744 to 0.833. The chain constants come from 315 interior D stretches and 570 to 1,061 interior possessions.
+
+Provenance of each constant:
+
+| constant | v0 | first source | permitted source now | status |
+|---|---|---|---|---|
+| `target_missing_rate` | 0.407 | baseline_raw's graded rate, pre-kickoff included | `measure`: decode-window rate 0.4110 | changed to `CALIBRATION.window_rate` |
+| `prekickoff_missing_rate` | 0.19 | baseline_raw half-2 pre-kickoff, rounded | `measure`: 564 / 2,934 | changed to `CALIBRATION.prekickoff_rate`; inert for scoring |
+| generator `dead_bias` worlds | fit-dev (1, 3), sweep (1, 3, 11), score (1) | a guess bracket, motivated by a public-window ratio | `measure`: proxy 1.85, spread 1.21 to 2.53, purity floor | fit-dev (1, 3) kept; sweep (1, 1.8, 3); score (1.8) |
+| `q` | 0.78 | the public-window crosstab | Metrica counts 0.7814 to 0.8029 | unchanged; v0's value lies inside the counted range; never a dev grid axis |
+| `p_flip_after_dead` | 0.7 | public-window D stretches | dev sweeps 4 and 5 (grid axis, v0 kept); Metrica counts 0.733 raw, 0.559 to 0.587 controlled | unchanged; the objective backs it, the controlled counts do not |
+| `alive_share` | 0.6 | Metrica raw labels | Metrica counts 0.6117 | unchanged |
+| `p_dead_after_poss` | 0.25 | hand-set | dev sweeps 4 and 5 (grid axis); counts 0.295 to 0.546 | unchanged |
+| `poss_mean_s`, `dead_mean_s` | 6, 10 | hand-set | dev sweeps 3 to 5 (grid axes); counts 9.7 to 17.8 and 21.0 | unchanged |
+| `temper` | 0.05 | a public-window smoke test of the useful range | dev sweeps 1 to 5 (grid axis, v0 interior) | unchanged |
+| decoder `dead_bias` belief | 1.0 | design default | dev sweeps (grid axis) | unchanged |
+
+The report adopts nothing. `params/*.json`, the decoder defaults and the submission bytes are unchanged. Whether to adopt a counted value is a separate decision.
+
 ## Open questions and risks
 
-- Does the real ATD drop the ball more on dead frames than alive ones? The public window gives P(missing | GT D) 0.34 and P(missing | GT alive) 0.065, which cannot both hold match-wide (overall 0.407). Who answers it, and can Smart Tagging set-piece windows be crossed with the ATD mask? The data is on disk since 2026-10-22, so this is now a measurement.
+- Answered 2026-10-23: does the real ATD drop the ball more on dead frames than alive ones? Yes, by about 1.8 times. Crossing the ATD mask with Smart Tagging restarts gives P(missing) 0.7318 in the 5 s before a restart against 0.3956 on the rest of the decode window (`python -m possession measure`). The proxy has two biases it cannot measure. Untagged stoppages sit on the alive side and pull the ratio toward 1. Dead time next to a tagged restart may not stand for all dead time (corners run 1.000 missing, goal kicks 0.478), which can push it either way. Hence the bracket (1, 3) rather than the point.
 - Which label convention does the private GT use? `merge_s` is an axis, not a tuned value. Should we ask the organisers whether a visible-ball goal-kick setup is D or possession, and what hold time the ground truth uses for "controlled"? The controlled rule's `hold_s` brackets it at 2 to 5 s.
 - Will Metrica token accuracy (79 to 82% on alive ball-visible frames) and its error burstiness transfer to the challenge (77.8% on the public window)? The surface only brackets dropout, not token noise.
 - Should the final submission read the ATD directly instead of the committed `baseline_raw.csv`? Today `baseline_raw.csv` is the only full-match observation and is committed organiser output. "The repo must regenerate the CSV" is satisfied, but the final path should probably be ATD to `Geometry` to `observe`.

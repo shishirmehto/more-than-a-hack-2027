@@ -36,4 +36,17 @@ if [ "$metrica" = "9/9" ]; then
 else
 	echo "skip  Metrica sample data $metrica files: score --dev, fit-dev, sweep and possession.metrica need fetch-metrica"
 fi
+tactical=$("$py" - <<'EOF' 2>/dev/null
+import os
+import games
+paths = games.asset_paths()
+names = ("atd_raw", "atd_meta", "smart_tagging")
+print(f"{sum(os.path.isfile(paths[name]) for name in names)}/{len(names)}")
+EOF
+) || tactical="?"
+if [ "$tactical" = "3/3" ]; then
+	echo "ok    tactical ATD and Smart Tagging $tactical files (measure and the ATD self-checks available)"
+else
+	echo "skip  tactical ATD and Smart Tagging $tactical files: measure's real-match sections and two self-checks skip"
+fi
 exit $fail

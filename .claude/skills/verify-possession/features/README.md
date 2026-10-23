@@ -8,13 +8,14 @@ This folder is the maintained source for verifying what a user of the `possessio
 - `.claude/skills/verify-possession/scripts/doctor.sh` prints no `FAIL` line.
 - `V=.claude/skills/verify-possession/scripts` and `RUN_ID` are set for this run, and every command goes through `$V/run.sh "$RUN_ID" <label> ...`.
 - The dev features (`score --dev`, `fit-dev`, `sweep`, `python -m possession.metrica`) need the doctor to report `Metrica sample data 9/9 files`.
+- `measure` and the full `selfcheck` also need the doctor to report `tactical ATD and Smart Tagging 3/3 files`.
 
 ## Driving conventions
 
 - Treat every command as literal. Keep flags and file names unchanged.
 - Write outputs into `data/derived/verify/$RUN_ID/` (or under `$MTAH_DATA_DIR/derived/verify/$RUN_ID/`). Call that folder `$EV` below.
 - Never write into `evaluation/results/`, and never run `run_evaluation.py` without `--results` and `--out`.
-- Expected numbers below were measured at commit `4832bf7`. If a later commit changes a number on purpose, the change belongs in `possession/DESIGN.md` and in this map in the same commit.
+- Expected numbers below were measured at commit `4832bf7`, except `measure.md`, `selfcheck.md`, `fit-dev.md` and the dev numbers in `score.md`, which were measured at `c47c308`. If a later commit changes a number on purpose, the change belongs in `possession/DESIGN.md` and in this map in the same commit.
 
 ## Proof and skip reporting
 
@@ -34,5 +35,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Score decoders](./score.md) covers dev-world and public-window scoring and the paired comparison.
 - [Search decoder settings](./fit-dev.md) covers the grid search and its params and grid outputs.
 - [Prepare the Metrica dev data](./metrica-dev-data.md) covers the pinned download and the label acceptance tables.
+- [Measure the match observation](./measure.md) covers the match-wide aggregates behind the generator's constants and the counted decoder constants.
 
-Not yet mapped: `sweep` (the generator dead_bias by decoder belief table).
+Not yet mapped: `sweep` (the generator dead_bias by decoder belief table). Its worlds and beliefs default to `1 1.8 3` (`dropout.CALIBRATION.surface`).
