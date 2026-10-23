@@ -143,7 +143,8 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
         "grid_table": grid_path.name,
         "grid_candidates": len(table),
         "sweep_seconds": round(seconds),
-        "not_tuned_on": "the public window",
+        "public_window": "Selection does not read it. Several grid defaults started from public-window statistics. "
+                         "possession/DESIGN.md, Measurements and constant provenance, lists them.",
     })
     print(table.head(10).to_string(index=False))
     print(f"{args.out}\n{grid_path}\n{len(table)} candidates x {len(worlds)} worlds in {seconds:.0f} s")
