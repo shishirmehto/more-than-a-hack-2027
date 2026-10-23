@@ -27,7 +27,8 @@ V0 = Path(__file__).resolve().parents[1] / "params" / "tier0_v0.json"
 
 RESTART_KINDS = ("throw-in", "corner kick", "goal kick", "free kick", "kick off (after goal)")
 # P(missing) by offset from a restart (the offset table) is 0.30 to 0.39 in every 5 s bin from -60 to
-# -30 s and higher in every bin after, so the "phase" complement keeps 30 s clear of every set piece.
+# -30 s and 0.42 or more in every bin from -30 s to the tag start, so the "phase" complement keeps 30 s
+# clear of every set piece.
 PHASE_GUARD_S = 30.0
 LONG_RUN_S = 10
 OFFSET_BINS_S = tuple((lo, lo + 5) for lo in range(-60, 15, 5))

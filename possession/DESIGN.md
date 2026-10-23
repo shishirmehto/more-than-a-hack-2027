@@ -272,7 +272,7 @@ The dead-ball proxy. Smart Tagging has 638 instances, 59 of them set pieces: 26 
 |---|---|---|---|---|---|---|---|
 | P(missing) | 0.507 | 0.639 | 0.633 | 0.732 | 0.613 | 0.285 | 0.177 |
 
-Every 5 s bin from -60 to -30 s runs 0.30 to 0.39, and every bin after it is higher, so the "phase" alive side keeps 30 s clear of every set piece (`measure.PHASE_GUARD_S`).
+Every 5 s bin from -60 to -30 s runs 0.30 to 0.39, and every bin from -30 s to the tag start runs 0.42 or more, so the "phase" alive side keeps 30 s clear of every set piece (`measure.PHASE_GUARD_S`).
 
 Each of the 4 goals tags runs on through the stoppage to the kick-off after the goal: it ends 1 s after that kick-off's tag starts and lasts 71 to 251 s. Their 16,503 window rows are missing 0.883 of the time. The length and the rate say those rows are mostly stoppage (inferred), so `Tag.phase` excludes goals tags and both alive sides drop their rows.
 
@@ -306,7 +306,7 @@ Provenance of each constant:
 | `p_flip_after_dead` | 0.7 | public-window D stretches | dev sweeps 3 to 5 (grid axis {0.55, 0.7, 0.85}); Metrica counts 0.733 raw, 0.559 to 0.587 controlled | unchanged, retained by incumbency: dev cannot separate 0.55 to 0.85 within draw noise (sweep 5), and the controlled counts point lower |
 | `alive_share` | 0.6 | Metrica raw labels | Metrica counts 0.6117 | unchanged |
 | `p_dead_after_poss` | 0.25 | hand-set | dev sweeps 3 to 5 (grid axis); counts 0.295 to 0.546 | unchanged |
-| `poss_mean_s`, `dead_mean_s` | 6, 10 | hand-set | dev sweeps 3 to 5 (grid axes); counts 9.7 to 17.8 and 21.0 | unchanged |
+| `poss_mean_s`, `dead_mean_s` | 6, 10 | hand-set | dev sweeps 1 to 5 (grid axes); counts 9.7 to 17.8 and 21.0 | unchanged |
 | `temper` | 0.05 | a public-window smoke test of the useful range | dev sweeps 1 to 5 (grid axis; interior in sweeps 1 and 2, lower edge of {0.05, 0.1} in sweeps 3 to 5) | unchanged |
 | decoder `dead_bias` belief | 1.0 | design default | dev sweeps (grid axis) | unchanged |
 
