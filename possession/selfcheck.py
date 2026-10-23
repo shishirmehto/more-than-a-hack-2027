@@ -190,10 +190,12 @@ def measure_pins_calibration() -> None:
     t = measure.timeline()
     # Measured 2026-10-23 by an independent probe: baseline_raw D rows (equal to the ATD mask) crossed
     # with starter.load_smart_tagging, without possession.measure or challenge.tags.
+    cal = dropout.CALIBRATION
     window, pre = t.zone == measure.Zone.WINDOW, t.zone == measure.Zone.PRE_KICKOFF
     got = [(int(t.missing[window & (t.half == h)].sum()), int((window & (t.half == h)).sum())) for h in (1, 2)]
     assert got == [(32304, 79467), (31775, 76456)], got
-    assert (int(t.missing[pre].sum()), int(pre.sum())) == (564, 2934)
+    assert (int(t.missing[window].sum()), int(window.sum())) == (cal.window_missing, cal.window_frames)
+    assert (int(t.missing[pre].sum()), int(pre.sum())) == (cal.prekickoff_missing, cal.prekickoff_frames)
 
     assert len(t.tags) == 638, len(t.tags)
     assert Counter(g.code for g in t.tags) == {
@@ -214,6 +216,10 @@ def measure_pins_calibration() -> None:
     spread = (round(min(sweep), 4), round(float(np.median(sweep)), 4), round(max(sweep), 4))
     assert spread == (1.6966, 1.8074, 2.0605), spread
     assert (round(min(kind), 4), round(max(kind), 4)) == (1.2073, 2.5278), kind
+    lo, hi = cal.dead_bias_bracket
+    assert min(sweep) <= cal.dead_bias <= max(sweep), (cal.dead_bias, spread)
+    assert all(lo <= r <= hi for r in ratios), (cal.dead_bias_bracket, ratios)
+    assert hi >= round(measure.corrected(float(np.median(sweep)), measure.PURITY_FLOOR)), spread
     _aggregates_only(measure.tactical_sections(t))
 
 
@@ -423,9 +429,16 @@ def dropout_hits_both_constraints() -> None:
     assert (round(p_alive, 4), p_dead, round(p_dead / p_alive, 2)) == (0.1374, 0.98, 7.13), (p_alive, p_dead)
     _raises(ValueError, dropout.solve_rates, 0.5, 0.99, 3.0, 0.98)
 
-    pool = dropout.RunPool.from_halves(challenge.halves("baseline_raw"))
+    cal = dropout.CALIBRATION
+    raw = challenge.halves("baseline_raw")
+    pool = dropout.RunPool.from_halves(raw)
     got = (len(pool.missing), len(pool.present), len(pool.mask), int(pool.mask.sum()), int(pool.missing.sum()))
-    assert got == (146, 145, 155_923, 64_079, 64_079), got
+    assert got == (146, 145, cal.window_frames, cal.window_missing, cal.window_missing), got
+    pre = np.concatenate([h.nearest_team[:h.id.kickoff] == NO_TEAM for h in raw])
+    assert (int(pre.sum()), len(pre)) == (cal.prekickoff_missing, cal.prekickoff_frames)
+    defaults = dropout.DropoutParams()
+    assert (defaults.target_missing_rate, defaults.prekickoff_missing_rate) == (cal.window_rate, cal.prekickoff_rate)
+    assert cal.surface == (1.0, 1.8, 3.0), cal.surface
 
     clean = _synthetic_clean()
     clean_tokens = [challenge.nearest_team(c.geometry) for c in clean]

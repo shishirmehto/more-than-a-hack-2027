@@ -84,13 +84,55 @@ def missing_rates(missing: NDArray[np.bool_], *, dead: NDArray[np.bool_],
 
 
 @dataclass(frozen=True, slots=True)
+class Calibration:
+    """The generator's constants, measured on the real BAR-ATH observation (tactical ATD and Smart
+    Tagging, 2026-10-23). Reproduce: python -m possession measure. selfcheck re-measures the counts from
+    the committed baseline_raw without data (dropout_hits_both_constraints) and from the ATD with data
+    (measure_pins_calibration).
+
+    window_missing / window_frames:          ball-missing rows over every half's [kickoff, n): the window
+                                             the decoder reads and the generator's target covers.
+    prekickoff_missing / prekickoff_frames:  over [0, kickoff), which only half 2 has.
+    dead_bias:          the reading world: the headline restart-proxy ratio 1.85, rounded down to one
+                        decimal; it lies inside the spread of the 16 proxy definitions.
+    dead_bias_bracket:  fit-dev's max-min worlds. It holds every measured estimate, the restart kinds'
+                        1.21 to 2.53 included, and its top is at least the proxy median corrected for a
+                        proxy only measure.PURITY_FLOOR pure. 1 means missingness says nothing, the floor
+                        a robust decoder must survive.
+    """
+    window_missing: int = 64_079
+    window_frames: int = 155_923
+    prekickoff_missing: int = 564
+    prekickoff_frames: int = 2_934
+    dead_bias: float = 1.8
+    dead_bias_bracket: tuple[float, float] = (1.0, 3.0)
+
+    @property
+    def window_rate(self) -> float:
+        return self.window_missing / self.window_frames
+
+    @property
+    def prekickoff_rate(self) -> float:
+        return self.prekickoff_missing / self.prekickoff_frames
+
+    @property
+    def surface(self) -> tuple[float, ...]:
+        """sweep's generator worlds and decoder beliefs: the bracket and the point, ascending."""
+        return tuple(sorted({*self.dead_bias_bracket, self.dead_bias}))
+
+
+CALIBRATION = Calibration()
+
+
+@dataclass(frozen=True, slots=True)
 class DropoutParams:
     """
-    target_missing_rate:       overall ball-missing rate over the decode window of each half.
+    target_missing_rate:       overall ball-missing rate over the decode window [kickoff, n) of each
+                               half; default CALIBRATION.window_rate.
     dead_bias:                 rho = P(missing | dead) / P(missing | alive). 1.0 = missingness carries no
                                dead-ball information.
-    prekickoff_missing_rate:   rate on frames [0, kickoff). Its own stratum, so it neither inflates
-                               "dead" nor is bent by dead_bias.
+    prekickoff_missing_rate:   rate on frames [0, kickoff); default CALIBRATION.prekickoff_rate. Its own
+                               stratum, so it neither inflates "dead" nor is bent by dead_bias.
     max_rate:                  cap on any per-state rate; solve_rates re-solves the other state if hit.
     tolerance, max_attempts:   rejection bound on the realised overall rate.
     mode:                      "renewal" (default): the alive/dead/pre-kickoff renewal masks.
@@ -100,9 +142,9 @@ class DropoutParams:
                                target_missing_rate are ignored. Pre-kickoff still uses its own stratum.
     """
     mode: Literal["renewal", "transplant"] = "renewal"
-    target_missing_rate: float = 0.407
+    target_missing_rate: float = CALIBRATION.window_rate
     dead_bias: float = 1.0
-    prekickoff_missing_rate: float = 0.19
+    prekickoff_missing_rate: float = CALIBRATION.prekickoff_rate
     max_rate: float = 0.98
     tolerance: float = 0.02
     max_attempts: int = 50

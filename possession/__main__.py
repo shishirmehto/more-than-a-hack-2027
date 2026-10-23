@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import itertools
 import shlex
 import sys
@@ -44,7 +45,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     fetch.add_argument("--data-dir", type=Path, default=None)
 
     fit = sub.add_parser("fit-dev", help="grid-search decoders on dev worlds, write params + grid")
-    _world_flags(fit, rule=("m0", "m2"), dead_bias=(1.0, 3.0))
+    _world_flags(fit, rule=("m0", "m2"), dead_bias="the measured bracket, dropout.CALIBRATION.dead_bias_bracket")
     fit.add_argument("--out", type=Path, required=True)
     fit.add_argument("--temper", type=float, nargs="+", default=[0.02, 0.05, 0.1, 0.2])
     fit.add_argument("--poss-mean-s", type=float, nargs="+", default=[4.0, 6.0, 9.0, 13.0])
@@ -59,12 +60,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     fit.add_argument("--map-min-poss-frames", type=int, nargs="+", default=[1, 50])
 
     sweep = sub.add_parser("sweep", help="generator dead_bias x decoder belief surface on pooled dev")
-    _world_flags(sweep, rule=("m0",), dead_bias=(1.0, 3.0, 11.0))
+    _world_flags(sweep, rule=("m0",), dead_bias="the bracket and the measured point, dropout.CALIBRATION.surface")
     sweep.add_argument("--params", type=Path, required=True)
-    sweep.add_argument("--belief", type=float, nargs="+", default=[1.0, 3.0, 11.0])
+    sweep.add_argument("--belief", type=float, nargs="+", default=None,
+                       help="decoder dead_bias beliefs (default: the generator worlds)")
 
     scores = sub.add_parser("score", help="score decoders on dev worlds and/or the public window")
-    _world_flags(scores, rule=("m0",), dead_bias=(1.0,))
+    _world_flags(scores, rule=("m0",), dead_bias="the measured point, dropout.CALIBRATION.dead_bias")
     scores.add_argument("--params", type=Path, nargs="+", required=True)
     scores.add_argument("--dev", action="store_true")
     scores.add_argument("--public", action="store_true")
@@ -106,19 +108,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     raise AssertionError(args.command)
 
 
-def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: Sequence[float]) -> None:
+def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: str) -> None:
     p.add_argument("--seed", type=int, nargs="+", default=[0], help="dropout seeds, one world each")
     p.add_argument("--rule", nargs="+", default=list(rule), metavar="KEY",
                    help='label rules by RuleV2.key: "m0" raw, "m2" merges spells under 2 s, '
                         '"h3p3" controlled possession (3 s or 3 passes)')
-    p.add_argument("--dead-bias", type=float, nargs="+", default=list(dead_bias))
+    p.add_argument("--dead-bias", type=float, nargs="+", default=None,
+                   help=f"generator dead_bias worlds (default: {dead_bias})")
 
 
 def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
-    from . import bench, metrica
+    from . import bench, dropout, metrica
 
     started = time.perf_counter()
-    worlds = bench.worlds([metrica.RuleV2.parse(key) for key in args.rule], args.dead_bias, seeds=args.seed)
+    rhos = args.dead_bias or list(dropout.CALIBRATION.dead_bias_bracket)
+    worlds = bench.worlds([metrica.RuleV2.parse(key) for key in args.rule], rhos, seeds=args.seed)
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "dead_bias": args.belief,
               "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
@@ -135,6 +139,7 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
         "sweep_worlds": list(worlds),
         "selection": bench.SELECTION,
         "sample_data_commit": metrica.COMMIT,
+        "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         "grid_table": grid_path.name,
         "grid_candidates": len(table),
         "sweep_seconds": round(seconds),
@@ -150,25 +155,26 @@ def _print_row(row: dict[str, object]) -> None:
 
 
 def _sweep(args: argparse.Namespace) -> int:
-    from . import bench, metrica
+    from . import bench, dropout, metrica
 
     base = Decoder.load(args.params)
-    rhos = list(dict.fromkeys(args.dead_bias))
+    rhos = list(dict.fromkeys(args.dead_bias or dropout.CALIBRATION.surface))
     for rule, seed in itertools.product([metrica.RuleV2.parse(key) for key in args.rule], args.seed):
         by_rho = dict(zip(rhos, bench.worlds([rule], rhos, seeds=[seed]).values()))
         print(f"rule {rule.key} seed {seed}")
-        print(bench.surface(base, by_rho, args.belief).round(4).to_string())
+        print(bench.surface(base, by_rho, args.belief or rhos).round(4).to_string())
     return 0
 
 
 def _score(args: argparse.Namespace) -> int:
     import pandas as pd
 
-    from . import bench, metrica
+    from . import bench, dropout, metrica
 
     models = {p.stem: Decoder.load(p) for p in args.params}
     rules = [metrica.RuleV2.parse(key) for key in args.rule]
-    worlds = bench.worlds(rules, args.dead_bias, seeds=args.seed, mode=args.mode) if args.dev else {}
+    rhos = args.dead_bias or [dropout.CALIBRATION.dead_bias]
+    worlds = bench.worlds(rules, rhos, seeds=args.seed, mode=args.mode) if args.dev else {}
     if args.public:
         worlds["public"] = [bench.public_case()]
     table = pd.concat([bench.run(models, cases, bootstrap_n=args.bootstrap).assign(world=world)

@@ -362,12 +362,21 @@ def _sweep_section(by_proxy: dict[Proxy, MissingRates]) -> Section:
     sweep = [by_proxy[p].ratio for p in SWEEP]
     kinds = [by_proxy[p].ratio for p in KIND_PROXIES]
     median = float(np.median(sweep))
+    cal = dropout.CALIBRATION
+    lo, hi = cal.dead_bias_bracket
     return Section("implied dead_bias by dead-ball proxy definition (decode window)", pd.DataFrame(rows), (
         f"headline {by_proxy[HEADLINE].ratio:.4f}; {len(SWEEP)} definitions {min(sweep):.4f}..{max(sweep):.4f}, "
         f"median {median:.4f}; restart kinds at lead {HEADLINE.lead_s:g} s {min(kinds):.4f}..{max(kinds):.4f}",
         f"purity: world {STRESS_WORLD:g} shows the median only if {implied_purity(median, STRESS_WORLD):.1%} of "
         f"proxy rows are dead ball; at purity {PURITY_FLOOR} the median corrects to "
-        f"{corrected(median, PURITY_FLOOR):.2f}"))
+        f"{corrected(median, PURITY_FLOOR):.2f}",
+        f"dropout.CALIBRATION: dead_bias {cal.dead_bias:g} inside the {len(SWEEP)}-definition spread: "
+        f"{_yes(min(sweep) <= cal.dead_bias <= max(sweep))}; bracket {lo:g}..{hi:g} holds all "
+        f"{len(by_proxy)} estimates: {_yes(all(lo <= r.ratio <= hi for r in by_proxy.values()))}"))
+
+
+def _yes(holds: bool) -> str:
+    return "yes" if holds else "no"
 
 
 def _pool_section(data_dir: str | Path | None) -> Section:
