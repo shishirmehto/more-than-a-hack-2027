@@ -22,6 +22,7 @@ KICKOFF_ROW: dict[int, int] = {1: 11185, 2: 113742}
 BASELINE_RAW = Path(__file__).resolve().parents[1] / "evaluation" / "results" / "baseline_raw.csv"
 
 SET_PIECES = "set pieces"
+GOALS = "goals"
 KICKOFF_START = "kick off (start)"
 
 _TAG_HALF = {"1st half": 1, "2nd half": 2}
@@ -58,8 +59,9 @@ class Tag:
 
     @property
     def phase(self) -> bool:
-        """A team phase: not a set piece, and credited to one team."""
-        return self.code != SET_PIECES and self.team != NO_TEAM
+        """A team phase: credited to one team, and neither a set piece nor a goal. A goals tag runs on
+        through the stoppage to the kick off after the goal."""
+        return self.code not in (SET_PIECES, GOALS) and self.team != NO_TEAM
 
 
 def layout() -> Layout:

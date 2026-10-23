@@ -4,6 +4,7 @@ games). Aggregates only: no function here returns or prints a frame-level row. I
 truth of the match, and nothing on a decode path imports it."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -16,7 +17,7 @@ from numpy.typing import NDArray
 import games
 
 from . import challenge, dropout, metrica, score
-from .challenge import KICKOFF_ROW, SET_PIECES, Tag
+from .challenge import GOALS, KICKOFF_ROW, SET_PIECES, Tag
 from .decoder import Decoder
 from .dropout import MissingRates, RunPool
 from .half import AWAY, D, FPS, HOME, NO_TEAM
@@ -24,15 +25,13 @@ from .half import AWAY, D, FPS, HOME, NO_TEAM
 V0 = Path(__file__).resolve().parents[1] / "params" / "tier0_v0.json"
 
 RESTART_KINDS = ("throw-in", "corner kick", "goal kick", "free kick", "kick off (after goal)")
-# P(missing) is still 0.64 in [-15, -10) s before a restart (measured), so the dead stretch reaches at
-# least this far back; the "phase" complement keeps out of it.
-PHASE_GUARD_S = 15.0
+# P(missing) by offset from a restart (the offset table) is 0.30 to 0.39 in every 5 s bin from -60 to
+# -30 s and higher in every bin after, so the "phase" complement keeps 30 s clear of every set piece.
+PHASE_GUARD_S = 30.0
 LONG_RUN_S = 10
-OFFSET_BINS_S = ((-15, -10), (-10, -5), (-5, 0), (0, 5), (5, 10), (10, 15))
+OFFSET_BINS_S = tuple((lo, lo + 5) for lo in range(-60, 15, 5))
 CONSTANT_RULES = ("m0", "h2p3", "h3p3", "h5p3")
 CONSTANT_NAMES = ("q", "alive_share", "p_dead_after_poss", "p_flip_after_dead", "poss_mean_s", "dead_mean_s")
-# The one judgement in reading the proxy: at least 35% of a restart lead's rows are dead ball.
-PURITY_FLOOR = 0.35
 STRESS_WORLD = 11.0
 
 
@@ -87,7 +86,8 @@ class Proxy:
     compared with. Both sides lie inside Zone.WINDOW.
 
     lead_s, tail_s: dead rows [start - lead_s, start + tail_s) of every restart whose kind is in kinds.
-    complement:     "rest"  = every other window row.
+    complement:     "rest"  = every other window row outside every goals tag, which runs on through
+                              the stoppage to the kick off after the goal.
                     "phase" = those of them under a Tag.phase and outside [start - PHASE_GUARD_S, stop)
                               of every set piece.
     kinds:          restart kinds on the dead side; empty = every restart. The alive side always drops
@@ -115,7 +115,7 @@ def estimate(t: Timeline, proxy: Proxy) -> MissingRates:
     restarts = [g for g in t.tags if g.restart]
     every = rows(restarts)
     dead = rows([g for g in restarts if g.kind in proxy.kinds]) if proxy.kinds else every
-    alive = window & ~every
+    alive = window & ~every & ~challenge.tag_rows([g for g in t.tags if g.code == GOALS], n_total=len(window))
     if proxy.complement == "phase":
         alive &= _phase_rows(t)
     return dropout.missing_rates(t.missing, dead=dead, alive=alive)
@@ -127,16 +127,16 @@ def estimates(t: Timeline) -> dict[Proxy, MissingRates]:
     return {proxy: estimate(t, proxy) for proxy in (*SWEEP, *KIND_PROXIES)}
 
 
-def corrected(ratio: float, purity: float) -> float:
-    """The dead_bias behind a proxy's ratio when only `purity` of its rows are dead ball and its alive
-    side is clean: (ratio - (1 - purity)) / purity. corrected(r, 1.0) == r. Both biases the proxy has
-    (untagged stoppages on the alive side, live rows in the lead) pull the ratio toward 1."""
-    return (ratio - (1 - purity)) / purity
+def calibrated(sweep: Sequence[float]) -> tuple[float, tuple[float, float]]:
+    """The rule dropout.CALIBRATION follows, from the SWEEP ratios: the point is their median to one
+    decimal, and the bracket runs from 1 to the ceiling of their largest."""
+    return round(float(np.median(sweep)), 1), (1.0, float(math.ceil(max(sweep))))
 
 
 def implied_purity(ratio: float, rho: float) -> float:
-    """The inverse: the share of proxy rows that must be dead ball for world `rho` to show `ratio`,
-    (ratio - 1) / (rho - 1)."""
+    """The share of a proxy's rows that must be dead ball for world `rho` to show `ratio`, when its
+    alive side is clean: (ratio - 1) / (rho - 1). Both biases the proxy has (untagged stoppages on
+    the alive side, live rows in the lead) pull the ratio toward 1."""
     return (ratio - 1) / (rho - 1)
 
 
@@ -319,11 +319,11 @@ def _tag_section(t: Timeline) -> Section:
 
 def _strata_section(t: Timeline, by_proxy: dict[Proxy, MissingRates]) -> Section:
     window = t.zone == Zone.WINDOW
-    head = by_proxy[HEADLINE]
+    head, phase = by_proxy[HEADLINE], by_proxy[Proxy(HEADLINE.lead_s, complement="phase")]
 
     def row(stratum: str, frames: int, missing: int) -> dict[str, object]:
         return {"stratum": stratum, "frames": frames, "missing": missing, "rate": missing / frames,
-                "rho_vs_rest": missing / frames / head.p_alive}
+                "rho_vs_rest": missing / frames / head.p_alive, "rho_vs_phase": missing / frames / phase.p_alive}
 
     rows = [row(f"restart lead {HEADLINE.lead_s:g} s, every kind", head.dead_frames, head.dead_missing)]
     rows += [row(f"  {p.kinds[0]}", by_proxy[p].dead_frames, by_proxy[p].dead_missing) for p in KIND_PROXIES]
@@ -331,9 +331,10 @@ def _strata_section(t: Timeline, by_proxy: dict[Proxy, MissingRates]) -> Section
     for stratum, mask in (
             ("inside set-piece windows", challenge.tag_rows([g for g in t.tags if g.code == SET_PIECES], n_total=n)),
             ("team phase", challenge.tag_rows([g for g in t.tags if g.phase], n_total=n)),
+            ("under a goals tag", challenge.tag_rows([g for g in t.tags if g.code == GOALS], n_total=n)),
             ("untagged", ~challenge.tag_rows(t.tags, n_total=n))):
         rows.append(row(stratum, int((mask & window).sum()), int(t.missing[mask & window].sum())))
-    rows.append(row("rest of window", head.alive_frames, head.alive_missing))
+    rows.append(row("rest of window, outside goals tags", head.alive_frames, head.alive_missing))
     return Section("ball missing by stratum (decode window)", pd.DataFrame(rows))
 
 
@@ -360,19 +361,20 @@ def _sweep_section(by_proxy: dict[Proxy, MissingRates]) -> Section:
              "headline": "*" if p == HEADLINE else ""}
             for p, r in ((p, by_proxy[p]) for p in SWEEP)]
     sweep = [by_proxy[p].ratio for p in SWEEP]
+    side = {c: float(np.median([by_proxy[p].ratio for p in SWEEP if p.complement == c])) for c in ("rest", "phase")}
     kinds = [by_proxy[p].ratio for p in KIND_PROXIES]
     median = float(np.median(sweep))
     cal = dropout.CALIBRATION
     lo, hi = cal.dead_bias_bracket
     return Section("implied dead_bias by dead-ball proxy definition (decode window)", pd.DataFrame(rows), (
         f"headline {by_proxy[HEADLINE].ratio:.4f}; {len(SWEEP)} definitions {min(sweep):.4f}..{max(sweep):.4f}, "
-        f"median {median:.4f}; restart kinds at lead {HEADLINE.lead_s:g} s {min(kinds):.4f}..{max(kinds):.4f}",
-        f"purity: world {STRESS_WORLD:g} shows the median only if {implied_purity(median, STRESS_WORLD):.1%} of "
-        f"proxy rows are dead ball; at purity {PURITY_FLOOR} the median corrects to "
-        f"{corrected(median, PURITY_FLOOR):.2f}",
-        f"dropout.CALIBRATION: dead_bias {cal.dead_bias:g} inside the {len(SWEEP)}-definition spread: "
-        f"{_yes(min(sweep) <= cal.dead_bias <= max(sweep))}; bracket {lo:g}..{hi:g} holds all "
-        f"{len(by_proxy)} estimates: {_yes(all(lo <= r.ratio <= hi for r in by_proxy.values()))}"))
+        f"median {median:.4f} (rest {side['rest']:.4f}, phase {side['phase']:.4f}); restart kinds at lead "
+        f"{HEADLINE.lead_s:g} s against rest {min(kinds):.4f}..{max(kinds):.4f}",
+        f"purity: the median needs {implied_purity(median, hi):.1%} of proxy rows dead ball under world {hi:g}, "
+        f"{implied_purity(median, STRESS_WORLD):.1%} under world {STRESS_WORLD:g}",
+        f"dropout.CALIBRATION: dead_bias {cal.dead_bias:g}, bracket {lo:g}..{hi:g}; the median to one decimal and "
+        f"1 to the ceiling of the largest of the {len(SWEEP)} definitions: "
+        f"{_yes((cal.dead_bias, cal.dead_bias_bracket) == calibrated(sweep))}"))
 
 
 def _yes(holds: bool) -> str:

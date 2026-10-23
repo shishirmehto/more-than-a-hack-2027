@@ -93,19 +93,20 @@ class Calibration:
     window_missing / window_frames:          ball-missing rows over every half's [kickoff, n): the window
                                              the decoder reads and the generator's target covers.
     prekickoff_missing / prekickoff_frames:  over [0, kickoff), which only half 2 has.
-    dead_bias:          the reading world: the headline restart-proxy ratio 1.85, rounded down to one
-                        decimal; it lies inside the spread of the 16 proxy definitions.
-    dead_bias_bracket:  fit-dev's max-min worlds. It holds every measured estimate, the restart kinds'
-                        1.21 to 2.53 included, and its top is at least the proxy median corrected for a
-                        proxy only measure.PURITY_FLOOR pure. 1 means missingness says nothing, the floor
-                        a robust decoder must survive.
+    dead_bias:          the reading world: the median of the 16 restart-proxy definitions (measure.SWEEP,
+                        1.999 to 3.445, median 2.579), to one decimal.
+    dead_bias_bracket:  fit-dev's max-min worlds: from 1, where missingness says nothing (the floor a
+                        robust decoder must survive), to the ceiling of the largest of the 16 definitions.
+                        measure.calibrated states both rules. The per-restart-kind ratios are reported
+                        beside them and need not lie inside: each rests on 4 to 26 restarts, and against
+                        the phase complement corners and kick-offs after a goal reach 4.57.
     """
     window_missing: int = 64_079
     window_frames: int = 155_923
     prekickoff_missing: int = 564
     prekickoff_frames: int = 2_934
-    dead_bias: float = 1.8
-    dead_bias_bracket: tuple[float, float] = (1.0, 3.0)
+    dead_bias: float = 2.6
+    dead_bias_bracket: tuple[float, float] = (1.0, 4.0)
 
     @property
     def window_rate(self) -> float:

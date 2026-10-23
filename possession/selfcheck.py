@@ -208,18 +208,18 @@ def measure_pins_calibration() -> None:
     assert kinds == {"throw-in": 26, "corner kick": 12, "goal kick": 10, "free kick": 5, "kick off (after goal)": 4,
                      "kick off (start)": 2}, kinds
 
-    assert tuple(measure.estimate(t, measure.HEADLINE)) == (7125, 5214, 148798, 58865)
+    assert tuple(measure.estimate(t, measure.HEADLINE)) == (7125, 5214, 133098, 45069)
     phase = measure.estimate(t, measure.Proxy(5.0, complement="phase"))
-    assert (phase.alive_frames, phase.alive_missing) == (73520, 26883), phase
-    ratios = [r.ratio for r in measure.estimates(t).values()]
-    sweep, kind = ratios[:len(measure.SWEEP)], ratios[len(measure.SWEEP):]
+    assert (phase.alive_frames, phase.alive_missing) == (50813, 11113), phase
+    by_proxy = measure.estimates(t)
+    sweep = [by_proxy[p].ratio for p in measure.SWEEP]
+    kind = [by_proxy[p].ratio for p in measure.KIND_PROXIES]
+    side = [round(float(np.median([by_proxy[p].ratio for p in measure.SWEEP if p.complement == c])), 4)
+            for c in ("rest", "phase")]
     spread = (round(min(sweep), 4), round(float(np.median(sweep)), 4), round(max(sweep), 4))
-    assert spread == (1.6966, 1.8074, 2.0605), spread
-    assert (round(min(kind), 4), round(max(kind), 4)) == (1.2073, 2.5278), kind
-    lo, hi = cal.dead_bias_bracket
-    assert min(sweep) <= cal.dead_bias <= max(sweep), (cal.dead_bias, spread)
-    assert all(lo <= r <= hi for r in ratios), (cal.dead_bias_bracket, ratios)
-    assert hi >= round(measure.corrected(float(np.median(sweep)), measure.PURITY_FLOOR)), spread
+    assert spread == (1.9986, 2.579, 3.4451) and side == [2.1215, 3.0481], (spread, side)
+    assert (round(min(kind), 4), round(max(kind), 4)) == (1.4105, 2.9532), kind
+    assert (cal.dead_bias, cal.dead_bias_bracket) == measure.calibrated(sweep) == (2.6, (1.0, 4.0)), spread
     _aggregates_only(measure.tactical_sections(t))
 
 
@@ -438,7 +438,7 @@ def dropout_hits_both_constraints() -> None:
     assert (int(pre.sum()), len(pre)) == (cal.prekickoff_missing, cal.prekickoff_frames)
     defaults = dropout.DropoutParams()
     assert (defaults.target_missing_rate, defaults.prekickoff_missing_rate) == (cal.window_rate, cal.prekickoff_rate)
-    assert cal.surface == (1.0, 1.8, 3.0), cal.surface
+    assert cal.surface == (1.0, 2.6, 4.0), cal.surface
 
     clean = _synthetic_clean()
     clean_tokens = [challenge.nearest_team(c.geometry) for c in clean]
@@ -486,6 +486,10 @@ _TAGS_XML = """<file><ALL_INSTANCES>
 <instance><ID>5</ID><start>600.0</start><end>635.0</end><code>SET PIECES</code>
   <label><group>Team</group><text>N/A</text></label><label><group>Half</group><text>1st Half</text></label>
   <label><group>Type</group><text>Throw-in</text></label></instance>
+<instance><ID>6</ID><start>700.0</start><end>720.0</end><code>GOALS</code>
+  <label><group>Team</group><text>Barcelona</text></label><label><group>Half</group><text>1st Half</text></label></instance>
+<instance><ID>7</ID><start>800.0</start><end>810.0</end><code>CREATING CHANCES</code>
+  <label><group>Team</group><text>N/A</text></label><label><group>Half</group><text>1st Half</text></label></instance>
 </ALL_INSTANCES></file>"""
 
 
@@ -499,8 +503,11 @@ def tags_and_rates_known_answer() -> None:
         ("set pieces", "kick off (start)", NO_TEAM, 2, 113725, 113850),
         ("set pieces", "corner kick", HOME, 2, 115001, 115876),
         ("build up", None, AWAY, 1, 12512, 13000),
-        ("set pieces", "throw-in", NO_TEAM, 1, 15000, 15875)], got
-    assert [t.restart for t in got] == [False, False, True, False, True]
+        ("set pieces", "throw-in", NO_TEAM, 1, 15000, 15875),
+        ("goals", None, HOME, 1, 17500, 18000),
+        ("creating chances", None, NO_TEAM, 1, 20000, 20250)], got
+    assert [t.restart for t in got] == [False, False, True, False, True, False, False]
+    assert [t.phase for t in got] == [False, False, False, True, False, False, False]
     _raises(ValueError, parse, _TAGS_XML.replace("Atletic Club", "Athletic Club"))
     _raises(ValueError, parse, _TAGS_XML.replace("<start>447.0</start>", "<start>448.0</start>"))
     _raises(ValueError, parse, _TAGS_XML.replace("2nd Half", "Extra Time"))
@@ -522,8 +529,8 @@ def tags_and_rates_known_answer() -> None:
     _raises(ValueError, dropout.missing_rates, missing, dead=dead, alive=np.ones(8, bool))
     _raises(ValueError, dropout.missing_rates, missing, dead=dead[:4], alive=~dead[:4])
 
-    assert (measure.corrected(1.8, 1.0), measure.corrected(1.5, 0.5), measure.implied_purity(2.0, 3.0)) == (1.8, 2.0, 0.5)
-    assert abs(measure.implied_purity(1.8, measure.corrected(1.8, 0.35)) - 0.35) < 1e-12
+    assert measure.implied_purity(2.0, 3.0) == 0.5
+    assert measure.calibrated([1.04, 3.2, 2.36, 1.5]) == (1.9, (1.0, 4.0))
 
 
 def _no_metrica() -> Skip:
