@@ -26,7 +26,7 @@ Preconditions:
 
 ## Gotchas
 
-- Every axis takes a list. Omitting an axis keeps v0's value: temper 0.05, poss_mean_s 6, dead_mean_s 10, q 0.78, p_dead_after_poss 0.25, p_flip_after_dead 0.7.
+- Every axis takes a list. Omitting `--q`, `--p-dead-after-poss` or `--p-flip-after-dead` keeps v0's value (0.78, 0.25, 0.7). Omitting `--temper`, `--poss-mean-s`, `--dead-mean-s` or `--belief` searches its default grid. Give one value to hold an axis fixed.
 - `--map-temper` with no values skips the MAP sub-grid. Its default adds a second sub-grid that doubles the run time or more.
 - The defaults (`--rule m0 m2`, 4 tempers, 4 possession means, 3 dead means, 2 beliefs, and MAP) build 288 candidates and take minutes. Run large grids in the background.
 - `--dead-bias` defaults to the measured bracket `1 4` (`dropout.CALIBRATION.dead_bias_bracket`), and the params JSON records the whole calibration under `provenance.dropout_calibration`.

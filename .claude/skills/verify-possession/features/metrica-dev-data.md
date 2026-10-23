@@ -17,7 +17,7 @@
 Preconditions:
 
 - The doctor prints no `FAIL` line.
-- For a fresh download, network access to GitHub is available. With all 9 files already present, `fetch-metrica` only verifies them.
+- For a fresh download, network access to GitHub is available. When all 9 files are present and match the manifest, `fetch-metrica` only verifies them. It downloads again, and replaces, any file whose sha256 differs.
 
 - **Verify files.** Run `$V/run.sh "$RUN_ID" fetch .venv/bin/python -m possession fetch-metrica`. Exit code is `0`. stdout has one `ok` line per file and ends with `9 files verified`.
 - **Tables.** Run `$V/run.sh "$RUN_ID" metrica .venv/bin/python -m possession.metrica`. Exit code is `0`. The per-game table shows a `pooled` row with spells `1073`, `978`, `825` and `721` for merges of 0, 1, 2 and 3 s, and `no` under ball NaN. The pooled spell table shows `h3p3` with `709` spells, mean `14.7` s and median `10.3` s.
