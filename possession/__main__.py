@@ -68,12 +68,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     scores = sub.add_parser("score", help="score decoders on dev worlds and/or the public window")
     _world_flags(scores, rule=("m0",), dead_bias="the measured point, dropout.CALIBRATION.dead_bias")
     scores.add_argument("--params", type=Path, nargs="+", required=True)
+    scores.add_argument("--baseline", type=int, nargs="+", default=[], metavar="WINDOW",
+                        help="also score starter/baseline.py's majority vote at these half-widths in frames, "
+                             "named baseline_smooth<WINDOW> (0 is baseline_raw)")
     scores.add_argument("--dev", action="store_true")
     scores.add_argument("--public", action="store_true")
     scores.add_argument("--mode", choices=("renewal", "transplant"), default="renewal")
     scores.add_argument("--bootstrap", type=int, default=0)
     scores.add_argument("--paired", action="store_true",
-                        help="paired bootstrap spellF1 delta of each later --params against the first, "
+                        help="paired bootstrap spellF1 delta of each later model against the first --params, "
                              "on every dev_pooled and public case")
     scores.add_argument("--name", default=None, help="run file name (default: the params stems)")
 
@@ -102,8 +105,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "score":
         if not (args.dev or args.public):
             parser.error("score needs --dev, --public or both")
-        if args.paired and len(args.params) < 2:
-            parser.error("--paired needs two or more --params")
+        if min(args.baseline, default=0) < 0:
+            parser.error("--baseline windows must be >= 0")
+        from . import bench
+
+        names = [p.stem for p in args.params] + [bench.Smoother(w).name for w in dict.fromkeys(args.baseline)]
+        if len(set(names)) < len(names):
+            parser.error(f"model names must be unique, got {names}")
+        if args.paired and len(names) < 2:
+            parser.error("--paired needs two or more models (--params and --baseline together)")
         return _score(args)
     raise AssertionError(args.command)
 
@@ -172,7 +182,8 @@ def _score(args: argparse.Namespace) -> int:
 
     from . import bench, dropout, metrica
 
-    models = {p.stem: Decoder.load(p) for p in args.params}
+    models: dict[str, bench.Model] = {p.stem: Decoder.load(p) for p in args.params}
+    models.update({s.name: s for s in map(bench.Smoother, dict.fromkeys(args.baseline))})
     rules = [metrica.RuleV2.parse(key) for key in args.rule]
     rhos = args.dead_bias or [dropout.CALIBRATION.dead_bias]
     worlds = bench.worlds(rules, rhos, seeds=args.seed, mode=args.mode) if args.dev else {}

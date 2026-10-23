@@ -17,8 +17,8 @@ Preconditions:
 
 - The doctor prints no `FAIL` line.
 
-- **With data.** Run `$V/run.sh "$RUN_ID" selfcheck .venv/bin/python -m possession selfcheck`. Exit code is `0`. The last line of `selfcheck.out` reads `20 ok, 0 skip, 0 FAIL` at the commit that adds `measure_pins_calibration` and `tags_and_rates_known_answer`. It needs the Metrica sample, the tactical ATD and Smart Tagging under `MTAH_DATA_DIR`.
-- **Without data.** Run `$V/run.sh "$RUN_ID" selfcheck-nodata env MTAH_DATA_DIR=/nonexistent .venv/bin/python -m possession selfcheck`. Exit code is `0`. The last line reads `15 ok, 5 skip, 0 FAIL` at the same commit. Three `skip` lines name the missing `metrica_sample` folder. `atd_reproduces_baseline_raw` and `measure_pins_calibration` name the missing `tactical` folder.
+- **With data.** Run `$V/run.sh "$RUN_ID" selfcheck .venv/bin/python -m possession selfcheck`. Exit code is `0`. The last line of `selfcheck.out` reads `21 ok, 0 skip, 0 FAIL` at the commit that adds `smoother_matches_published_baselines`. It needs the Metrica sample, the tactical ATD and Smart Tagging under `MTAH_DATA_DIR`.
+- **Without data.** Run `$V/run.sh "$RUN_ID" selfcheck-nodata env MTAH_DATA_DIR=/nonexistent .venv/bin/python -m possession selfcheck`. Exit code is `0`. The last line reads `16 ok, 5 skip, 0 FAIL` at the same commit. Three `skip` lines name the missing `metrica_sample` folder. `atd_reproduces_baseline_raw` and `measure_pins_calibration` name the missing `tactical` folder.
 
 ## Gotchas
 

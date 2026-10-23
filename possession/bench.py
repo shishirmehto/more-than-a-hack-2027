@@ -11,8 +11,8 @@ import pandas as pd
 from numpy.typing import NDArray
 
 from . import challenge, dropout, metrica, score
-from .decoder import Decoder, DecoderParams, Tier0Emission
-from .half import D, NO_TEAM, X, CleanHalf, Half, Layout, check_codes
+from .decoder import Decoded, Decoder, DecoderParams, Tier0Emission
+from .half import AWAY, HOME, A, D, H, NO_TEAM, X, CleanHalf, Half, Layout, check_codes
 from .dropout import DropoutParams
 from .metrica import RuleV2
 
@@ -73,9 +73,43 @@ class Case:
             raise ValueError(f"{self.name}: gt must be X on every row outside the blocks")
         self.gt.setflags(write=False)
 
-    def predict(self, model: Decoder) -> list[NDArray[np.int8]]:
+    def predict(self, model: Model) -> list[NDArray[np.int8]]:
         """One int8 [block.n] per half: `model.decode(h).codes`."""
         return [model.decode(h).codes for h in self.halves]
+
+
+@dataclass(frozen=True, slots=True)
+class Smoother:
+    """The published floor, starter/baseline.py's smooth() on one half's tokens: a centred majority
+    vote of nearest_team over +/- window frames, ties to H, D only where the window never sees the
+    ball. Window 0 is baseline_raw. It knows no kickoff, so it labels pre-kickoff frames as the
+    published files do. On BAR-ATH, per-half smoothing equals the published files on every graded
+    frame (selfcheck.smoother_matches_published_baselines)."""
+    window: int
+
+    def __post_init__(self) -> None:
+        if self.window < 0:
+            raise ValueError(f"window must be >= 0, got {self.window}")
+
+    @property
+    def name(self) -> str:
+        return f"baseline_smooth{self.window}" if self.window else "baseline_raw"
+
+    def decode(self, half: Half) -> Decoded:
+        return Decoded(codes=smooth(half.nearest_team, self.window), posterior=None)
+
+
+def smooth(tokens: NDArray[np.int8], window: int) -> NDArray[np.int8]:
+    """int8 codes in {0, 1, 2} from tokens in {-1, 0, 1}, by cumulative sums as in the original."""
+    home = np.concatenate(([0], np.cumsum(tokens == HOME)))
+    away = np.concatenate(([0], np.cumsum(tokens == AWAY)))
+    index = np.arange(len(tokens))
+    low, high = np.maximum(0, index - window), np.minimum(len(tokens), index + window + 1)
+    h, a = home[high] - home[low], away[high] - away[low]
+    return np.where(h + a == 0, D, np.where(h >= a, H, A)).astype(np.int8)
+
+
+Model = Decoder | Smoother
 
 
 def dev_cases(spec: DevSpec) -> list[Case]:
@@ -144,7 +178,7 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
     return out
 
 
-def run(models: Mapping[str, Decoder], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
+def run(models: Mapping[str, Model], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
     """One row per (model, case): model, case, score.Scores.as_row() columns, then the case's
     dropout_stats.
 
@@ -175,7 +209,7 @@ def _decode_key(value: object) -> object:
     return repr(value)
 
 
-def _predict(name: str, model: Decoder, case: Case, memo: _Memo) -> list[NDArray[np.int8]]:
+def _predict(name: str, model: Model, case: Case, memo: _Memo) -> list[NDArray[np.int8]]:
     preds = []
     for h in case.halves:
         key = _decode_key(h)
@@ -186,7 +220,7 @@ def _predict(name: str, model: Decoder, case: Case, memo: _Memo) -> list[NDArray
     return preds
 
 
-def _evaluate(name: str, model: Decoder, case: Case, memo: _Memo, *, bootstrap_n: int = 0) -> score.Scores:
+def _evaluate(name: str, model: Model, case: Case, memo: _Memo, *, bootstrap_n: int = 0) -> score.Scores:
     return score.evaluate(case.layout, case.gt, _predict(name, model, case, memo), bootstrap_n=bootstrap_n)
 
 
@@ -269,7 +303,7 @@ def _candidates(base: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
     return out
 
 
-def paired_delta(a: Decoder, b: Decoder, case: Case, *, n_draws: int = 1000, seed: int = 0) -> tuple[float, float, float]:
+def paired_delta(a: Model, b: Model, case: Case, *, n_draws: int = 1000, seed: int = 0) -> tuple[float, float, float]:
     """(delta, low, high): the observed spellF1(a) - spellF1(b) (spell_f1_mean, pm's mean over IoUs)
     and the 5th / 95th percentiles of its bootstrap, resampling the GT possessions both share.
     """

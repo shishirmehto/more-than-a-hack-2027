@@ -135,7 +135,7 @@ if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
 
 @dataclass(frozen=True, slots=True)
 class Decoded:
-    """codes:     int8 [n] in {0,1,2}, never X. Frames [0, kickoff) are D.
+    """codes:     int8 [n] in {0,1,2}, never X. A Decoder labels frames [0, kickoff) D.
     posterior: float32 [n, 3] P(H, A, D | all evidence) under "marginal", (0, 0, 1) before kickoff.
                None under "map", which finds one best path and has no posterior.
     """

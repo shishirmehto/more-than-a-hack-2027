@@ -163,6 +163,23 @@ def baseline_raw_round_trip() -> None:
     assert np.array_equal(whole[inside], codes[inside]), "halves do not map back onto baseline_raw rows"
 
 
+def smoother_matches_published_baselines() -> None:
+    toy = bench.smooth(np.array([NO_TEAM, HOME, AWAY, AWAY, NO_TEAM, NO_TEAM, NO_TEAM, HOME], dtype=np.int8), 1)
+    assert toy.tolist() == [H, H, A, A, A, D, H, H], toy
+    _raises(ValueError, bench.Smoother, -1)
+
+    raw = score.read_codes(challenge.BASELINE_RAW, N_ROWS)
+    tokens = np.where(raw == D, NO_TEAM, raw).astype(np.int8)
+    layout, halves = challenge.layout(), challenge.halves("baseline_raw")
+    for window in (0, 25, 50, 125):
+        smoother = bench.Smoother(window)
+        published = score.read_codes(challenge.BASELINE_RAW.with_name(f"{smoother.name}.csv"), N_ROWS)
+        assert np.array_equal(bench.smooth(tokens, window), published), f"{smoother.name}: whole video"
+        per_half = layout.assemble([smoother.decode(h).codes for h in halves])
+        inside = per_half != X
+        assert np.array_equal(per_half[inside], published[inside]), f"{smoother.name}: graded frames"
+
+
 def atd_reproduces_baseline_raw() -> None:
     try:
         games.require(["atd_meta", "atd_raw"], challenge.GAME)
@@ -703,6 +720,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     range_guard_fires,
     permutation_invariance,
     baseline_raw_round_trip,
+    smoother_matches_published_baselines,
     atd_reproduces_baseline_raw,
     measure_pins_calibration,
     public_window_crosstab,
