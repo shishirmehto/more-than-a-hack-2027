@@ -37,4 +37,4 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Prepare the Metrica dev data](./metrica-dev-data.md) covers the pinned download and the label acceptance tables.
 - [Measure the match observation](./measure.md) covers the match-wide aggregates behind the generator's constants and the counted decoder constants.
 
-Not yet mapped: `sweep` (the generator dead_bias by decoder belief table). Its worlds and beliefs default to `1 1.8 3` (`dropout.CALIBRATION.surface`).
+Not yet mapped: `sweep` (the generator dead_bias by decoder belief table). Its worlds and beliefs default to `1 2.6 4` (`dropout.CALIBRATION.surface`).

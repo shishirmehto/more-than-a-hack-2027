@@ -37,8 +37,11 @@ The organisers tightened the rules on 2026-10-22 and 2026-10-23 (upstream `c073f
   such as the Metrica sample's events, are fine, and the technical document must say what was
   labelled, by whom and how much.
 - No human-produced data about this match from any source (event feeds, corrected tracking).
-- Watching the video and inspecting the data to design features is fine. Rules or constants tied
-  to specific frames of this match are not. Match-wide statistics computed by code are fine.
+- Rule 1 allows watching the video and inspecting the data to understand them, debug the pipeline
+  and design features, and pseudo-labels produced by an algorithm when no person decided any of
+  them. Rules or constants tied to specific frames of this match are not allowed. RULES.md says
+  nothing about match-wide statistics. Our reading, not confirmed by the organisers, is that
+  statistics of the automatic inputs, computed by code and tied to no specific frame, are allowed.
 
 ## Commands
 

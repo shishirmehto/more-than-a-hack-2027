@@ -27,6 +27,6 @@ Preconditions:
 - Without `--dev` or `--public`, `score` exits with an argparse error.
 - `--rule` takes keys, not numbers. `m0` is the raw rule, `m2` merges spells under 2 s, and `h3p3` is controlled possession at 3 s or 3 passes. A merge rule and a controlled rule cannot be combined in one key.
 - The dropout columns on the public row cover only the 7,500 graded frames, so `overall` reads about `0.118`, not the decode-window `0.411`.
-- `--dead-bias` defaults to the measured point `1.8` (`dropout.CALIBRATION.dead_bias`), so without the flag the worlds are keyed `h3p3_r1.8`. The recipe passes `--dead-bias 1` to keep the 11-line CSV.
+- `--dead-bias` defaults to the measured point `2.6` (`dropout.CALIBRATION.dead_bias`), so without the flag the worlds are keyed `h3p3_r2.6`. The recipe passes `--dead-bias 1` to keep the 11-line CSV.
 - The dev numbers depend on the generator's defaults. They moved when the target rate became the decode-window `0.4110` (the paired dev delta was `-0.0063 -0.0184 0.0060` at target `0.407`). Both intervals cover zero, so the move is draw noise. The public numbers do not depend on the generator.
 - The paired interval resamples GT possessions inside one dropout draw. It does not include the draw-to-draw spread. Add more `--seed` values before trusting a gap under about 0.01.
