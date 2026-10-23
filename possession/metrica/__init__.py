@@ -12,7 +12,7 @@ from . import raw
 from .fetch import COMMIT, fetch
 from .rule import VERSION, RuleV2, label_period
 
-__all__ = ["COMMIT", "fetch", "load", "RuleV2"]
+__all__ = ["COMMIT", "fetch", "load", "native_ball_seen", "RuleV2"]
 
 GAMES = (1, 2, 3)
 
@@ -36,6 +36,18 @@ def load(rule: RuleV2 = RuleV2(), *, ball_fill: Literal["hold", "linear"] = "hol
             halves.append(CleanHalf(HalfId(f"metrica_g{game}", period.period, labelled.kickoff),
                                     geometry, labelled.labels, provenance))
     return tuple(halves)
+
+
+def native_ball_seen(half: CleanHalf, data_dir: str | Path | None = None) -> NDArray[np.bool_]:
+    """bool [half.geometry.n]: the source file observed the ball, before fill_ball replaced its NaN
+    (Metrica's out-of-play marker). For a half that `load` returned; ValueError when the parsed period
+    does not start at the half's provenance source_frame0."""
+    game = int(half.id.match.removeprefix("metrica_g"))
+    period = raw.parse_game(game, data_dir).periods[half.id.half - 1]
+    if period.frame0 != half.provenance["source_frame0"]:
+        raise ValueError(f"{half.id}: period starts at frame {period.frame0}, "
+                         f"provenance says {half.provenance['source_frame0']}")
+    return ~np.isnan(period.ball_xy[:half.geometry.n]).any(axis=1)
 
 
 def fill_ball(ball_xy: NDArray[np.float32], how: Literal["hold", "linear"]) -> NDArray[np.float32]:

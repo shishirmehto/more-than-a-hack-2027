@@ -36,6 +36,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     sub.add_parser("selfcheck", help="run the invariant checks")
 
+    sub.add_parser("measure", help="print match-wide aggregates of the real BAR-ATH ball mask and Smart Tagging, "
+                                   "and decoder constants counted on the Metrica labels; writes nothing")
+
     fetch = sub.add_parser("fetch-metrica", help="download and verify the Metrica sample data (~183 MB)")
     fetch.add_argument("--write-manifest", action="store_true")
     fetch.add_argument("--data-dir", type=Path, default=None)
@@ -80,6 +83,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from . import selfcheck
 
         return selfcheck.run()
+    if args.command == "measure":
+        from . import measure
+
+        print(measure.report())
+        return 0
     if args.command == "fetch-metrica":
         from . import metrica
 

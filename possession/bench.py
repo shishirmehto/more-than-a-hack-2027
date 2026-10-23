@@ -116,10 +116,9 @@ def dropout_stats(halves: Sequence[Half], labels: Sequence[NDArray[np.int8]]) ->
     lab = np.concatenate([l for _, l in window])
     pre = np.concatenate([h.nearest_team[:h.id.kickoff] == NO_TEAM for h in halves])
     graded = lab != X
-    p_dead, p_alive = rate(missing, graded & (lab == D)), rate(missing, graded & (lab != D))
-    return {"overall": rate(missing, graded), "p_missing_dead": p_dead, "p_missing_alive": p_alive,
-            "ratio": p_dead / p_alive if p_alive > 0 else float("nan"),
-            "prekickoff": rate(pre, np.ones(len(pre), dtype=bool))}
+    split = dropout.missing_rates(missing, dead=graded & (lab == D), alive=graded & (lab != D))
+    return {"overall": rate(missing, graded), "p_missing_dead": split.p_dead, "p_missing_alive": split.p_alive,
+            "ratio": split.ratio, "prekickoff": rate(pre, np.ones(len(pre), dtype=bool))}
 
 
 def pooled(cases: Sequence[Case]) -> Case:

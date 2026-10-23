@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import functools
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Iterable, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,7 +12,7 @@ from numpy.typing import NDArray
 import games
 
 from . import score
-from .half import D, NO_TEAM, Block, Geometry, Half, HalfId, Layout
+from .half import AWAY, D, FPS, HOME, NO_TEAM, Block, Geometry, Half, HalfId, Layout
 
 GAME = games.GAME
 
@@ -20,9 +21,45 @@ KICKOFF_ROW: dict[int, int] = {1: 11185, 2: 113742}
 
 BASELINE_RAW = Path(__file__).resolve().parents[1] / "evaluation" / "results" / "baseline_raw.csv"
 
+SET_PIECES = "set pieces"
+KICKOFF_START = "kick off (start)"
+
+_TAG_HALF = {"1st half": 1, "2nd half": 2}
+
 _CHUNK = 20_000
 
 _NORM_LIMIT = 2.0
+
+
+@dataclass(frozen=True, slots=True)
+class Tag:
+    """One Smart Tagging instance on submission rows. Automatic: a phase or a restart, not a
+    possession, and not ground truth.
+
+    code:        casefolded, e.g. "set pieces", "build up".
+    kind:        the casefolded "Type" tag ("throw-in", "corner kick", "kick off (start)", ...); None
+                 when the instance has none (only set pieces carry one).
+    team:        HOME | AWAY by the ATD metadata's team names (first <Team> is home); NO_TEAM for "N/A".
+    half:        1 | 2.
+    start, stop: submission rows [start, stop), round(seconds * FPS). 0 <= start < stop.
+    """
+    code: str
+    kind: str | None
+    team: int
+    half: int
+    start: int
+    stop: int
+
+    @property
+    def restart(self) -> bool:
+        """A set piece other than a half's opening kickoff: the stretch before it is dead ball. The
+        opening kickoff's dead stretch is the pre-kickoff zone instead."""
+        return self.code == SET_PIECES and self.kind != KICKOFF_START
+
+    @property
+    def phase(self) -> bool:
+        """A team phase: not a set piece, and credited to one team."""
+        return self.code != SET_PIECES and self.team != NO_TEAM
 
 
 def layout() -> Layout:
@@ -88,6 +125,70 @@ def _halves_from_baseline_raw() -> tuple[Half, Half]:
     token = np.where(codes == D, NO_TEAM, codes).astype(np.int8)
     h1, h2 = (Half(id, part.copy()) for id, part in zip(_half_ids(), full.cut(token)))
     return h1, h2
+
+
+def tags(data_dir: str | Path | None = None) -> tuple[Tag, ...]:
+    """Smart Tagging in file order. Raises IOError when the gated files are not on disk, and
+    ValueError as _parse_tags does."""
+    meta, path = games.require(["atd_meta", "smart_tagging"], GAME, data_dir)
+    home, away = _team_names(ET.parse(meta).getroot())
+    return _parse_tags(ET.parse(path).getroot(), home, away)
+
+
+def tag_rows(tags: Iterable[Tag], *, n_total: int, lead_s: float = 0.0,
+             tail_s: float | None = None) -> NDArray[np.bool_]:
+    """bool [n_total], True on rows [start - lead_s, start + tail_s) of every tag, or on
+    [start - lead_s, stop) when tail_s is None. Seconds round to rows as tag times do; rows clip to
+    [0, n_total)."""
+    out = np.zeros(n_total, dtype=bool)
+    lead = _row(lead_s)
+    for t in tags:
+        lo = max(0, t.start - lead)
+        hi = t.stop if tail_s is None else t.start + _row(tail_s)
+        out[lo:max(lo, hi)] = True
+    return out
+
+
+def _row(seconds: float | str) -> int:
+    return int(round(float(seconds) * FPS))
+
+
+def _parse_tags(root: ET.Element, home: str, away: str) -> tuple[Tag, ...]:
+    """The SportsCode document as Tags. home and away are the club names the Team tag uses.
+
+    Raises ValueError on a Team other than "N/A", home or away; a Half other than "1st Half" or
+    "2nd Half"; an instance without 0 <= start < stop; or a time base that disagrees, meaning the
+    two kick off (start) set pieces, one per half, do not contain KICKOFF_ROW.
+    """
+    side = {home.casefold(): HOME, away.casefold(): AWAY, "n/a": NO_TEAM}
+    out = []
+    for instance in root.iter("instance"):
+        labels = {(label.findtext("group") or "").strip().casefold(): (label.findtext("text") or "").strip()
+                  for label in instance.findall("label")}
+        code = (instance.findtext("code") or "").strip().casefold()
+        team, half, kind = (labels.get(group, "").casefold() for group in ("team", "half", "type"))
+        if team not in side:
+            raise ValueError(f"Smart Tagging: Team {team!r} is neither 'n/a' nor an ATD team ({home!r}, {away!r})")
+        if half not in _TAG_HALF:
+            raise ValueError(f"Smart Tagging: Half {half!r} is not '1st half' or '2nd half'")
+        start, stop = (_row(instance.findtext(key)) for key in ("start", "end"))
+        if not 0 <= start < stop:
+            raise ValueError(f"Smart Tagging: a {code!r} instance ends before it starts or starts before row 0")
+        out.append(Tag(code, kind or None, side[team], _TAG_HALF[half], start, stop))
+    kickoffs = [t for t in out if t.code == SET_PIECES and t.kind == KICKOFF_START]
+    if sorted(t.half for t in kickoffs) != [1, 2] or not all(t.start <= KICKOFF_ROW[t.half] < t.stop
+                                                            for t in kickoffs):
+        raise ValueError("Smart Tagging time base: the kick off (start) tags, one per half, must contain "
+                         f"rows {KICKOFF_ROW[1]} and {KICKOFF_ROW[2]}")
+    return tuple(out)
+
+
+def _team_names(meta: ET.Element) -> tuple[str, str]:
+    """(home, away) <Team><Name> in document order, the order _atd_slot_team indexes."""
+    names = [(team.findtext("Name") or "").strip() for team in meta.iter("Team")]
+    if len(names) != 2 or not all(names):
+        raise ValueError(f"ATD metadata: team names {names}, expected two")
+    return names[0], names[1]
 
 
 def load_geometry(data_dir: str | Path | None = None) -> tuple[Geometry, Geometry]:

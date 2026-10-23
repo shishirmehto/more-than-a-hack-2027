@@ -8,6 +8,8 @@ import sys
 import tempfile
 import time
 import traceback
+import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 from typing import Callable
 
@@ -16,7 +18,7 @@ import pandas as pd
 
 import games
 
-from . import bench, challenge, decoder, dropout, metrica, score
+from . import bench, challenge, decoder, dropout, measure, metrica, score
 from .decoder import Decoder, DecoderParams, State, Tier0Emission
 from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
@@ -178,6 +180,46 @@ def atd_reproduces_baseline_raw() -> None:
         got = np.concatenate([np.nanmean(g.ball_xy, 0, dtype=np.float64),
                               np.nanmean(g.players_xy, (0, 1), dtype=np.float64)])
         assert np.allclose(got, want, atol=0.05), np.round(got, 2)
+
+
+def measure_pins_calibration() -> None:
+    try:
+        games.require(["atd_meta", "atd_raw", "smart_tagging"], challenge.GAME)
+    except IOError:
+        raise Skip(f"no ATD or Smart Tagging under {Path(games.DATA_DIR) / 'tactical'} (set MTAH_DATA_DIR)") from None
+    t = measure.timeline()
+    # Measured 2026-10-23 by an independent probe: baseline_raw D rows (equal to the ATD mask) crossed
+    # with starter.load_smart_tagging, without possession.measure or challenge.tags.
+    window, pre = t.zone == measure.Zone.WINDOW, t.zone == measure.Zone.PRE_KICKOFF
+    got = [(int(t.missing[window & (t.half == h)].sum()), int((window & (t.half == h)).sum())) for h in (1, 2)]
+    assert got == [(32304, 79467), (31775, 76456)], got
+    assert (int(t.missing[pre].sum()), int(pre.sum())) == (564, 2934)
+
+    assert len(t.tags) == 638, len(t.tags)
+    assert Counter(g.code for g in t.tags) == {
+        "players in the box": 97, "ball in final third": 93, "ball in the box": 72, "progression": 66,
+        "defending in middle third": 66, "set pieces": 59, "creating chances": 30, "defending in defensive third": 30,
+        "long ball": 29, "attacking transition": 24, "defensive transition": 24, "build up": 22,
+        "defending in attacking third": 22, "goals": 4}, Counter(g.code for g in t.tags)
+    assert Counter(g.team for g in t.tags) == {HOME: 314, AWAY: 288, NO_TEAM: 36}
+    kinds = Counter(g.kind for g in t.tags if g.code == challenge.SET_PIECES)
+    assert kinds == {"throw-in": 26, "corner kick": 12, "goal kick": 10, "free kick": 5, "kick off (after goal)": 4,
+                     "kick off (start)": 2}, kinds
+
+    assert tuple(measure.estimate(t, measure.HEADLINE)) == (7125, 5214, 148798, 58865)
+    phase = measure.estimate(t, measure.Proxy(5.0, complement="phase"))
+    assert (phase.alive_frames, phase.alive_missing) == (73520, 26883), phase
+    ratios = [r.ratio for r in measure.estimates(t).values()]
+    sweep, kind = ratios[:len(measure.SWEEP)], ratios[len(measure.SWEEP):]
+    spread = (round(min(sweep), 4), round(float(np.median(sweep)), 4), round(max(sweep), 4))
+    assert spread == (1.6966, 1.8074, 2.0605), spread
+    assert (round(min(kind), 4), round(max(kind), 4)) == (1.2073, 2.5278), kind
+    _aggregates_only(measure.tactical_sections(t))
+
+
+def _aggregates_only(sections: list[measure.Section]) -> None:
+    for s in sections:
+        assert len(s.table) <= 80, f"{s.title!r} has {len(s.table)} rows; measure prints aggregates, not frame rows"
 
 
 def public_window_crosstab() -> None:
@@ -416,6 +458,61 @@ def dropout_hits_both_constraints() -> None:
         assert hay.find(window) >= 0, x.id
 
 
+_TAGS_XML = """<file><ALL_INSTANCES>
+<instance><ID>1</ID><start>447.0</start><end>452.0</end><code>SET PIECES</code>
+  <label><group>Team</group><text>N/A</text></label><label><group>Half</group><text>1st Half</text></label>
+  <label><group>Type</group><text>Kick Off (Start)</text></label></instance>
+<instance><ID>2</ID><start>4549.0</start><end>4554.0</end><code>SET PIECES</code>
+  <label><group>Team</group><text>N/A</text></label><label><group>Half</group><text>2nd Half</text></label>
+  <label><group>Type</group><text>Kick Off (Start)</text></label></instance>
+<instance><ID>3</ID><start>4600.03</start><end>4635.03</end><code>SET PIECES</code>
+  <label><group>Team</group><text>Barcelona</text></label><label><group>Half</group><text>2nd Half</text></label>
+  <label><group>Type</group><text>Corner Kick</text></label></instance>
+<instance><ID>4</ID><start>500.5</start><end>520.0</end><code>BUILD UP</code>
+  <label><group>Team</group><text>Atletic Club</text></label><label><group>Half</group><text>1st Half</text></label></instance>
+<instance><ID>5</ID><start>600.0</start><end>635.0</end><code>SET PIECES</code>
+  <label><group>Team</group><text>N/A</text></label><label><group>Half</group><text>1st Half</text></label>
+  <label><group>Type</group><text>Throw-in</text></label></instance>
+</ALL_INSTANCES></file>"""
+
+
+def tags_and_rates_known_answer() -> None:
+    def parse(xml: str) -> tuple[challenge.Tag, ...]:
+        return challenge._parse_tags(ET.fromstring(xml), "Barcelona", "Atletic Club")
+
+    got = parse(_TAGS_XML)
+    assert [(t.code, t.kind, t.team, t.half, t.start, t.stop) for t in got] == [
+        ("set pieces", "kick off (start)", NO_TEAM, 1, 11175, 11300),
+        ("set pieces", "kick off (start)", NO_TEAM, 2, 113725, 113850),
+        ("set pieces", "corner kick", HOME, 2, 115001, 115876),
+        ("build up", None, AWAY, 1, 12512, 13000),
+        ("set pieces", "throw-in", NO_TEAM, 1, 15000, 15875)], got
+    assert [t.restart for t in got] == [False, False, True, False, True]
+    _raises(ValueError, parse, _TAGS_XML.replace("Atletic Club", "Athletic Club"))
+    _raises(ValueError, parse, _TAGS_XML.replace("<start>447.0</start>", "<start>448.0</start>"))
+    _raises(ValueError, parse, _TAGS_XML.replace("2nd Half", "Extra Time"))
+
+    corner = got[2]
+    lead = challenge.tag_rows([corner], n_total=N_ROWS, lead_s=2.0, tail_s=0.0)
+    assert np.array_equal(np.flatnonzero(lead), np.arange(114951, 115001))
+    whole = challenge.tag_rows([corner, got[4]], n_total=N_ROWS)
+    assert np.array_equal(np.flatnonzero(whole), np.r_[15000:15875, 115001:115876])
+    edges = [challenge.Tag("set pieces", "goal kick", HOME, 1, 10, 30), challenge.Tag("goals", None, AWAY, 1, 95, 120)]
+    assert np.array_equal(np.flatnonzero(challenge.tag_rows(edges, n_total=100, lead_s=1.0)), np.r_[0:30, 70:100])
+
+    missing = np.array([1, 1, 1, 0, 1, 0, 0, 0], bool)
+    dead = np.array([1, 1, 1, 1, 0, 0, 0, 0], bool)
+    r = dropout.missing_rates(missing, dead=dead, alive=~dead)
+    assert (tuple(r), r.p_dead, r.p_alive, r.ratio) == ((4, 3, 4, 1), 0.75, 0.25, 3.0), r
+    empty = dropout.missing_rates(missing, dead=np.zeros(8, bool), alive=np.ones(8, bool))
+    assert math.isnan(empty.p_dead) and math.isnan(empty.ratio) and empty.p_alive == 0.5, empty
+    _raises(ValueError, dropout.missing_rates, missing, dead=dead, alive=np.ones(8, bool))
+    _raises(ValueError, dropout.missing_rates, missing, dead=dead[:4], alive=~dead[:4])
+
+    assert (measure.corrected(1.8, 1.0), measure.corrected(1.5, 0.5), measure.implied_purity(2.0, 3.0)) == (1.8, 2.0, 0.5)
+    assert abs(measure.implied_purity(1.8, measure.corrected(1.8, 0.35)) - 0.35) < 1e-12
+
+
 def _no_metrica() -> Skip:
     return Skip(f"no Metrica sample data under {Path(games.DATA_DIR) / 'metrica_sample'} "
                 "(set MTAH_DATA_DIR or run fetch-metrica)")
@@ -501,6 +598,19 @@ def controlled_rule_measurements() -> None:
         for h, v2 in zip(halves, raw):
             assert h.id == v2.id and np.array_equal(h.labels == D, v2.labels == D), h.id
 
+    # Measured 2026-10-23 by an independent probe (its own segment walk over metrica.load, native ball
+    # from metrica.raw): (q frames, q hits, possessions, possessions before D, possession frames,
+    # D stretches, flips, D frames), interior segments of [kickoff, n).
+    counted = measure.counted_constants()
+    got = {c.rule: (sum(f for _, f in c.q_halves), sum(k for k, _ in c.q_halves), c.poss_segments, c.poss_before_dead,
+                    c.poss_frames, c.dead_segments, c.dead_flips, c.dead_frames) for c in counted}
+    assert got == {"m0": (258085, 207209, 1061, 313, 256115, 315, 231, 164973),
+                   "h2p3": (258085, 205865, 806, 311, 255352, 315, 185, 164973),
+                   "h3p3": (258085, 204596, 697, 311, 255352, 315, 180, 164973),
+                   "h5p3": (258085, 201676, 570, 311, 253626, 315, 176, 164973)}, got
+    assert {(c.window_frames, c.alive_frames) for c in counted} == {(424886, 259913)}
+    _aggregates_only(measure.constant_sections(counted, Decoder.load(PARAMS_V0)))
+
 
 def worlds_seed_axis() -> None:
     rule = metrica.RuleV2(2.0)
@@ -526,8 +636,12 @@ def public_case_predict_equals_submission() -> None:
         written = case.layout.cut(score.read_codes(cli.make_submission(PARAMS_V0, Path(tmp) / "v0.csv"), N_ROWS))
     assert [p.shape for p in predicted] == [(79467,), (79390,)], [p.shape for p in predicted]
     assert all(np.array_equal(p, w) for p, w in zip(predicted, written))
-    probe = "import sys, possession.__main__; sys.exit(int('possession.bench' in sys.modules))"
-    assert subprocess.run([sys.executable, "-c", probe], cwd=REPO).returncode == 0, "submission path imports bench"
+    allowed = {"possession", "possession.__main__", "possession.challenge", "possession.decoder", "possession.half",
+               "possession.score"}
+    probe = ("import sys, possession.__main__; sys.exit(int(any(m.split('.')[0] == 'starter' or "
+             f"(m.split('.')[0] == 'possession' and m not in {sorted(allowed)!r}) for m in sys.modules)))")
+    assert subprocess.run([sys.executable, "-c", probe], cwd=REPO).returncode == 0, \
+        "the submission path imports a module outside challenge, decoder, half and score"
 
 
 def submission_is_byte_stable() -> None:
@@ -563,12 +677,14 @@ CHECKS: tuple[Callable[[], None], ...] = (
     permutation_invariance,
     baseline_raw_round_trip,
     atd_reproduces_baseline_raw,
+    measure_pins_calibration,
     public_window_crosstab,
     decoder_known_answer,
     marginal_equals_enumeration,
     params_load_guards,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
+    tags_and_rates_known_answer,
     rule_v2_reproduces_measurements,
     controlled_rule_known_answer,
     controlled_rule_measurements,

@@ -5,7 +5,7 @@ import math
 import zlib
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Literal, Sequence
+from typing import Literal, NamedTuple, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -40,14 +40,47 @@ class RunPool:
 
         Runs truncated by a half's edges are kept."""
         masks = [h.nearest_team[h.id.kickoff:] == NO_TEAM for h in halves]
-        missing = np.concatenate([_run_lengths(m) for m in masks]).astype(np.int32)
-        present = np.concatenate([_run_lengths(~m) for m in masks]).astype(np.int32)
+        missing = np.concatenate([run_lengths(m) for m in masks]).astype(np.int32)
+        present = np.concatenate([run_lengths(~m) for m in masks]).astype(np.int32)
         if missing.size == 0 or present.size == 0:
             raise ValueError("a run pool needs at least one missing and one present run")
         mask = np.concatenate(masks)
         for a in (missing, present, mask):
             a.setflags(write=False)
         return RunPool(missing=missing, present=present, mask=mask)
+
+
+class MissingRates(NamedTuple):
+    """Ball-missing counts on dead and alive rows. Rates are derived; NaN where a side has no rows."""
+    dead_frames: int
+    dead_missing: int
+    alive_frames: int
+    alive_missing: int
+
+    @property
+    def p_dead(self) -> float:
+        return self.dead_missing / self.dead_frames if self.dead_frames else math.nan
+
+    @property
+    def p_alive(self) -> float:
+        return self.alive_missing / self.alive_frames if self.alive_frames else math.nan
+
+    @property
+    def ratio(self) -> float:
+        """p_dead / p_alive, the quantity DropoutParams.dead_bias sets; NaN unless p_alive > 0."""
+        return self.p_dead / self.p_alive if self.p_alive > 0 else math.nan
+
+
+def missing_rates(missing: NDArray[np.bool_], *, dead: NDArray[np.bool_],
+                  alive: NDArray[np.bool_]) -> MissingRates:
+    """Counts over the dead and the alive rows. The one formula behind a measured dead_bias
+    (measure.estimate) and a realised one (bench.dropout_stats). ValueError when the shapes differ
+    or a row is both dead and alive."""
+    if not missing.shape == dead.shape == alive.shape:
+        raise ValueError(f"shapes differ: missing {missing.shape}, dead {dead.shape}, alive {alive.shape}")
+    if (dead & alive).any():
+        raise ValueError("a row is both dead and alive")
+    return MissingRates(int(dead.sum()), int(missing[dead].sum()), int(alive.sum()), int(missing[alive].sum()))
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +195,7 @@ def _rng(seed: int, id: HalfId, stream: Stream, attempt: int = 0) -> np.random.G
     return np.random.default_rng(np.random.SeedSequence(entropy, spawn_key=(attempt,)))
 
 
-def _run_lengths(mask: NDArray[np.bool_]) -> NDArray[np.int64]:
+def run_lengths(mask: NDArray[np.bool_]) -> NDArray[np.int64]:
+    """Lengths of the True runs of a 1-D mask, in order."""
     edges = np.flatnonzero(np.diff(np.concatenate(([0], mask.astype(np.int8), [0]))))
     return edges[1::2] - edges[::2]
