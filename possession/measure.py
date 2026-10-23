@@ -21,6 +21,7 @@ from .challenge import GOALS, KICKOFF_ROW, SET_PIECES, Tag
 from .decoder import Decoder
 from .dropout import MissingRates, RunPool
 from .half import AWAY, D, FPS, HOME, NO_TEAM
+from .metrica.fetch import paths as metrica_paths, root as metrica_root
 
 V0 = Path(__file__).resolve().parents[1] / "params" / "tier0_v0.json"
 
@@ -174,19 +175,18 @@ class Counted:
                 "dead_mean_s": self.dead_frames / self.dead_segments / FPS}
 
 
-def counted_constants(rules: Sequence[str] = CONSTANT_RULES,
-                      data_dir: str | Path | None = None) -> tuple[Counted, ...]:
+def counted_constants(rules: Sequence[str] = CONSTANT_RULES) -> tuple[Counted, ...]:
     """One Counted per rule key, in order. IOError when the Metrica sample is not on disk."""
     out = []
     for key in rules:
         n = dict.fromkeys(("window_frames", "alive_frames", "poss_segments", "poss_frames", "poss_before_dead",
                            "dead_segments", "dead_frames", "dead_flips"), 0)
         q_halves = []
-        for c in metrica.load(metrica.RuleV2.parse(key), data_dir=data_dir):
+        for c in metrica.load(metrica.RuleV2.parse(key)):
             k0 = c.id.kickoff
             labels, token = c.labels[k0:], challenge.nearest_team(c.geometry)[k0:]
             alive = labels != D
-            seen = alive & metrica.native_ball_seen(c, data_dir)[k0:] & (token != NO_TEAM)
+            seen = alive & metrica.native_ball_seen(c)[k0:] & (token != NO_TEAM)
             q_halves.append((int((token[seen] == labels[seen]).sum()), int(seen.sum())))
             n["window_frames"] += len(labels)
             n["alive_frames"] += int(alive.sum())
@@ -213,11 +213,11 @@ class Section(NamedTuple):
         return "\n".join([self.title, self.table.round(4).to_string(index=False), *self.notes])
 
 
-def tactical_sections(t: Timeline, data_dir: str | Path | None = None) -> list[Section]:
+def tactical_sections(t: Timeline) -> list[Section]:
     """The real-match tables: mask, tags, strata, offsets, proxy sweep, run pool, coverage."""
     by_proxy = estimates(t)
     return [_mask_section(t), _tag_section(t), _strata_section(t, by_proxy), _offset_section(t),
-            _sweep_section(by_proxy), _pool_section(data_dir), _coverage_section(t)]
+            _sweep_section(by_proxy), _pool_section(), _coverage_section(t)]
 
 
 def constant_sections(counted: Sequence[Counted], base: Decoder) -> list[Section]:
@@ -240,25 +240,25 @@ def constant_sections(counted: Sequence[Counted], base: Decoder) -> list[Section
     ]
 
 
-def report(data_dir: str | Path | None = None) -> str:
+def report() -> str:
     """Every section as printable text. The tactical group and the Metrica group each print one skip
-    line when their files are absent, so one gate never hides the other."""
-    root = Path(data_dir or games.DATA_DIR)
+    line when their files are absent, so one gate never hides the other. Any other error raises."""
     blocks = []
     try:
-        games.require(["atd_meta", "atd_raw", "smart_tagging"], challenge.GAME, data_dir)
+        games.require(["atd_meta", "atd_raw", "smart_tagging"], challenge.GAME)
     except IOError:
-        blocks.append(f"tactical sections  skip: no ATD or Smart Tagging under {root / 'tactical'} "
+        blocks.append(f"tactical sections  skip: no ATD or Smart Tagging under {Path(games.DATA_DIR) / 'tactical'} "
                       "(set MTAH_DATA_DIR)")
     else:
-        blocks += [s.render() for s in tactical_sections(timeline(data_dir), data_dir)]
+        blocks += [s.render() for s in tactical_sections(timeline())]
     try:
-        counted = counted_constants(data_dir=data_dir)
+        for game in metrica.GAMES:
+            metrica_paths(game)
     except IOError:
-        blocks.append(f"constants  skip: no Metrica sample data under {root / 'metrica_sample'} "
+        blocks.append(f"constants  skip: no Metrica sample data under {metrica_root()} "
                       "(set MTAH_DATA_DIR or run fetch-metrica)")
     else:
-        blocks += [s.render() for s in constant_sections(counted, Decoder.load(V0))]
+        blocks += [s.render() for s in constant_sections(counted_constants(), Decoder.load(V0))]
     return "\n\n".join(blocks)
 
 
@@ -381,8 +381,8 @@ def _yes(holds: bool) -> str:
     return "yes" if holds else "no"
 
 
-def _pool_section(data_dir: str | Path | None) -> Section:
-    pools = {"atd": RunPool.from_halves(challenge.halves("atd", data_dir)),
+def _pool_section() -> Section:
+    pools = {"atd": RunPool.from_halves(challenge.halves("atd")),
              "baseline_raw": RunPool.from_halves(challenge.halves("baseline_raw"))}
     a, b = pools.values()
     same = all(np.array_equal(getattr(a, f), getattr(b, f)) for f in ("missing", "present", "mask"))

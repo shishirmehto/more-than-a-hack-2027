@@ -220,12 +220,15 @@ def measure_pins_calibration() -> None:
     assert spread == (1.9986, 2.579, 3.4451) and side == [2.1215, 3.0481], (spread, side)
     assert (round(min(kind), 4), round(max(kind), 4)) == (1.4105, 2.9532), kind
     assert (cal.dead_bias, cal.dead_bias_bracket) == measure.calibrated(sweep) == (2.6, (1.0, 4.0)), spread
+    last = tuple(measure._offset_section(t).table.set_index("offset_s").loc["[-5,0)", ["frames", "missing"]])
+    assert last == (7125, 5214), last
     _aggregates_only(measure.tactical_sections(t))
 
 
 def _aggregates_only(sections: list[measure.Section]) -> None:
     for s in sections:
         assert len(s.table) <= 80, f"{s.title!r} has {len(s.table)} rows; measure prints aggregates, not frame rows"
+        s.render()
 
 
 def public_window_crosstab() -> None:
@@ -511,6 +514,8 @@ def tags_and_rates_known_answer() -> None:
     _raises(ValueError, parse, _TAGS_XML.replace("Atletic Club", "Athletic Club"))
     _raises(ValueError, parse, _TAGS_XML.replace("<start>447.0</start>", "<start>448.0</start>"))
     _raises(ValueError, parse, _TAGS_XML.replace("2nd Half", "Extra Time"))
+    _raises(ValueError, parse, _TAGS_XML.replace("4554.0</end><code>SET PIECES", "4554.0</end><code>BUILD UP"))
+    _raises(ValueError, parse, _TAGS_XML.replace("<end>520.0</end>", "<end>500.0</end>"))
 
     corner = got[2]
     lead = challenge.tag_rows([corner], n_total=N_ROWS, lead_s=2.0, tail_s=0.0)
@@ -652,16 +657,18 @@ def public_case_predict_equals_submission() -> None:
 
     case = bench.public_case()
     predicted = case.predict(Decoder.load(PARAMS_V0))
-    with tempfile.TemporaryDirectory() as tmp:
-        written = case.layout.cut(score.read_codes(cli.make_submission(PARAMS_V0, Path(tmp) / "v0.csv"), N_ROWS))
-    assert [p.shape for p in predicted] == [(79467,), (79390,)], [p.shape for p in predicted]
-    assert all(np.array_equal(p, w) for p, w in zip(predicted, written))
     allowed = {"possession", "possession.__main__", "possession.challenge", "possession.decoder", "possession.half",
                "possession.score"}
-    probe = ("import sys, possession.__main__; sys.exit(int(any(m.split('.')[0] == 'starter' or "
+    probe = ("import pathlib, sys, possession.__main__ as cli; cli.make_submission(*map(pathlib.Path, sys.argv[1:])); "
+             "sys.exit(int(any(m.split('.')[0] == 'starter' or "
              f"(m.split('.')[0] == 'possession' and m not in {sorted(allowed)!r}) for m in sys.modules)))")
-    assert subprocess.run([sys.executable, "-c", probe], cwd=REPO).returncode == 0, \
-        "the submission path imports a module outside challenge, decoder, half and score"
+    with tempfile.TemporaryDirectory() as tmp:
+        written = case.layout.cut(score.read_codes(cli.make_submission(PARAMS_V0, Path(tmp) / "v0.csv"), N_ROWS))
+        returncode = subprocess.run([sys.executable, "-c", probe, str(PARAMS_V0), str(Path(tmp) / "probe.csv")],
+                                    cwd=REPO).returncode
+    assert [p.shape for p in predicted] == [(79467,), (79390,)], [p.shape for p in predicted]
+    assert all(np.array_equal(p, w) for p, w in zip(predicted, written))
+    assert returncode == 0, "make_submission failed or imports a module outside challenge, decoder, half and score"
 
 
 def submission_is_byte_stable() -> None:
