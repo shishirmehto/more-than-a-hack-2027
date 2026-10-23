@@ -91,7 +91,7 @@ def _write_manifest(files: dict[str, dict[str, object]]) -> None:
     os.replace(tmp, MANIFEST)
 
 
-def _copy_hashing(src: BinaryIO, dst: BinaryIO | None = None) -> tuple[str, int]:
+def copy_hashing(src: BinaryIO, dst: BinaryIO | None = None) -> tuple[str, int]:
     digest, size = hashlib.sha256(), 0
     while chunk := src.read(1 << 20):
         if dst is not None:
@@ -104,7 +104,7 @@ def _copy_hashing(src: BinaryIO, dst: BinaryIO | None = None) -> tuple[str, int]
 def _ensure(rel: str, dest: Path, want: str | None) -> dict[str, object]:
     if dest.is_file():
         with open(dest, "rb") as f:
-            have, size = _copy_hashing(f)
+            have, size = copy_hashing(f)
         if want is None or have == want:
             print(f"ok       {rel}")
             return {"sha256": have, "bytes": size}
@@ -113,7 +113,7 @@ def _ensure(rel: str, dest: Path, want: str | None) -> dict[str, object]:
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "wb") as out, urllib.request.urlopen(RAW_URL.format(commit=COMMIT, path=rel), timeout=60) as resp:
-            have, size = _copy_hashing(resp, out)
+            have, size = copy_hashing(resp, out)
         if want is not None and have != want:
             raise ValueError(f"{rel}: downloaded sha256 {have}, manifest says {want}")
         os.replace(tmp, dest)

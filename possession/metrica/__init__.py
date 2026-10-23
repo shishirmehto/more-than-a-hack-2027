@@ -12,7 +12,7 @@ from . import raw
 from .fetch import COMMIT, fetch
 from .rule import VERSION, RuleV2, label_period
 
-__all__ = ["COMMIT", "fetch", "load", "native_ball_seen", "RuleV2"]
+__all__ = ["COMMIT", "fetch", "fill_ball", "load", "native_ball_seen", "RuleV2"]
 
 GAMES = (1, 2, 3)
 

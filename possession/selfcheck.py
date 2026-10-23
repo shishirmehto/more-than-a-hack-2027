@@ -18,7 +18,7 @@ import pandas as pd
 
 import games
 
-from . import bench, challenge, decoder, dropout, measure, metrica, score
+from . import bench, challenge, decoder, dropout, idsse, measure, metrica, score
 from .decoder import Decoder, DecoderParams, State, Tier0Emission
 from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
@@ -654,6 +654,31 @@ def controlled_rule_measurements() -> None:
     _aggregates_only(measure.constant_sections(counted, Decoder.load(PARAMS_V0)))
 
 
+def idsse_reproduces_feed_counts() -> None:
+    try:
+        halves = idsse.load()
+    except IOError:
+        raise Skip(f"no IDSSE data under {idsse.root()} (files in possession/idsse/manifest.json)") from None
+
+    # Counted 2026-10-24 by an independent probe straight from the positions XML (its own parse and
+    # segment walk): possessions are maximal H or A runs, D ends one; live frames have BallStatus 1.
+    assert [(h.id.match, h.id.half) for h in halves] == [(f"idsse_{m}", k) for m in idsse.MATCHES for k in (1, 2)]
+    assert sum(_n_spells(h.labels) for h in halves) == 3061
+    assert sum(int((h.labels != D).sum()) for h in halves) == 553_105
+    assert [_n_spells(h.labels) for h in halves[:2]] == [250, 261]
+    for h in halves:
+        g = h.geometry
+        on_pitch = [(~np.isnan(g.players_xy[:, g.slot_team == team, 0])).sum(axis=1) for team in (HOME, AWAY)]
+        assert all(1 <= count.max() <= 11 for count in on_pitch), h.id
+        assert -5 < g.ball_xy.min() and g.ball_xy[:, 0].max() < 110 and g.ball_xy[:, 1].max() < 73, h.id
+        # Spell counts survive an H/A swap; the nearest player's team does not (0.71 to 0.82 here, about
+        # 0.25 swapped).
+        tokens, live = challenge.observe(g, h.id).nearest_team, h.labels != D
+        assert (tokens[live] == h.labels[live]).mean() > 0.6, h.id
+    assert sum(_n_spells(h.labels) for h in idsse.load(metrica.RuleV2(2.0))) == 2042
+    _raises(ValueError, idsse.load, metrica.RuleV2(hold_s=3.0, min_passes=3))
+
+
 def worlds_seed_axis() -> None:
     rule = metrica.RuleV2(2.0)
     try:
@@ -733,6 +758,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     rule_v2_reproduces_measurements,
     controlled_rule_known_answer,
     controlled_rule_measurements,
+    idsse_reproduces_feed_counts,
     worlds_seed_axis,
     public_case_predict_equals_submission,
     submission_is_byte_stable,

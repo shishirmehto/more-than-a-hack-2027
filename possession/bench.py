@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from . import challenge, dropout, metrica, score
+from . import challenge, dropout, idsse, metrica, score
 from .decoder import Decoded, Decoder, DecoderParams, Tier0Emission
 from .half import AWAY, HOME, A, D, H, NO_TEAM, X, CleanHalf, Half, Layout, check_codes
 from .dropout import DropoutParams
@@ -45,7 +45,7 @@ class DevSpec:
 
 @dataclass(frozen=True, slots=True)
 class Case:
-    """name:   "dev_g1" | "dev_g2" | "dev_g3" | "dev_pooled" | "public".
+    """name:   "dev_<game>" ("dev_g1", or "dev_J03WMX" for IDSSE) | "dev_pooled" | "public".
     layout: where each half sits in the scorer array.
     halves: decoder inputs, in layout order.
     gt:     int8 [layout.n_total] in {0..3}.
@@ -124,7 +124,7 @@ def _dev_cases(clean: Sequence[CleanHalf], halves: Sequence[Half]) -> list[Case]
     by_game: dict[str, list[int]] = {}
     for i, c in enumerate(clean):
         by_game.setdefault(c.id.match, []).append(i)
-    groups = [("dev_" + match.removeprefix("metrica_"), idx) for match, idx in by_game.items()]
+    groups = [("dev_" + match.split("_", 1)[1], idx) for match, idx in by_game.items()]
     groups.append(("dev_pooled", list(range(len(clean)))))
     cases = []
     for name, idx in groups:
@@ -160,20 +160,35 @@ def pooled(cases: Sequence[Case]) -> Case:
     return next(c for c in cases if c.name == "dev_pooled")
 
 
+@dataclass(frozen=True, slots=True)
+class DevSource:
+    """Where dev games come from: the loader, the prefix on its world keys, and the data pin fit-dev records."""
+    load: Callable[[RuleV2], tuple[CleanHalf, ...]]
+    key_prefix: str
+    pin: Mapping[str, str]
+
+
+SOURCES: Mapping[str, DevSource] = {
+    "metrica": DevSource(metrica.load, "", {"sample_data_commit": metrica.COMMIT}),
+    "idsse": DevSource(idsse.load, "idsse_", {"idsse_revision": idsse.REVISION}),
+}
+
+
 def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
-           mode: Literal["renewal", "transplant"] = "renewal") -> dict[str, list[Case]]:
+           mode: Literal["renewal", "transplant"] = "renewal", source: str = "metrica") -> dict[str, list[Case]]:
     """dev_cases for every (rule, dead_bias, seed), keyed "{rule.key}_r{dead_bias:g}" ("m2_r1"), plus
     "_s{seed}" for a seed other than 0 ("h3p3_r1_s2"). Rule-major, seed innermost. "transplant"
     ignores dead_bias, so it builds one world per (rule, seed), keyed
-    "{rule.key}_transplant[_s{seed}]"."""
-    out = {}
+    "{rule.key}_transplant[_s{seed}]". source names a SOURCES entry: "idsse" builds them from the seven
+    DFL matches instead of the three Metrica games (merge rules only), and prefixes every key with "idsse_"."""
+    dev, out = SOURCES[source], {}
     for rule in rules:
-        clean = metrica.load(rule)
+        clean = dev.load(rule)
         generators = ({"transplant": DropoutParams(mode="transplant")} if mode == "transplant"
                       else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
         for generator, params in generators.items():
             for seed in seeds:
-                key = f"{rule.key}_{generator}" + (f"_s{seed}" if seed else "")
+                key = f"{dev.key_prefix}{rule.key}_{generator}" + (f"_s{seed}" if seed else "")
                 out[key] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
     return out
 

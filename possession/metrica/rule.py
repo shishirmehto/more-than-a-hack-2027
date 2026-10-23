@@ -159,7 +159,7 @@ def label_period(events: pd.DataFrame, *, frame0: int, n: int, rule: RuleV2) -> 
         set_pieces = {label: start[(types == "SET PIECE") & (team_label == label)] for label in (H, A)}
         labels = _keep_controlled(labels, rule, passes, set_pieces)
     elif rule.merge_s > 0:
-        labels = _merge_short(labels, rule.merge_s * FPS)
+        labels = merge_short(labels, rule.merge_s * FPS)
     return PeriodLabels(labels, kickoff)
 
 
@@ -186,7 +186,7 @@ def _keep_controlled(labels: NDArray[np.int8], rule: RuleV2, passes: Mapping[int
     return out
 
 
-def _merge_short(labels: NDArray[np.int8], min_frames: float) -> NDArray[np.int8]:
+def merge_short(labels: NDArray[np.int8], min_frames: float) -> NDArray[np.int8]:
     runs = [list(segment) for segment in score.segments(labels, [(0, len(labels))])]
     while True:
         short = [(b - a, k) for k, (a, b, label) in enumerate(runs)

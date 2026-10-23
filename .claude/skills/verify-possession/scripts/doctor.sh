@@ -36,6 +36,18 @@ if [ "$metrica" = "9/9" ]; then
 else
 	echo "skip  Metrica sample data $metrica files: score --dev, fit-dev, sweep and possession.metrica need fetch-metrica"
 fi
+idsse=$("$py" - <<'EOF' 2>/dev/null
+import json
+from possession import idsse
+files = json.load(open("possession/idsse/manifest.json"))["files"]
+print(f"{sum((idsse.root() / name).is_file() for name in files)}/{len(files)}")
+EOF
+) || idsse="?"
+if [ "$idsse" = "14/14" ]; then
+	echo "ok    IDSSE data $idsse files (--source idsse available)"
+else
+	echo "skip  IDSSE data $idsse files: --source idsse and idsse_reproduces_feed_counts need them under <data dir>/external/idsse"
+fi
 tactical=$("$py" - <<'EOF' 2>/dev/null
 import os
 import games

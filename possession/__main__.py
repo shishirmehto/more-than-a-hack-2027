@@ -125,6 +125,10 @@ def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: 
                         '"h3p3" controlled possession (3 s or 3 passes)')
     p.add_argument("--dead-bias", type=float, nargs="+", default=None,
                    help=f"generator dead_bias worlds (default: {dead_bias})")
+    # bench.SOURCES spelled out: importing bench here would put pandas on make-submission's import path.
+    p.add_argument("--source", choices=("metrica", "idsse"), default="metrica",
+                   help="dev games: the three Metrica samples, or the seven IDSSE matches with the DFL feed's "
+                        "own labels (merge rules only; files under <data dir>/external/idsse)")
 
 
 def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
@@ -132,7 +136,8 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
 
     started = time.perf_counter()
     rhos = args.dead_bias or list(dropout.CALIBRATION.dead_bias_bracket)
-    worlds = bench.worlds([metrica.RuleV2.parse(key) for key in args.rule], rhos, seeds=args.seed)
+    worlds = bench.worlds([metrica.RuleV2.parse(key) for key in args.rule], rhos, seeds=args.seed,
+                          source=args.source)
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "dead_bias": args.belief,
               "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
@@ -148,7 +153,7 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
         "command": shlex.join(["python", "-m", "possession", *argv]),
         "sweep_worlds": list(worlds),
         "selection": bench.SELECTION,
-        "sample_data_commit": metrica.COMMIT,
+        **bench.SOURCES[args.source].pin,
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         "grid_table": grid_path.name,
         "grid_candidates": len(table),
@@ -171,7 +176,7 @@ def _sweep(args: argparse.Namespace) -> int:
     base = Decoder.load(args.params)
     rhos = list(dict.fromkeys(args.dead_bias or dropout.CALIBRATION.surface))
     for rule, seed in itertools.product([metrica.RuleV2.parse(key) for key in args.rule], args.seed):
-        by_rho = dict(zip(rhos, bench.worlds([rule], rhos, seeds=[seed]).values()))
+        by_rho = dict(zip(rhos, bench.worlds([rule], rhos, seeds=[seed], source=args.source).values()))
         print(f"rule {rule.key} seed {seed}")
         print(bench.surface(base, by_rho, args.belief or rhos).round(4).to_string())
     return 0
@@ -186,7 +191,7 @@ def _score(args: argparse.Namespace) -> int:
     models.update({s.name: s for s in map(bench.Smoother, dict.fromkeys(args.baseline))})
     rules = [metrica.RuleV2.parse(key) for key in args.rule]
     rhos = args.dead_bias or [dropout.CALIBRATION.dead_bias]
-    worlds = bench.worlds(rules, rhos, seeds=args.seed, mode=args.mode) if args.dev else {}
+    worlds = bench.worlds(rules, rhos, seeds=args.seed, mode=args.mode, source=args.source) if args.dev else {}
     if args.public:
         worlds["public"] = [bench.public_case()]
     table = pd.concat([bench.run(models, cases, bootstrap_n=args.bootstrap).assign(world=world)
