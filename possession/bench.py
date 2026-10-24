@@ -219,18 +219,27 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
     return out
 
 
+MODES = ("renewal", "transplant", "native")
+
+
 def dev_worlds(items: Sequence[str], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
                mode: Literal["renewal", "transplant", "native"] = "renewal",
                source: str = "metrica") -> dict[str, list[Case]]:
-    """worlds() for "[source:]rule" items, so one call mixes sources ("m0", "h3p3", "idsse:m0"). An item
-    without a prefix uses `source`. Each source keeps its key prefix, so keys never collide."""
-    by_source: dict[str, list[RuleV2]] = {}
+    """worlds() for "[source:]rule[:mode]" items, so one call mixes sources and ball-gap modes ("m0",
+    "idsse:m0", "pff:m0:native"). An item without a source uses `source`, one without a mode uses `mode`.
+    Each source keeps its key prefix and each mode its generator tag, so keys never collide."""
+    by_run: dict[tuple[str, str], list[RuleV2]] = {}
     for item in items:
-        prefix, _, key = item.rpartition(":")
-        by_source.setdefault(prefix or source, []).append(RuleV2.parse(key))
+        parts = item.split(":")
+        name = parts.pop(0) if len(parts) > 1 and parts[0] in SOURCES else source
+        gaps = parts.pop() if len(parts) > 1 and parts[-1] in MODES else mode
+        if len(parts) != 1:
+            raise ValueError(f"rule item {item!r} is not [source:]rule[:mode] with source in {sorted(SOURCES)} "
+                             f"and mode in {MODES}")
+        by_run.setdefault((name, gaps), []).append(RuleV2.parse(parts[0]))
     out: dict[str, list[Case]] = {}
-    for name, rules in by_source.items():
-        out.update(worlds(rules, dead_bias, seeds=seeds, mode=mode, source=name))
+    for (name, gaps), rules in by_run.items():
+        out.update(worlds(rules, dead_bias, seeds=seeds, mode=gaps, source=name))
     return out
 
 

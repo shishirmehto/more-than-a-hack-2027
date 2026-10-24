@@ -136,10 +136,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: str) -> None:
     p.add_argument("--seed", type=int, nargs="+", default=[0], help="dropout seeds, one world each")
-    p.add_argument("--rule", nargs="+", default=list(rule), metavar="[SOURCE:]KEY",
+    p.add_argument("--rule", nargs="+", default=list(rule), metavar="[SOURCE:]KEY[:MODE]",
                    help='label rules by RuleV2.key: "m0" raw, "m2" merges spells under 2 s, '
                         '"h3p3" controlled possession (3 s or 3 passes); "idsse:m0" takes that rule from '
-                        'another source than --source, so one run can mix sources')
+                        'another source than --source, and "pff:m0:native" also another ball-gap mode, so '
+                        'one run can mix sources and modes')
     p.add_argument("--dead-bias", type=float, nargs="+", default=None,
                    help=f"generator dead_bias worlds (default: {dead_bias})")
     # bench.SOURCES spelled out: importing bench here would put pandas on make-submission's import path.
