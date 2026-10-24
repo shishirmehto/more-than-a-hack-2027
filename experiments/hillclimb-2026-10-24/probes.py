@@ -17,6 +17,13 @@ edges PARAMS --out CSV
 logit PARAMS --out CSV
                      fit logit(q) = a + b ln(1+d) + c ln(1+m) on PFF-A seen alive frames, then grid temper
                      for PARAMS's decoder with the constant q and with the fitted q
+speed                does ball speed explain token reliability beyond distance and margin: 2-fold log loss
+                     inside the PFF A games, q by speed band, and the speed distribution on PFF and BAR-ATH
+spells PARAMS        where PARAMS loses possessions: GT and predicted counts, precision and recall per IoU, recall
+                     by GT length and precision by predicted length (dev labels only)
+lag PARAMS --out CSV
+                     PARAMS's codes with every team-to-team hand-over moved L frames later (E6); held-out B games
+                     are not decoded
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -33,7 +40,7 @@ import pandas as pd
 
 from possession import bench, challenge, idsse, metrica, score
 from possession.decoder import Decoder, _missing_run_dead
-from possession.half import D, H
+from possession.half import FPS, D, H
 
 SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
 NATIVE = ["pff:m0:native", "pff:m2:native"]
@@ -413,6 +420,168 @@ def logit_grid(params, out, rhos, items):
     print(out, "w", w)
 
 
+SPEED_BINS = [0, 1, 2, 4, 8, 15, 25, 1e9]
+
+
+def ball_speed(ball, k):
+    """m/s from the displacement between frames t-k and t+k, else between t and t+-k; NaN with no seen
+    neighbour at distance k."""
+    b, n = ball.astype(np.float64), len(ball)
+    pad = np.full((k, 2), np.nan)
+    back, fwd = np.vstack([pad, b[:-k]]), np.vstack([b[k:], pad])
+    both = np.hypot(*(fwd - back).T) / (2 * k)
+    one = np.fmax(np.hypot(*(b - back).T), np.hypot(*(fwd - b).T)) / k
+    return np.where(np.isnan(both), one, both) * FPS
+
+
+def _newton(x, y):
+    w = np.zeros(x.shape[1])
+    for _ in range(25):
+        p = 1 / (1 + np.exp(-x @ w))
+        w = w + np.linalg.solve((x * (p * (1 - p))[:, None]).T @ x, x.T @ (y - p))
+    return w
+
+
+def speed_probe():
+    from possession import pff
+    games, parts = [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        keep = (h.nearest_team != -1) & (c.labels != D) & (np.arange(h.n) >= h.id.kickoff)
+        parts.append(pd.DataFrame({"fold": len(games) // 2 % 2, "d": h.geometry.nearest_m[keep],
+                                   "m": np.minimum(h.geometry.margin_m[keep], MARGIN_CAP_M),
+                                   "v1": ball_speed(ball, 1)[keep], "v2": ball_speed(ball, 2)[keep],
+                                   "agree": h.nearest_team[keep] == c.labels[keep]}))
+    t = pd.concat(parts, ignore_index=True)
+    print(f"{len(t)} frames, speed NaN share v1 {t.v1.isna().mean():.3f} v2 {t.v2.isna().mean():.3f}")
+    base = ["one", "ld", "lm"]
+    t = t.assign(one=1.0, ld=np.log1p(t.d), lm=np.log1p(t.m))
+    for k in ("v1", "v2"):
+        v = t[k].fillna(t[k].median()).clip(upper=40)
+        t[f"l{k}"], t[f"n{k}"] = np.log1p(v), t[k].isna().astype(float)
+    sets = {"d+m": base, "d+m+v1": base + ["lv1", "nv1"], "d+m+v2": base + ["lv2", "nv2"],
+            "d+m+v2+dxv": base + ["lv2", "nv2", "dxv"]}
+    t["dxv"] = t.ld * t.lv2
+    y = t.agree.to_numpy(float)
+    for name, cols in sets.items():
+        loss = []
+        for fold in (0, 1):
+            tr, te = t.fold != fold, t.fold == fold
+            w = _newton(t.loc[tr, cols].to_numpy(), y[tr])
+            p = np.clip(1 / (1 + np.exp(-t.loc[te, cols].to_numpy() @ w)), 1e-6, 1 - 1e-6)
+            loss.append(-np.mean(y[te] * np.log(p) + (1 - y[te]) * np.log1p(-p)))
+        w = _newton(t[cols].to_numpy(), y)
+        print(f"{name:12s} 2-fold log loss {np.mean(loss):.5f}  full-A weights {np.round(w, 4).tolist()}")
+    g = t.groupby([pd.cut(t.d, [0, 1.5, 3, 1e9]), pd.cut(t.v2, SPEED_BINS, include_lowest=True)], observed=False)
+    print(pd.DataFrame({"share": g.size() / len(t), "q": g.agree.mean()}).round(3).unstack(0).to_string())
+    for name, v in (("PFF A seen alive", t.v2),):
+        print(name, "v2 speed percentiles 10/50/90/99:", np.nanpercentile(v, [10, 50, 90, 99]).round(2).tolist())
+    for g_, hid in zip(challenge.load_geometry(), challenge._half_ids()):
+        v = ball_speed(g_.ball_xy, 2)[hid.kickoff:]
+        v = v[np.isfinite(g_.ball_xy[hid.kickoff:, 0]) & np.isfinite(v)]
+        print(f"BAR-ATH half {hid.half} seen frames v2 percentiles 10/50/90/99:",
+              np.percentile(v, [10, 50, 90, 99]).round(2).tolist(),
+              "share by band", np.round(np.histogram(v, SPEED_BINS)[0] / len(v), 3).tolist())
+
+
+LEN_BANDS = [0, 25, 50, 100, 200, 400, 1e9]
+
+
+def pm_greedy(overlaps, threshold):
+    """Per GT spell, the index of the prediction the official greedy match pairs it with at threshold, else -1."""
+    n_gt = 1 + max((i for _, i, _ in overlaps), default=-1)
+    out, used = np.full(n_gt, -1), set()
+    for iou, i, j in overlaps:
+        if iou < threshold:
+            break
+        if out[i] >= 0 or j in used:
+            continue
+        out[i] = j
+        used.add(j)
+    return out
+
+
+def spells_probe(params, rhos, items):
+    from evaluation import possession_metrics as pm
+    model, s50 = Decoder.load(params), bench.Smoother(50)
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        runs = score.valid_runs(case.gt)
+        gt_sp = pm.possession_spells(case.gt, runs)
+        for name, dec in (("model", model), ("s50", s50)):
+            pred = pm.fill_abstentions(score._assemble_checked(case.layout, case.gt, [dec.decode(h).codes for h in case.halves]), runs)
+            pr_sp = pm.possession_spells(pred, runs)
+            ov = pm.spell_overlaps(gt_sp, pr_sp)
+            line = []
+            for iou in (0.3, 0.5, 0.7):
+                g = pm.matched_gt_flags(ov, len(gt_sp), iou)
+                line.append(f"iou{iou} P {g.sum() / max(len(pr_sp), 1):.3f} R {g.mean():.3f}")
+            print(f"{world:22s} {name:5s} gt {len(gt_sp):6d} pred {len(pr_sp):6d}  " + "  ".join(line))
+            if name != "model":
+                continue
+            g = pm.matched_gt_flags(ov, len(gt_sp), 0.5)
+            pf = np.zeros(len(pr_sp), bool)
+            done = set()
+            for iou, i, j in ov:
+                if iou < 0.5:
+                    break
+                if i in done or pf[j]:
+                    continue
+                done.add(i); pf[j] = True
+            pairs = [(i, j) for i, j in enumerate(pm_greedy(ov, 0.3)) if j >= 0]
+            for side, k in (("start", 0), ("end", 1)):
+                off = {"after D": [], "after team": []}
+                for i, j in pairs:
+                    f = gt_sp[i][k] - 1 if k == 0 else gt_sp[i][k]
+                    if 0 <= f < len(case.gt) and case.gt[f] in (D, 1 - gt_sp[i][2]):
+                        off["after D" if case.gt[f] == D else "after team"].append(pr_sp[j][k] - gt_sp[i][k])
+                print(f"    {side} offset pred-GT frames, matched@0.3:", {t: (len(v), np.percentile(v, [25, 50, 75]).round(0).tolist())
+                                                                       for t, v in off.items() if v})
+            gl = np.array([b - a for a, b, _ in gt_sp]); pl = np.array([b - a for a, b, _ in pr_sp])
+            gb, pb = pd.cut(gl, LEN_BANDS), pd.cut(pl, LEN_BANDS)
+            print("    GT by length (frames): share", pd.Series(gl).groupby(gb, observed=False).size().div(len(gl)).round(3).tolist(),
+                  "recall@0.5", pd.Series(g).groupby(gb, observed=False).mean().round(3).tolist())
+            print("    pred by length:        share", pd.Series(pl).groupby(pb, observed=False).size().div(len(pl)).round(3).tolist(),
+                  "precision@0.5", pd.Series(pf).groupby(pb, observed=False).mean().round(3).tolist())
+
+
+LAGS = (0, 5, 10, 15, 20, 25, 30)
+
+
+def lag_handovers(codes, lag):
+    """Inside each maximal run of H/A frames, team[t] = team[max(t - lag, run start)]: every hand-over
+    between the teams moves lag frames later, and the run's edges stay put."""
+    live = (codes == H) | (codes == 1 - H)
+    idx = np.arange(len(codes))
+    start = np.where(live & ~np.r_[False, live[:-1]], idx, 0)
+    np.maximum.accumulate(start, out=start)
+    out = codes.copy()
+    out[live] = codes[np.maximum(idx - lag, start)[live]]
+    return out
+
+
+def lag_grid(params, out, rhos, items):
+    model, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        codes = [model.decode(h).codes for h in case.halves]
+        for lag in LAGS:
+            f1, n = score.spell_f1(case.layout, case.gt, [lag_handovers(c, lag) for c in codes], runs)
+            rows.append({"group": group, "world": world, "lag": lag, "spell_f1": f1, "floor": floor,
+                         "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
 INCUMBENT = (101, 50, 0)
 VETO_SLACK = 0.003
 
@@ -446,7 +615,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -457,4 +626,6 @@ if __name__ == "__main__":
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
      "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
-     "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
+     "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
+     "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
+     "lag": lambda: lag_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
