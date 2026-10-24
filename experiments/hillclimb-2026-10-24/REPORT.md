@@ -103,9 +103,9 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   a lower bound of +0.002 on 23 of 32 games. Under StatsBomb's convention on the held-out PFF games its margin
   is +0.171 against v7's +0.154.
 
-My recommendation is tier0_v13, if the team is comfortable that building the CSV needs the gated ATD files on
-disk, that it carries 13 weights fitted on PFF labels, and that v12's redesign read a label-free BAR-ATH
-statistic; otherwise tier0_v10, or tier0_v2, the best file that builds from committed inputs alone. tier0_v13 is
+My recommendation is tier0_v13, which the user kept on 24 October after deciding that a design shaped by a
+match-wide BAR-ATH statistic is allowed (v12's redesign read one; the organisers have not ruled on it). It needs
+the gated ATD files on disk to build and carries 13 weights fitted on PFF labels; if either is a problem, use tier0_v10, or tier0_v2, the best file that builds from committed inputs alone. tier0_v13 is
 tier0_v12 plus E32's ball-out stoppage start. Every step from v7 was selected and confirmed under the
 pre-registered rule v2, with no StatsBomb data.
 
@@ -181,8 +181,9 @@ What follows describes tier0_v12, which v13 builds on.
   0.1067 against 0.1063 in E30. In E30 the gated arm also ranks first on PFF-A.
   v11 was stopped by the BAR-ATH check registered with it, and I froze v11 before running that check, against
   the registered order. v12's design, dropping the token-share feature, was informed by that label-free
-  match-wide BAR-ATH statistic, which RULES.md does not address (the team's unconfirmed reading allows it). Its
-  weights are fitted only on PFF-A labels.
+  match-wide BAR-ATH statistic, which RULES.md does not address. On 24 October the user decided that a design
+  shaped by such a statistic is allowed and kept tier0_v13; the organisers have not confirmed it. Its weights
+  are fitted only on PFF-A labels.
 - The weights are numbers fitted on PFF data, the same open licence question as the `q_logit` terms.
 - Two feature pairs are exactly collinear (own and other token shares sum to 1; sandwiched is one minus
   next-to-D), so the ridge splits their weights. That is redundancy, not a defect.
@@ -264,8 +265,9 @@ no StatsBomb data, and tier0_v8's did. Every file from v2 on was ranked on PFF-A
 - Our own decoder's output on BAR-ATH (label counts, possession and dead-run counts) was logged at every
   freeze as a sanity check. Until E29 no choice used it. E29's stop and E30's design did: v11's cut of 12.8%
   of BAR-ATH's team runs (against 4% on PFF-A) prompted the BAR-ATH feature check, and the token-share median
-  that check printed shaped E30. These are match-wide statistics of inputs and of outputs, and the organisers
-  have not confirmed that either kind is allowed.
+  that check printed shaped E30. These are match-wide statistics of inputs and of outputs. The organisers have
+  not confirmed that either kind is allowed; on 24 October the user decided that a design shaped by a
+  match-wide BAR-ATH statistic is allowed, and kept tier0_v13.
 - The organisers' clarifications of 22 and 23 October (upstream c073f29 and f8f2629, merged here on 24 October)
   say the public window is for checking the pipeline and is neither training data nor a tuning set, ban hand
   labels and any human-produced data about BAR-ATH for every purpose, validation included, and allow
