@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import itertools
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, Mapping, Sequence
+from typing import Callable, Iterable, Literal, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -117,20 +118,20 @@ def dev_cases(spec: DevSpec) -> list[Case]:
 
     Returns [dev_g1, dev_g2, dev_g3, dev_pooled]."""
     clean = metrica.load(spec.rule, ball_fill=spec.ball_fill)
-    return _dev_cases(clean, dropout.challengeify(clean, spec.dropout, spec.seed))
+    return _dev_cases([c.labels for c in clean], dropout.challengeify(clean, spec.dropout, spec.seed))
 
 
-def _dev_cases(clean: Sequence[CleanHalf], halves: Sequence[Half]) -> list[Case]:
+def _dev_cases(labels: Sequence[NDArray[np.int8]], halves: Sequence[Half]) -> list[Case]:
+    """Per-game and pooled Cases from each half's labels and decoder input, in the same order."""
     by_game: dict[str, list[int]] = {}
-    for i, c in enumerate(clean):
-        by_game.setdefault(c.id.match, []).append(i)
+    for i, h in enumerate(halves):
+        by_game.setdefault(h.id.match, []).append(i)
     groups = [("dev_" + match.split("_", 1)[1], idx) for match, idx in by_game.items()]
-    groups.append(("dev_pooled", list(range(len(clean)))))
+    groups.append(("dev_pooled", list(range(len(halves)))))
     cases = []
     for name, idx in groups:
-        layout = Layout.synthetic([clean[i].geometry.n for i in idx])
-        labels = [clean[i].labels for i in idx]
-        cases.append(Case(name, layout, tuple(halves[i] for i in idx), layout.assemble(labels)))
+        layout = Layout.synthetic([halves[i].n for i in idx])
+        cases.append(Case(name, layout, tuple(halves[i] for i in idx), layout.assemble([labels[i] for i in idx])))
     return cases
 
 
@@ -163,7 +164,7 @@ def pooled(cases: Sequence[Case]) -> Case:
 @dataclass(frozen=True, slots=True)
 class DevSource:
     """Where dev games come from: the loader, the prefix on its world keys, and the data pin fit-dev records."""
-    load: Callable[[RuleV2], tuple[CleanHalf, ...]]
+    load: Callable[[RuleV2], Iterable[CleanHalf]]
     key_prefix: str
     pin: Mapping[str, str]
 
@@ -180,17 +181,30 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
     "_s{seed}" for a seed other than 0 ("h3p3_r1_s2"). Rule-major, seed innermost. "transplant"
     ignores dead_bias, so it builds one world per (rule, seed), keyed
     "{rule.key}_transplant[_s{seed}]". source names a SOURCES entry: "idsse" builds them from the seven
-    DFL matches instead of the three Metrica games (merge rules only), and prefixes every key with "idsse_"."""
+    DFL matches instead of the three Metrica games (merge rules only), and prefixes every key with "idsse_".
+    Each world's halves are observed as the loader yields a half, so a loader that streams never holds
+    more than one half's geometry here."""
     dev, out = SOURCES[source], {}
+    pool = dropout.RunPool.from_halves(challenge.halves("baseline_raw"))
     for rule in rules:
-        clean = dev.load(rule)
         generators = ({"transplant": DropoutParams(mode="transplant")} if mode == "transplant"
                       else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
-        for generator, params in generators.items():
-            for seed in seeds:
-                key = f"{dev.key_prefix}{rule.key}_{generator}" + (f"_s{seed}" if seed else "")
-                out[key] = _dev_cases(clean, dropout.challengeify(clean, params, seed))
+        observers = {f"{dev.key_prefix}{rule.key}_{generator}" + (f"_s{seed}" if seed else ""):
+                     functools.partial(_observe_dropout, params=params, seed=seed, pool=pool)
+                     for generator, params in generators.items() for seed in seeds}
+        labels, halves = [], {key: [] for key in observers}
+        for clean in dev.load(rule):
+            labels.append(clean.labels)
+            for key, observe in observers.items():
+                halves[key].append(observe(clean))
+        out.update({key: _dev_cases(labels, world) for key, world in halves.items()})
     return out
+
+
+def _observe_dropout(clean: CleanHalf, *, params: DropoutParams, seed: int, pool: dropout.RunPool) -> Half:
+    """dropout.challengeify of one half. Its masks are seeded per half, so this equals that half's
+    entry in a call on every half."""
+    return dropout.challengeify([clean], params, seed, pool)[0]
 
 
 def run(models: Mapping[str, Model], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
