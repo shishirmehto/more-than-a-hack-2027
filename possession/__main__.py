@@ -73,7 +73,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                              "named baseline_smooth<WINDOW> (0 is baseline_raw)")
     scores.add_argument("--dev", action="store_true")
     scores.add_argument("--public", action="store_true")
-    scores.add_argument("--mode", choices=("renewal", "transplant"), default="renewal")
+    scores.add_argument("--mode", choices=("renewal", "transplant", "native"), default="renewal",
+                        help="how dev balls go missing: renewal dropout at each --dead-bias, a transplant of the "
+                             "real BAR-ATH mask (ignores --dead-bias), or native, where the tracker did not see "
+                             "the ball (--source pff only; ignores --dead-bias and --seed)")
     scores.add_argument("--bootstrap", type=int, default=0)
     scores.add_argument("--paired", action="store_true",
                         help="paired bootstrap spellF1 delta of each later model against the first --params, "
@@ -107,6 +110,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("score needs --dev, --public or both")
         if min(args.baseline, default=0) < 0:
             parser.error("--baseline windows must be >= 0")
+        if args.mode == "native" and args.source != "pff":
+            parser.error("--mode native needs --source pff, the only source with its own ball-visibility flag")
         from . import bench
 
         names = [p.stem for p in args.params] + [bench.Smoother(w).name for w in dict.fromkeys(args.baseline)]
@@ -126,9 +131,10 @@ def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: 
     p.add_argument("--dead-bias", type=float, nargs="+", default=None,
                    help=f"generator dead_bias worlds (default: {dead_bias})")
     # bench.SOURCES spelled out: importing bench here would put pandas on make-submission's import path.
-    p.add_argument("--source", choices=("metrica", "idsse"), default="metrica",
-                   help="dev games: the three Metrica samples, or the seven IDSSE matches with the DFL feed's "
-                        "own labels (merge rules only; files under <data dir>/external/idsse)")
+    p.add_argument("--source", choices=("metrica", "idsse", "pff"), default="metrica",
+                   help="dev games: the three Metrica samples, the seven IDSSE matches with the DFL feed's own "
+                        "labels, or the 64 PFF FC World Cup 2022 games with labels from PFF's game events (IDSSE "
+                        "and PFF take merge rules only; files under <data dir>/external/idsse and /pff)")
 
 
 def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
