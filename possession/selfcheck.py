@@ -18,7 +18,7 @@ import pandas as pd
 
 import games
 
-from . import bench, challenge, decoder, dropout, idsse, measure, metrica, score
+from . import bench, challenge, decoder, dropout, idsse, measure, metrica, pff, score
 from .decoder import Decoder, DecoderParams, State, Tier0Emission
 from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
@@ -679,6 +679,57 @@ def idsse_reproduces_feed_counts() -> None:
     _raises(ValueError, idsse.load, metrica.RuleV2(hold_s=3.0, min_passes=3))
 
 
+def pff_reproduces_feed_counts() -> None:
+    try:
+        for game in pff.GAMES:
+            pff.paths(game)
+    except IOError:
+        raise Skip(f"no PFF data under {pff.root()} (files in possession/pff/manifest.json)") from None
+
+    # Counted 2026-10-24 by two independent probes straight from the JSONL (their own parse, duplicate
+    # collapse and state machine): possessions are maximal H or A runs at the source rate, D ends one.
+    # The ball shares are none, VISIBLE and ESTIMATED over the live frames of periods 1 and 2.
+    halves = spells = frames = dead = 0
+    shown = np.zeros(3, np.int64)
+    for game in pff.GAMES:
+        for period in pff.parse_game(game):
+            frames, dead = frames + len(period.labels), dead + int((period.labels == D).sum())
+            if period.number in (1, 2):
+                halves, spells = halves + 1, spells + _n_spells(period.labels)
+                shown += np.bincount(period.ball_vis[period.labels != D], minlength=3)
+    assert (halves, spells) == (128, 17_797), (halves, spells)
+    assert (frames, round(dead / frames, 4)) == (11_849_815, 0.4122), (frames, dead)
+    assert np.round(shown / shown.sum(), 3).tolist() == [0.061, 0.647, 0.292], shown
+
+    # Regression pins at 25 Hz, measured 2026-10-24 by this code (not an independent probe): the
+    # half order, (possessions, live frames, frames, native no-ball frames), VISIBLE frames, and at
+    # most 15 players of one team tracked in one frame.
+    ids, totals, seen_frames, agree, swapped, hits = [], np.zeros(4, np.int64), 0, [], [], np.zeros(2, np.int64)
+    for h in pff.load():
+        g, seen = h.geometry, pff.native_seen(h)
+        ids.append((h.id.match, h.id.half))
+        totals += (_n_spells(h.labels), int((h.labels != D).sum()), g.n, int(h.provenance["native_no_ball_frames"]))
+        seen_frames += int(seen.sum())
+        on_pitch = [(~np.isnan(g.players_xy[:, g.slot_team == team, 0])).sum(axis=1) for team in (HOME, AWAY)]
+        assert h.id.kickoff == 0 and all(1 <= count.max() <= 15 for count in on_pitch), h.id
+        # Forgetting the centre-origin shift would leave about half the seen balls off the pitch.
+        ball = g.ball_xy[seen]
+        inside = (ball >= 0).all(axis=1) & (ball[:, 0] <= g.pitch_m[0]) & (ball[:, 1] <= g.pitch_m[1])
+        assert inside.mean() > 0.9, (h.id, inside.mean())
+        # Spell counts survive an H/A swap; the nearest player's team does not. Per half it agrees with
+        # the labels on 0.554 to 0.893 of live VISIBLE frames, and on 0.107 to 0.446 swapped. The low half
+        # is 10512's second, where the away side owns 82% of those frames and the nearest player is
+        # often a defender, so the 0.6 bar applies to the pooled share.
+        tokens, where = challenge.observe(g, h.id).nearest_team, (h.labels != D) & seen
+        agree.append(float((tokens[where] == h.labels[where]).mean()))
+        swapped.append(float((tokens[where] == 1 - h.labels[where]).mean()))
+        hits += (int((tokens[where] == h.labels[where]).sum()), int(where.sum()))
+    assert ids == [(f"pff_{game}", k) for game in pff.GAMES for k in (1, 2)]
+    assert totals.tolist() == [17_782, 5_725_878, 9_717_959, 3_153_737] and seen_frames == 4_058_270, (totals, seen_frames)
+    assert hits[0] / hits[1] > 0.6 and min(agree) > 0.5 > max(swapped), (hits, min(agree), max(swapped))
+    _raises(ValueError, pff.load, metrica.RuleV2(hold_s=3.0, min_passes=3))
+
+
 def worlds_seed_axis() -> None:
     rule = metrica.RuleV2(2.0)
     try:
@@ -762,6 +813,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     controlled_rule_known_answer,
     controlled_rule_measurements,
     idsse_reproduces_feed_counts,
+    pff_reproduces_feed_counts,
     worlds_seed_axis,
     public_case_predict_equals_submission,
     submission_is_byte_stable,
