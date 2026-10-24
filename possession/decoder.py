@@ -92,6 +92,9 @@ class DecoderParams:
                         A run touching a half's first or last frame counts as unbounded on that side.
                         101 with dead_trim 50 is starter/baseline.py's "no ball within 50 frames".
     dead_trim:          frames cut from each end of a dead run; ignored when dead_min_run is 0.
+    dead_close:         a stretch of team calls shorter than this many frames with dead runs on both
+                        sides becomes D too, so brief ball sightings inside one stoppage do not split it
+                        into spurious possessions; 0 = off, ignored when dead_min_run is 0.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -113,6 +116,7 @@ class DecoderParams:
     min_dead_frames: int = 1
     dead_min_run: int = 0
     dead_trim: int = 0
+    dead_close: int = 0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -125,6 +129,7 @@ class DecoderParams:
         _number("min_dead_frames", self.min_dead_frames, 1, math.inf, integer=True, lo_open=False)
         _number("dead_min_run", self.dead_min_run, 0, math.inf, integer=True, lo_open=False)
         _number("dead_trim", self.dead_trim, 0, math.inf, integer=True, lo_open=False)
+        _number("dead_close", self.dead_close, 0, math.inf, integer=True, lo_open=False)
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
             raise ValueError("dead_trim must leave part of a dead_min_run run: 2 * dead_trim < dead_min_run")
         if self.decode_rule == "marginal":
@@ -141,7 +146,7 @@ class DecoderParams:
 
 
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
-_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0}
+_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -261,6 +266,12 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
             dead[min(hi, n)] -= 1
     out = np.where(np.cumsum(dead[:n]) > 0, D, team).astype(np.int8)
     out[:kickoff] = D
+    if p.dead_close:
+        live = np.concatenate(([False], out != D, [False]))
+        edges = np.flatnonzero(np.diff(live.view(np.int8)))
+        for start, stop in zip(edges[::2], edges[1::2]):
+            if start > kickoff and stop < n and stop - start < p.dead_close:
+                out[start:stop] = D
     return out
 
 
