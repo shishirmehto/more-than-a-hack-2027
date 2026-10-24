@@ -14,6 +14,9 @@ deadrule PARAMS --out CSV
 chain PARAMS         a grid of chain constants on top of PARAMS, each decoded once, under a few dead rules
 edges PARAMS --out CSV
                      like deadrule, with separate start and end trims on each dead run
+logit PARAMS --out CSV
+                     fit logit(q) = a + b ln(1+d) + c ln(1+m) on PFF-A seen alive frames, then grid temper
+                     for PARAMS's decoder with the constant q and with the fitted q
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -22,6 +25,7 @@ Oracle rows read other games' labels and are diagnostics, never candidates. Noth
 label or the public window.
 """
 import argparse
+import dataclasses
 import itertools
 
 import numpy as np
@@ -334,6 +338,81 @@ def edges_grid(params, out, rhos, items):
     print(out)
 
 
+MARGIN_CAP_M = 30.0
+TEMPERS = (0.03, 0.05, 0.1, 0.2)
+
+
+def _logit_features(nearest_m, margin_m):
+    return np.stack([np.ones_like(nearest_m), np.log1p(nearest_m), np.log1p(np.minimum(margin_m, MARGIN_CAP_M))], 1)
+
+
+def fit_logit():
+    """Logistic fit of P(token == labelled team) on native PFF seen alive frames of the A games (games[0::2]
+    in pff.load order, the same split as scored_cases)."""
+    from possession import challenge, pff
+    games, xs, ys = [], [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        keep = (h.nearest_team != -1) & (c.labels != D) & (np.arange(h.n) >= h.id.kickoff)
+        xs.append(_logit_features(h.geometry.nearest_m[keep].astype(np.float64), h.geometry.margin_m[keep].astype(np.float64)))
+        ys.append((h.nearest_team[keep] == c.labels[keep]).astype(np.float64))
+    x, y = np.concatenate(xs), np.concatenate(ys)
+    w = np.zeros(3)
+    for _ in range(25):
+        p = 1 / (1 + np.exp(-x @ w))
+        w = w + np.linalg.solve((x * (p * (1 - p))[:, None]).T @ x, x.T @ (y - p))
+    print(f"fit on {len(y)} frames of {len(games[0::2])} A games: a {w[0]:+.4f} b {w[1]:+.4f} c {w[2]:+.4f}, "
+          f"mean q {y.mean():.3f}")
+    return w
+
+
+@dataclasses.dataclass(frozen=True)
+class LogitEmission:
+    """Probe-only: Tier0Emission with q per seen frame from the fitted logistic."""
+    base: object
+    w: tuple
+
+    def loglik(self, half):
+        out = self.base.loglik(half).astype(np.float64)
+        g, tok = half.geometry, half.nearest_team
+        where = tok != -1
+        q = 1 / (1 + np.exp(-_logit_features(g.nearest_m[where].astype(np.float64),
+                                              g.margin_m[where].astype(np.float64)) @ np.asarray(self.w)))
+        q0 = self.base.q
+        seen_row = (out[where, 0] + out[where, 1] - np.log(q0) - np.log1p(-q0)) / 2
+        home = tok[where] == 0
+        out[where, 0] = np.where(home, np.log(q), np.log1p(-q)) + seen_row
+        out[where, 1] = np.where(home, np.log1p(-q), np.log(q)) + seen_row
+        return out.astype(np.float32)
+
+
+def logit_grid(params, out, rhos, items):
+    from possession.decoder import Decoder as Dec
+    w = tuple(fit_logit())
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    variants = {}
+    for temper in TEMPERS:
+        m = base.replace(temper=temper)
+        variants[("const", temper)] = m
+        variants[("logit", temper)] = Dec(LogitEmission(m.emission, w), m.params)
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for (kind, temper), model in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
+            rows.append({"group": group, "world": world, "emission": kind, "temper": temper,
+                         "spell_f1": f1, "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out, "w", w)
+
+
 INCUMBENT = (101, 50, 0)
 VETO_SLACK = 0.003
 
@@ -367,7 +446,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -377,4 +456,5 @@ if __name__ == "__main__":
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
      "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one), "select": lambda: select(a.params),
-     "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
+     "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
+     "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
