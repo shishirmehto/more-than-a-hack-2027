@@ -29,6 +29,7 @@ from possession.half import D, H
 SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
 NATIVE = ["pff:m0:native", "pff:m2:native"]
 SEEDS = [0, 1, 2, 3, 4]
+T90 = 1.69  # two-sided 90% t quantile for about 32 games; 1.67 at 64
 CHUNK = 20000
 
 
@@ -244,15 +245,21 @@ def confirm(path):
         return
     wide = games.pivot_table(index=["world", "case"], columns="model", values="spell_f1")
     models = [m for m in wide.columns if m != "baseline_smooth50"]
-    print("\nnative PFF, paired per game: mean difference [90% t interval], games won")
+    print("\nnative PFF, paired per game: mean difference [90% t interval], games won; "
+          "A = odd-indexed games (selection), B = even-indexed (held out)")
     for world, w in wide.groupby(level="world"):
+        order = list(dict.fromkeys(games[games.world == world].case))
+        split = {"all": order, "A": order[0::2], "B": order[1::2]}
         for a, b in itertools.permutations(models + ["baseline_smooth50"], 2):
             if a == "baseline_smooth50" or (b != "baseline_smooth50" and a > b):
                 continue
-            d = (w[a] - w[b]).to_numpy()
-            h = 1.669 * d.std(ddof=1) / np.sqrt(len(d))
-            print(f"  {world} {a} - {b}: {d.mean():+.4f} [{d.mean() - h:+.4f}, {d.mean() + h:+.4f}] "
-                  f"won {(d > 0).sum()}/{len(d)}")
+            cells = []
+            for tag, keep in split.items():
+                d = (w[a] - w[b]).loc[world].loc[keep].to_numpy()
+                h = T90 * d.std(ddof=1) / np.sqrt(len(d))
+                cells.append(f"{tag} {d.mean():+.4f} [{d.mean() - h:+.4f}, {d.mean() + h:+.4f}] "
+                             f"{(d > 0).sum()}/{len(d)}")
+            print(f"  {world} {a} - {b}: " + "; ".join(cells))
 
 
 if __name__ == "__main__":
