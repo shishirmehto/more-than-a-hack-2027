@@ -4,6 +4,8 @@
 
 oracle PARAMS        headroom: perfect dead ball or perfect team calls on top of PARAMS (dev labels only)
 geometry             how the nearest-team token and dead ball depend on geometry, on Metrica and IDSSE labels
+pff-geometry         token reliability by nearest-player distance and team margin on native PFF frames the
+                     tracker saw (no held balls), plus P(dead) off the pitch
 barath-geometry      the same geometry, match-wide on BAR-ATH's ATD, with no labels read
 close PARAMS         PARAMS with short live gaps between dead runs closed, on the 7-group objective
 deadrule PARAMS --out CSV
@@ -44,10 +46,10 @@ def ffill_team(codes, fallback):
     return np.where(codes == D, filled, codes).astype(np.int8)
 
 
-def oracle(params):
+def oracle(params, rhos=(2.6,), items=SEARCH):
     model, s50 = Decoder.load(params), bench.Smoother(50)
     rows = []
-    for world, cases in bench.dev_worlds(SEARCH, [2.6], seeds=SEEDS).items():
+    for world, cases in bench.dev_worlds(items, rhos, seeds=SEEDS).items():
         case = bench.pooled(cases)
         runs = score.valid_runs(case.gt)
         per = {}
@@ -114,6 +116,26 @@ def geometry():
             g = f.groupby(pd.cut(f[col], bins), observed=False)
             print(pd.DataFrame({"share": g.size() / len(f),
                                 "p_dead": g.label.apply(lambda s: (s == D).mean())}).round(3).T.to_string())
+
+
+def pff_geometry():
+    from possession import pff
+    frames = []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        seen = pff.native_seen(c)
+        f = features(c.geometry).assign(label=c.labels)
+        frames.append(f[seen & (np.arange(c.geometry.n) >= c.id.kickoff)])
+    t = pd.concat(frames, ignore_index=True)
+    alive = t[t.label != D].assign(agree=lambda f: f.team == f.label)
+    print(f"native PFF seen frames {len(t)}, alive {len(alive)}, overall q {alive.agree.mean():.3f}")
+    for col, bins in (("d_near", BINS_D), ("margin", BINS_M)):
+        g = alive.groupby(pd.cut(alive[col], bins, include_lowest=True), observed=False)
+        print(pd.DataFrame({"share": g.size() / len(alive), "q": g.agree.mean()}).round(3).T.to_string())
+    g = alive.groupby([pd.cut(alive.d_near, [0, 1.5, 3, 1e9]), pd.cut(alive.margin, [0, 1, 3, 1e9], include_lowest=True)],
+                      observed=False)
+    print(pd.DataFrame({"share": g.size() / len(alive), "q": g.agree.mean()}).round(3).to_string())
+    g = t.groupby(pd.cut(t.to_line, BINS_LINE), observed=False)
+    print(pd.DataFrame({"share": g.size() / len(t), "p_dead": g.label.apply(lambda s: (s == D).mean())}).round(3).T.to_string())
 
 
 def barath_geometry():
@@ -345,14 +367,14 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
     ap.add_argument("--rule", nargs="+", default=SEARCH + NATIVE, help="deadrule: [source:]rule[:mode] items")
     a = ap.parse_args()
     one = a.params[0] if a.params else None
-    {"oracle": lambda: oracle(one), "geometry": geometry, "barath-geometry": barath_geometry,
+    {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
      "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
