@@ -77,6 +77,11 @@ change has its own row in the decision log.
      **confirmed** pass/fail on PFF-B (paired 90% lower bound above zero) and on seeds 15-24 (every group
      above smooth50). Held-out B games are not decoded during selection.
 
+5. **Rule v3, from E21 on.** The ranking is the minimum over PFF-A m0, PFF-A m2 and StatsBomb-on-PFF-A m0,
+   and confirmation adds StatsBomb-on-PFF-B. The data session showed that StatsBomb and PFF agree on the team
+   for about 90% of live frames yet score spellF1 0.62 against each other, so one provider's convention
+   should not decide alone.
+
 Why synthetic worlds only veto: the renewal generator draws one mask for live frames and one for dead frames
 and switches between them exactly at each label boundary (`possession/dropout.py:227`). Gap edges therefore
 line up with true stoppage edges far more often than real gaps do, which rewards a trim of 0. Real gaps run
@@ -122,6 +127,13 @@ difference.
 | 30 | the teams' push toward goal as team evidence (probe, E16) | the attacking team pushes forward, ball seen or not: P(home) 0.78 at +3 m/s, 0.21 at -3 | as an emission term it lowers PFF-A at every weight (+0.069 to +0.119 against +0.127) | rejected |
 | 31 | hand-over lag re-checked on v7 (E17) | hand-overs still sit 5-8 frames early | lag 20 adds +0.0017, inside the tie band | no change |
 | 32 | a learned per-frame dead score in place of the rule flags (E18) | let a fitted model weigh the dead cues | worse at every threshold (best +0.111 against +0.127) | rejected |
+| 33 | the near-misses crossed: lag x trim x walking threshold x slow run (E19) | four settings each sat inside the tie band alone | all 16 pass; the tie rule takes lag 20 with trim 37, PFF-A +0.1307 against +0.1268; on held-out PFF-B the gain is +0.0016 [-0.0003, +0.0034] (m0) and +0.0013 [-0.0004, +0.0031] (m2) | rejected at confirmation |
+| 34 | census of unmatched possessions (probe) | find which failure costs spellF1 | PFF-A m0: 47% matched; under 5 s only 2 to 19% match; split possessions are 2% of misses | direction |
+| 35 | held-team token accuracy (probe) | labels keep the passer's team until a receiver controls | seen frames 0.845 nearest against 0.900 for the last team within 1 m; at 3 to 10 m 0.65-0.68 against 0.85-0.87 | tested as 36 |
+| 36 | held-team token in the emission, crossed with lag (E20) | probe 35 | every variant below the base on PFF-A, best +0.109 against +0.131 | rejected |
+| 37 | false and missed D by cue (probe) | 18% of labelled possessions come out dead | false D is 11.5% of live frames, 98% of it on unseen-ball frames and 40% over 10 s from any stoppage | direction |
+| 38 | StatsBomb's possession teams on PFF's tracking (new dev source `pffsb`) | the two providers score only spellF1 0.62 against each other | every shipped step helps under it too: v1 +0.047, v2 +0.109, v4 +0.125, v5 +0.137, v7 +0.145 over smooth50 | joins the ranking (rule v3) |
+| 39 | chain constants under rule v3 (E21) | a second convention might move them | stickier chains win all three real conventions (temper 0.07, poss 9 s: +0.134 / +0.173 / +0.177) but are vetoed on IDSSE m0 (-0.019) | no change |
 
 ## What did not work, and why
 
@@ -143,7 +155,14 @@ difference.
 - **A learned per-frame dead score** fits frames well (log loss 0.294) but ignores how long a gap or a
   stoppage lasts, which the run rules encode.
 - **Chain constants** stopped mattering once the dead-run stage owned D. PFF and IDSSE m0 pull the smoothing
-  in opposite directions, so the veto keeps v1's values.
+  in opposite directions, so the veto keeps v1's values. Experiment 39 shows the split is about convention:
+  PFF m0, PFF m2 and StatsBomb all want a stickier chain, and only the fine-grained DFL convention does not.
+- **Combining near-misses** (experiment 33) gained +0.0039 on the selection games and +0.0016 on held-out
+  games, inside noise. Settings that each tie with the incumbent do not add up to a real gain.
+- **Holding the last controlling team through flights** (experiment 36) raised per-frame accuracy and
+  lowered spellF1. My reading, not measured directly: one wrong control frame now holds the wrong team until
+  the next control, so errors come in runs long enough to cut spells, where the nearest-team token's errors
+  are brief.
 
 ## What the literature does
 
@@ -172,6 +191,19 @@ The oracle on tier0_v7 (other games' labels, all 64 PFF games pooled, diagnostic
 Team calls are still worth about three times as much as dead ball. Every team-call idea after the lag failed,
 so the next gains likely need a different kind of evidence, such as explicit touch detection where the ball is
 tracked.
+
+The census (experiment 34, `probes.py census`, PFF selection games, m0) says where spells are lost. A labelled
+possession counts as matched when one predicted spell of its team overlaps it at IoU 0.5 or more.
+
+| labelled length | possessions | matched | called dead | wrong team | swallowed by a neighbour | split |
+|---|---|---|---|---|---|---|
+| under 2 s | 1,286 | 2% | 28% | 43% | 28% | 0% |
+| 2 to 5 s | 2,216 | 19% | 31% | 27% | 23% | 0% |
+| 5 to 10 s | 1,920 | 51% | 18% | 16% | 14% | 1% |
+| 10 to 20 s | 1,668 | 75% | 6% | 6% | 9% | 4% |
+| 20 s and over | 1,864 | 84% | 6% | 2% | 3% | 6% |
+
+Long possessions are mostly found. Short ones are where spellF1 is lost, and flicker is not the cause.
 
 ## Public-window check
 
@@ -205,7 +237,9 @@ changed.
 
 - **Other-game labels.** Metrica (3 games, events turned into per-frame H/A/D by rule v2), IDSSE (7 DFL
   matches, CC BY 4.0, BallStatus and BallPossession; whether a human corrected them is undocumented) and PFF
-  (64 games, event-derived by kloppy's reading). None is about BAR-ATH.
+  (64 games, event-derived by kloppy's reading). StatsBomb's World Cup 2022 events give a second convention on
+  the same PFF games (`possession/pff/statsbomb.py`), used under the StatsBomb Public Data User Agreement for
+  local research. None is about BAR-ATH.
 - **The cues.** Nearest-team token with a fitted reliability, a 15-frame hand-over lag, and a dead-ball stage
   built from ball gaps, an off-pitch ball, a ball at rest and walking players.
 - **The AI assistant.** Claude ran this search and its subagents. It read BAR-ATH only as the aggregates
