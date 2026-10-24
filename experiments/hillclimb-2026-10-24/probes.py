@@ -6,17 +6,23 @@ oracle PARAMS        headroom: perfect dead ball or perfect team calls on top of
 geometry             how the nearest-team token and dead ball depend on geometry, on Metrica and IDSSE labels
 barath-geometry      the same geometry, match-wide on BAR-ATH's ATD, with no labels read
 close PARAMS         PARAMS with short live gaps between dead runs closed, on the 7-group objective
+deadrule PARAMS      every (dead_min_run, dead_trim, close gap) on PARAMS's chain, decoded once per world,
+                     on the 7-group objective (equal to fit-dev's numbers, much faster)
+chain PARAMS         a grid of chain constants on top of PARAMS, each decoded once, under a few dead rules
+confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
+                     per-game differences with 90% t intervals on the native PFF games
 
 Oracle rows read other games' labels and are diagnostics, never candidates. Nothing here reads a BAR-ATH
 label or the public window.
 """
 import argparse
+import itertools
 
 import numpy as np
 import pandas as pd
 
 from possession import bench, challenge, idsse, metrica, score
-from possession.decoder import Decoder
+from possession.decoder import Decoder, _missing_run_dead
 from possession.half import D, H
 
 SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
@@ -146,10 +152,95 @@ def close(params):
     print(t.pivot_table(index="gap", columns="group", values="n_pred").round(0).to_string())
 
 
+RUNS = (76, 101, 126, 151, 201, 251)
+TRIMS = (0, 25, 50)
+GAPS = (0, 50, 100, 150, 200, 300, 450)
+
+
+def deadrule(params):
+    chain, s50 = Decoder.load(params).replace(dead_min_run=0, dead_trim=0), bench.Smoother(50)
+    rows = []
+    for world, cases in bench.dev_worlds(SEARCH + NATIVE, [2.6], seeds=SEEDS).items():
+        case = bench.pooled(cases)
+        runs = score.valid_runs(case.gt)
+        codes = [chain.decode(h).codes for h in case.halves]
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for run in RUNS:
+            for trim in (t for t in TRIMS if 2 * t < run):
+                p = chain.replace(dead_min_run=run, dead_trim=trim).params
+                dead = [_missing_run_dead(c, h, p) for c, h in zip(codes, case.halves)]
+                for gap in GAPS:
+                    preds = [close_dead(c, gap, h.id.kickoff) for c, h in zip(dead, case.halves)]
+                    f1, n = score.spell_f1(case.layout, case.gt, preds, runs)
+                    rows.append({"group": bench.group(world), "run": run, "trim": trim, "gap": gap,
+                                 "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    t = pd.DataFrame(rows)
+    m = t.pivot_table(index=["run", "trim", "gap"], columns="group", values="margin")
+    m["min"], m["mean"] = m.min(1), m.mean(1)
+    print(m.sort_values(["min", "mean"], ascending=False).round(4).head(25).to_string())
+    print(m["min"].unstack("trim").round(4).to_string())
+
+
+CHAIN = {"temper": (0.05, 0.1, 0.2), "poss_mean_s": (3.0, 4.5, 6.0, 9.0),
+         "p_dead_after_poss": (0.1, 0.3), "dead_mean_s": (8.0, 15.0)}
+DEAD_RULES = ((101, 50, 0), (101, 25, 0), (151, 25, 0), (151, 0, 0))
+
+
+def chain_grid(params):
+    base, s50 = Decoder.load(params).replace(dead_min_run=0, dead_trim=0), bench.Smoother(50)
+    keys = list(CHAIN)
+    candidates = [dict(zip(keys, v)) for v in itertools.product(*CHAIN.values())]
+    rows = []
+    for world, cases in bench.dev_worlds(SEARCH + NATIVE, [2.6], seeds=SEEDS).items():
+        case = bench.pooled(cases)
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for values in candidates:
+            model = base.replace(**values)
+            codes = [model.decode(h).codes for h in case.halves]
+            for run, trim, gap in DEAD_RULES:
+                p = model.replace(dead_min_run=run, dead_trim=trim).params
+                preds = [close_dead(_missing_run_dead(c, h, p), gap, h.id.kickoff) for c, h in zip(codes, case.halves)]
+                f1, n = score.spell_f1(case.layout, case.gt, preds, runs)
+                rows.append({"group": bench.group(world), **values, "run": run, "trim": trim, "gap": gap,
+                             "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    t = pd.DataFrame(rows)
+    m = t.pivot_table(index=keys + ["run", "trim", "gap"], columns="group", values="margin")
+    m["min"], m["mean"] = m.min(1), m.mean(1)
+    print(m.sort_values(["min", "mean"], ascending=False).round(4).head(30).to_string())
+
+
+def confirm(path):
+    t = pd.read_csv(path)
+    pooled = t[t.case == "dev_pooled"].assign(group=lambda f: f.world.map(bench.group))
+    spell = pooled.pivot_table(index=["group", "world"], columns="model", values="spell_f1")
+    margin = spell.sub(spell["baseline_smooth50"], axis=0).groupby("group").mean()
+    print("seed-mean pooled margin over smooth50 per group")
+    print(margin.T.assign(min=margin.T.min(1), mean=margin.T.mean(1)).sort_values("min", ascending=False)
+          .round(4).to_string())
+    games = t[(t.case != "dev_pooled") & t.world.str.endswith("_native")]
+    if games.empty:
+        return
+    wide = games.pivot_table(index=["world", "case"], columns="model", values="spell_f1")
+    models = [m for m in wide.columns if m != "baseline_smooth50"]
+    print("\nnative PFF, paired per game: mean difference [90% t interval], games won")
+    for world, w in wide.groupby(level="world"):
+        for a, b in itertools.permutations(models + ["baseline_smooth50"], 2):
+            if a == "baseline_smooth50" or (b != "baseline_smooth50" and a > b):
+                continue
+            d = (w[a] - w[b]).to_numpy()
+            h = 1.669 * d.std(ddof=1) / np.sqrt(len(d))
+            print(f"  {world} {a} - {b}: {d.mean():+.4f} [{d.mean() - h:+.4f}, {d.mean() + h:+.4f}] "
+                  f"won {(d > 0).sum()}/{len(d)}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close", "deadrule", "chain", "confirm"))
     ap.add_argument("params", nargs="?")
     a = ap.parse_args()
     {"oracle": lambda: oracle(a.params), "geometry": geometry, "barath-geometry": barath_geometry,
-     "close": lambda: close(a.params)}[a.probe]()
+     "close": lambda: close(a.params), "deadrule": lambda: deadrule(a.params),
+     "chain": lambda: chain_grid(a.params), "confirm": lambda: confirm(a.params)}[a.probe]()
