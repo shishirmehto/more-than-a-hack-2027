@@ -110,6 +110,17 @@ LEAD = ("dead_lead_cut and dead_out_lead_cut come from pre-registered experiment
         "order: out-only cuts smallest first, then lead cuts 10 to 50, each plain before its out variants) chose "
         "this file's values. Even-indexed PFF games and seeds 15-24 only confirm. No BAR-ATH statistic was read. "
         "No StatsBomb data entered this selection.")
+ADJ = ("spell_flip_adjacent and spell_flip_p 0.75 come from pre-registered experiment E40 on tier0_v13. A "
+       "label-reading check on PFF-A (probes.py flippairs) found that 419 of the 936 short runs whose flip alone "
+       "helps sit next to another such run, and keeping only the higher of each adjacent group lifts that ceiling "
+       "from +0.035 to +0.046 over no flip; the decoder's own flips sit next to another flip on 6.8% of runs at cut "
+       "0.8 and 10.2% at 0.75. Candidates, registered before any result: the rule at cuts 0.8, 0.75, 0.7 and 0.65 "
+       "with the weights unchanged (probes.py ADJ_GRID). Rule v2 (synthetic veto at tier0_v13 minus 0.003 in every "
+       "group; the odd-game minimum over PFF m0 and m2 ranks; ties within 0.003 of the best to the base, then the "
+       "registered order: higher cut first) chose this file's values: cut 0.7 passed the veto by 0.0004 and led "
+       "the odd-game minimum, which put tier0_v13 outside the tie band, and cut 0.75, inside that band and earlier "
+       "in the order, was chosen; on its own it is +0.0024 over tier0_v13 there. Even-indexed PFF games and seeds "
+       "15-24 only confirm. No BAR-ATH statistic was read. No StatsBomb data entered this selection.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -133,6 +144,7 @@ def main(argv):
     ap.add_argument("--switch-penalty", type=float, default=0.0, metavar="LAMBDA")
     ap.add_argument("--spell-flip", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("P", "FRAMES", "SEEN"))
     ap.add_argument("--dead-lead-cut", type=int, nargs=2, default=(0, 0), metavar=("ALL", "OUT"))
+    ap.add_argument("--spell-flip-adjacent", action="store_true")
     ap.add_argument("--spell-logit", type=float, nargs="+", default=None, metavar="W",
                     help="the intercept, then one weight per decoder.SPELL_FEATURES name in order; trailing "
                          "features left out weigh 0 and are not written")
@@ -151,7 +163,8 @@ def main(argv):
                                      switch_penalty=a.switch_penalty, spell_flip_p=a.spell_flip[0],
                                      spell_flip_frames=int(a.spell_flip[1]), spell_flip_seen=a.spell_flip[2],
                                      spell_logit=dict(zip(("a",) + SPELL_FEATURES, a.spell_logit or ())),
-                                     dead_lead_cut=a.dead_lead_cut[0], dead_out_lead_cut=a.dead_lead_cut[1])
+                                     dead_lead_cut=a.dead_lead_cut[0], dead_out_lead_cut=a.dead_lead_cut[1],
+                                     spell_flip_adjacent=a.spell_flip_adjacent)
     lead = any(a.dead_lead_cut)
     logit = any(a.q_logit)
     no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
@@ -174,6 +187,8 @@ def main(argv):
                                   "spell_logit", 1)
     if lead:
         changed = changed.replace("dead_close,", "dead_close, dead_lead_cut, dead_out_lead_cut,", 1)
+    if a.spell_flip_adjacent:
+        changed = changed.replace("spell_logit", "spell_logit, spell_flip_adjacent", 1)
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -184,7 +199,7 @@ def main(argv):
                      (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else "") +
                      (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
                      (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else "") +
-                     (" " + LEAD if lead else ""),
+                     (" " + LEAD if lead else "") + (" " + ADJ if a.spell_flip_adjacent else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -200,6 +215,8 @@ def main(argv):
                      "select-e30.out and barath-spell-e30.out" if no_seen else "") +
                     (", deadsplit-v12.out, deadcensus-v12.out, deadedges-v12.out, deadstarts-v12.out, e32-pff.csv, "
                      "e32-synth.csv and select-e32.out" if lead else "") +
+                    (", flipindep-v13.out, flippairs-v13.out, e40-pff.csv, e40-synth.csv and select-e40.out"
+                     if a.spell_flip_adjacent else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
