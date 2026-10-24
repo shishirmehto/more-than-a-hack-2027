@@ -19,9 +19,9 @@ StatsBomb's free World Cup 2022 event data. Data source: StatsBomb
 Fourteen new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed
 every held-out test and was then stopped by its registered BAR-ATH transfer check; tier0_v12 is its refit without
 the feature that tripped the check. tier0_v13 is v12 with a stoppage start dated by a ball seen leaving the pitch.
-tier0_v15 (25 October) is v13 plus a shorter, untrimmed dead run where the ball vanishes next to a line. It
-cleared the selection rule and its held-out confirmation, so the rule makes it the recommendation; the user has
-not yet reviewed that switch, and tier0_v13 stays the fallback. tier0_v14, v13 with a spell flip that never flips both sides of a boundary and a cut
+It is the recommendation. tier0_v15 (25 October) is v13 plus a shorter, untrimmed dead run where the ball
+vanishes next to a line. It cleared the selection rule and its held-out confirmation; the user kept tier0_v13
+and recorded v15 as a confirmed alternative (experiment 84). tier0_v14, v13 with a spell flip that never flips both sides of a boundary and a cut
 of 0.75, confirmed on the held-out games but is a near-tie that the selection rule, applied as registered for
 E32, does not ship (experiment 79):
 
@@ -61,7 +61,7 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 | tier0_v11 (stopped) | +0.151 [+0.142, +0.160] | +0.190 [+0.180, +0.199] | over v10: +0.008 [+0.005, +0.011] 29/32 / +0.011 [+0.008, +0.014] 32/32 | +0.106 (IDSSE m0) |
 | tier0_v12 | +0.151 [+0.142, +0.160] | +0.189 [+0.179, +0.199] | over v10: +0.008 [+0.006, +0.010] 30/32 / +0.010 [+0.008, +0.013] 30/32 | +0.107 (IDSSE m0) |
 | **tier0_v13** | +0.154 [+0.145, +0.163] | +0.192 [+0.182, +0.202] | over v12: +0.0031 [+0.0022, +0.0041] 29/32 / +0.0033 [+0.0023, +0.0044] 27/32 | +0.111 (IDSSE m0) |
-| **tier0_v15** | +0.157 [+0.148, +0.167] | +0.196 [+0.186, +0.206] | over v13: +0.0035 [+0.0026, +0.0044] 28/32 / +0.0038 [+0.0028, +0.0047] 29/32 | +0.121 (IDSSE m0) |
+| tier0_v15 (confirmed alternative) | +0.157 [+0.148, +0.167] | +0.196 [+0.186, +0.206] | over v13: +0.0035 [+0.0026, +0.0044] 28/32 / +0.0038 [+0.0028, +0.0047] 29/32 | +0.121 (IDSSE m0) |
 | tier0_v14 (near-tie) | +0.157 [+0.148, +0.166] | +0.196 [+0.187, +0.206] | over v13: +0.0028 [+0.0009, +0.0047] 26/32 / +0.0042 [+0.0024, +0.0061] 29/32 | +0.110 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
@@ -113,17 +113,18 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   a lower bound of +0.002 on 23 of 32 games. Under StatsBomb's convention on the held-out PFF games its margin
   is +0.171 against v7's +0.154.
 
-The selection rule now recommends tier0_v15: tier0_v13 plus E42c's near-line dead run (experiment 83). It
-reads no BAR-ATH statistic and no StatsBomb data, builds from the same gated inputs, and changes 828 BAR-ATH
-frames against v13, 808 of them from a team to D. It came from the third registered variant of one idea on
-PFF-A (experiments 81 to 83), which is a mild selection risk the held-out games did not show: its PFF-B gain
-matches its PFF-A gain. The user has not yet reviewed the switch; until then tier0_v13 is the fallback.
-
-Before v15, my recommendation was tier0_v13, which the user kept on 24 October after deciding that a design shaped by a
+My recommendation is tier0_v13, which the user kept on 24 October after deciding that a design shaped by a
 match-wide BAR-ATH statistic is allowed (v12's redesign read one; the organisers have not ruled on it). It needs
 the gated ATD files on disk to build and carries 13 weights fitted on PFF labels; if either is a problem, use tier0_v10, or tier0_v2, the best file that builds from committed inputs alone. tier0_v13 is
 tier0_v12 plus E32's ball-out stoppage start. Every step from v7 was selected and confirmed under the
 pre-registered rule v2, with no StatsBomb data.
+
+tier0_v15 is a confirmed alternative (experiments 83 and 84). It is tier0_v13 plus E42c's near-line dead
+run, reads no BAR-ATH statistic and no StatsBomb data, and changes 828 BAR-ATH frames against v13, 808 of them
+from a team to D. It cleared rule v2 by 0.0008 over the bar and held on PFF-B (m0 +0.0035 [+0.0026, +0.0044],
+m2 +0.0038 [+0.0028, +0.0047]) and on seeds 15-24. The user kept tier0_v13 because v15 came from the third
+sequential variant of one idea on PFF-A and its expected gain, about +0.003, is small against the full-match
+noise of about 0.04.
 
 tier0_v14 is a near-tie, recorded so the team can weigh it. I first recommended it and then withdrew it after
 the cross-model review (experiment 79):
@@ -484,7 +485,8 @@ overstates how independent the B columns are:
 | 80 | E41: tier0_v13 with `q_logit` refitted on PFF-A with a fourth term, ln(1 + ball speed relative to the nearest player) (`probes.py e41grid`); arms base and refit; rule v2 with E32's clause | community-scan probe F1: relative speed separates the possessing team well on PFF-A seen live frames | refit weight -0.41; fails the veto by 0.0001 (Metrica h1p3) and loses on the PFF-A minimum, 0.1493 against 0.1504 | **no change**: distance and margin already carry the signal |
 | 81 | E42: missing runs whose ball was seen within `dead_line_m` {1, 2} m of a line in the 25 frames before count as dead from `dead_line_min_run` {25, 50, 75} (`probes.py linegrid`) | community-scan probe F3: on PFF-A such gaps are dead 48-60% of the time against 5-10% | all pass the veto; best PFF-A minimum +0.0009; the three lengths score the same because `dead_trim` 50 at both ends leaves no D on a run under about 100 frames | **no change** |
 | 82 | E42b: E42 with `dead_line_lead_cut` 25 and lengths {100, 75} (`probes.py linelead`) | experiment 81's trim finding | all pass the veto; synthetic minimum +0.0044 to +0.0049, PFF-A minimum +0.0019 to +0.0030; the tie goes to m 1 run 100 at +0.0019 | **no change** under E32's clause |
-| 83 | E42c: E42 with the whole 50-frame start trim removed, `dead_line_m` {1, 2} x `dead_line_min_run` {75, 50} (`probes.py linefull`), registered as the last near-line variant; confirmation on PFF-B and seeds 15-24 | experiment 82 moved every group the same way, leaving the size of the cut as the one lever | all pass the veto; PFF-A minimum 0.1542 for m 1 run 75 against 0.1504 (+0.0038), synthetic minimum 0.1203 against 0.1099; PFF-B over v13 m0 +0.0035 [+0.0026, +0.0044] 28 of 32, m2 +0.0038 [+0.0028, +0.0047] 29 of 32; seeds 15-24 above v13 in all 15 groups and on 147 of 150 worlds (Metrica +0.0008 to +0.0032, IDSSE +0.010 to +0.017); 828 BAR-ATH frames change | **tier0_v15**, recommended by the rule |
+| 83 | E42c: E42 with the whole 50-frame start trim removed, `dead_line_m` {1, 2} x `dead_line_min_run` {75, 50} (`probes.py linefull`), registered as the last near-line variant; confirmation on PFF-B and seeds 15-24 | experiment 82 moved every group the same way, leaving the size of the cut as the one lever | all pass the veto; PFF-A minimum 0.1542 for m 1 run 75 against 0.1504 (+0.0038), synthetic minimum 0.1203 against 0.1099; PFF-B over v13 m0 +0.0035 [+0.0026, +0.0044] 28 of 32, m2 +0.0038 [+0.0028, +0.0047] 29 of 32; seeds 15-24 above v13 in all 15 groups and on 147 of 150 worlds (Metrica +0.0008 to +0.0032, IDSSE +0.010 to +0.017); 828 BAR-ATH frames change | **tier0_v15**, a confirmed alternative (experiment 84) |
+| 84 | the user's decision on tier0_v15, after a cross-model review (sonnet) of experiments 80 to 83 | v15 cleared rule v2 and its confirmation, which would make it the recommendation | the review found no high flags: picks follow the rule (E42c clears the bar by 0.0008) and the reported numbers match the CSVs; medium flags were the three sequential variants on PFF-A and synthetic gains inflated by the generator's label-aligned masks, leaving PFF native +0.0035 as the real evidence | **tier0_v13 stays the recommendation** (the user's call, 25 October); tier0_v15 is a confirmed alternative |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames (overlapping slots, or officials in a team's slots) are untraced |
 
 ## What did not work, and why

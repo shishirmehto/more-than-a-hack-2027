@@ -138,7 +138,7 @@ LINE = ("dead_line_m, dead_line_min_run and dead_line_lead_cut come from pre-reg
         "games m0 +0.0035 [+0.0026, +0.0044] 28 of 32 won, m2 +0.0038 [+0.0028, +0.0047] 29 of 32; seeds 15-24 "
         "above tier0_v13 in all 15 groups (+0.0008 to +0.0171, largest on IDSSE) and the worst-group margin over "
         "baseline_smooth50 0.1211 against 0.1110. No BAR-ATH statistic was read. No StatsBomb data entered this "
-        "selection.")
+        "selection. A confirmed alternative, not the recommendation: the user kept tier0_v13 on 2026-10-25.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
