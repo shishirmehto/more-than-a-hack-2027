@@ -187,6 +187,8 @@ class DecoderParams:
         _number("dead_outside_m", self.dead_outside_m, 0, math.inf, lo_open=False)
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
             raise ValueError("dead_trim must leave part of a dead_min_run run: 2 * dead_trim < dead_min_run")
+        if not self.dead_min_run and (self.dead_trim or self.dead_close or self.dead_outside_m):
+            raise ValueError("dead_trim, dead_close and dead_outside_m act only with dead_min_run > 0")
         if self.decode_rule == "marginal":
             if (self.min_poss_frames, self.min_dead_frames) != (1, 1):
                 raise ValueError("decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")

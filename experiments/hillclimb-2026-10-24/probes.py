@@ -10,6 +10,7 @@ deadrule PARAMS --out CSV
                      every (dead_min_run, dead_trim, close gap) on PARAMS's chain, decoded once per world;
                      native PFF worlds split into odd (A, selection) and even (B, held-out) games
 chain PARAMS         a grid of chain constants on top of PARAMS, each decoded once, under a few dead rules
+select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
 
@@ -154,7 +155,7 @@ def close(params):
     print(t.pivot_table(index="gap", columns="group", values="n_pred").round(0).to_string())
 
 
-RUNS = (101, 126, 151, 201)
+RUNS = (101, 126)
 TRIMS = (0, 12, 25, 37, 50)
 GAPS = (0, 100, 150, 200, 300)
 
@@ -175,10 +176,10 @@ def scored_cases(worlds):
             yield f"{world}_{tag}", f"{world}_{tag}", bench.pooled(sub)
 
 
-def deadrule(params, out):
-    chain, s50 = Decoder.load(params).replace(dead_min_run=0, dead_trim=0), bench.Smoother(50)
+def deadrule(params, out, rhos, items):
+    chain, s50 = Decoder.load(params).replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0), bench.Smoother(50)
     rows = []
-    for group, world, case in scored_cases(bench.dev_worlds(SEARCH + NATIVE, [2.6], seeds=SEEDS)):
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         runs = score.valid_runs(case.gt)
         codes = [chain.decode(h).codes for h in case.halves]
         floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
@@ -208,7 +209,7 @@ DEAD_RULES = ((101, 0, 150), (126, 0, 150), (151, 0, 150), (101, 25, 200))
 
 
 def chain_grid(params):
-    base, s50 = Decoder.load(params).replace(dead_min_run=0, dead_trim=0), bench.Smoother(50)
+    base, s50 = Decoder.load(params).replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0), bench.Smoother(50)
     keys = list(CHAIN)
     candidates = [dict(zip(keys, v)) for v in itertools.product(*CHAIN.values())]
     rows = []
@@ -262,12 +263,46 @@ def confirm(path):
             print(f"  {world} {a} - {b}: " + "; ".join(cells))
 
 
+INCUMBENT = (101, 50, 0)
+VETO_SLACK = 0.003
+
+
+def select(paths):
+    """Rule v2: synthetic groups veto (each margin >= the incumbent's minus VETO_SLACK), the minimum over the
+    PFF-A groups ranks, the synthetic minimum breaks ties within VETO_SLACK. PFF-B is shown, never used."""
+    t = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+    t = t[t.run.isin(RUNS) & t.trim.isin(TRIMS) & t.gap.isin(GAPS)]
+    m = t.pivot_table(index=["run", "trim", "gap"], columns="group", values="margin")
+    synth = [c for c in m.columns if "_native" not in c]
+    pff_a = [c for c in m.columns if c.endswith("_native_A")]
+    pff_b = [c for c in m.columns if c.endswith("_native_B")]
+    print(f"{len(m)} candidates; synthetic groups {len(synth)}: {', '.join(synth)}")
+    floor = m.loc[INCUMBENT, synth] - VETO_SLACK
+    m["vetoed_by"] = (m[synth] < floor).apply(lambda r: ",".join(c for c, v in r.items() if v), axis=1)
+    m["synth_min"], m["pff_a_min"], m["pff_b_min"] = m[synth].min(axis=1), m[pff_a].min(axis=1), m[pff_b].min(axis=1)
+    ok = m[m.vetoed_by == ""].sort_values("pff_a_min", ascending=False)
+    best = ok.pff_a_min.iloc[0]
+    tied = ok[ok.pff_a_min >= best - VETO_SLACK].sort_values("synth_min", ascending=False)
+    cols = ["synth_min", "pff_a_min", "pff_b_min"]
+    print(f"\n{len(ok)} pass the veto; top by PFF-A minimum:")
+    print(ok[cols].head(12).round(4).to_string())
+    print(f"\nwithin {VETO_SLACK} of the best PFF-A minimum, by synthetic minimum:")
+    print(tied[cols].round(4).to_string())
+    print(f"\nincumbent {INCUMBENT}:", m.loc[INCUMBENT, cols].round(4).to_dict())
+    print("vetoed examples:", m[m.vetoed_by != ""].sort_values("pff_a_min", ascending=False)[["pff_a_min", "vetoed_by"]]
+          .head(6).round(4).to_string())
+    print("\nSELECTED", tied.index[0])
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close", "deadrule", "chain", "confirm"))
-    ap.add_argument("params", nargs="?")
+    ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select"))
+    ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
+    ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
+    ap.add_argument("--rule", nargs="+", default=SEARCH + NATIVE, help="deadrule: [source:]rule[:mode] items")
     a = ap.parse_args()
-    {"oracle": lambda: oracle(a.params), "geometry": geometry, "barath-geometry": barath_geometry,
-     "close": lambda: close(a.params), "deadrule": lambda: deadrule(a.params, a.out),
-     "chain": lambda: chain_grid(a.params), "confirm": lambda: confirm(a.params)}[a.probe]()
+    one = a.params[0] if a.params else None
+    {"oracle": lambda: oracle(one), "geometry": geometry, "barath-geometry": barath_geometry,
+     "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one), "select": lambda: select(a.params)}[a.probe]()
