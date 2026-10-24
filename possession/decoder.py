@@ -33,6 +33,8 @@ _SPEED_CAP_MPS = 40.0
 _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mps", "dead_pace_still_mps",
                      "dead_pace_live_mps")
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
+SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
+                  "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d")
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +183,16 @@ class DecoderParams:
                         each block's argmax, so a run of one team inside the other survives only when its
                         summed log-odds over that team reach 2 * switch_penalty. A pass through D between
                         the teams is charged once. "marginal" only.
+    spell_flip_p:       0 is off. Otherwise, after the merge and before the lag, a possession shorter than
+                        spell_flip_frames whose share of frames with a token is at least spell_flip_seen goes to
+                        the other team when the logistic spell_logit over its SPELL_FEATURES (_spell_runs) gives
+                        P(flip) >= spell_flip_p, every such possession judged on the codes as they stand before
+                        any flip. The weights were fitted on dev labels to say when giving a short possession
+                        away gains matched possessions. "marginal" only: one feature is the chain's log-odds.
+    spell_flip_frames:  the length limit for spell_flip_p; set together with it.
+    spell_flip_seen:    the token share a possession needs to be judged by spell_flip_p; 0 judges all.
+    spell_logit:        {"a": intercept, feature: weight for each of SPELL_FEATURES}; set exactly when
+                        spell_flip_p is.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -216,6 +228,10 @@ class DecoderParams:
     spell_push_between: int = 0
     spell_push_unseen: float = 0.0
     switch_penalty: float = 0.0
+    spell_flip_p: float = 0.0
+    spell_flip_frames: int = 0
+    spell_flip_seen: float = 0.0
+    spell_logit: Mapping[str, float] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -250,6 +266,20 @@ class DecoderParams:
         _number("switch_penalty", self.switch_penalty, 0, math.inf, lo_open=False)
         if self.switch_penalty and self.decode_rule != "marginal":
             raise ValueError("switch_penalty acts only with decode_rule 'marginal'")
+        _number("spell_flip_p", self.spell_flip_p, 0, 1, lo_open=False)
+        _number("spell_flip_frames", self.spell_flip_frames, 0, math.inf, integer=True, lo_open=False)
+        _number("spell_flip_seen", self.spell_flip_seen, 0, 1, lo_open=False, hi_open=False)
+        if not (bool(self.spell_flip_p) == bool(self.spell_flip_frames) == bool(self.spell_logit)):
+            raise ValueError("spell_flip_p, spell_flip_frames and spell_logit are set together")
+        if self.spell_flip_seen and not self.spell_flip_p:
+            raise ValueError("spell_flip_seen acts only with spell_flip_p > 0")
+        if self.spell_logit:
+            if set(self.spell_logit) != {"a", *SPELL_FEATURES}:
+                raise ValueError(f"spell_logit keys must be 'a' and {', '.join(SPELL_FEATURES)}")
+            for name, w in self.spell_logit.items():
+                _number(f"spell_logit[{name}]", w, -math.inf, math.inf)
+            if self.decode_rule != "marginal":
+                raise ValueError("spell_flip_p acts only with decode_rule 'marginal'")
         if bool(self.dead_still_mps) != bool(self.dead_still_frames):
             raise ValueError("dead_still_mps and dead_still_frames are set together")
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
@@ -274,7 +304,8 @@ _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
                     "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0,
                     "spell_merge_frames": 0, "spell_merge_tails": 0, "spell_push_mps": 0.0, "spell_push_frames": 0,
-                    "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0}
+                    "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0, "spell_flip_p": 0.0,
+                    "spell_flip_frames": 0, "spell_flip_seen": 0.0, "spell_logit": {}}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -309,8 +340,9 @@ class Decoder:
           4. dead_min_run > 0 replaces the chain's D by the missing-run rule (see DecoderParams).
           5. spell_push_mps gives short possessions that push contradicts to the other team.
           6. spell_merge_frames joins short possessions to their neighbours (see DecoderParams).
-          7. handover_lag moves the hand-overs between the teams later (see DecoderParams).
-          With switch_penalty, or after 4 to 7, the posterior is dropped, because it no longer describes the
+          7. spell_flip_p gives short possessions its fitted logistic picks to the other team.
+          8. handover_lag moves the hand-overs between the teams later (see DecoderParams).
+          With switch_penalty, or after 4 to 8, the posterior is dropped, because it no longer describes the
           codes.
         """
         p, kickoff = self.params, half.id.kickoff
@@ -322,16 +354,17 @@ class Decoder:
             codes[kickoff:] = np.repeat(_map(E, p), p.stride)[:m]
             return Decoded(codes=_rules(codes, half, p), posterior=None)
         g = _forward_backward(E, _chain(p))
+        logodds = _frame_logodds(g, half, p.stride, m) if p.spell_flip_p else None
         if p.switch_penalty:
             codes = np.full(half.n, D, dtype=np.int8)
             codes[kickoff:] = np.repeat(_penalized_path(g, p.switch_penalty), p.stride)[:m]
-            return Decoded(codes=_rules(codes, half, p), posterior=None)
+            return Decoded(codes=_rules(codes, half, p, logodds), posterior=None)
         post = np.empty((half.n, 3), dtype=np.float64)
         post[:kickoff] = (0.0, 0.0, 1.0)
         post[kickoff:] = np.repeat(g, p.stride, axis=0)[:m]
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
-        if p.dead_min_run or p.handover_lag or p.spell_merge_frames or p.spell_push_mps:
-            return Decoded(codes=_rules(codes, half, p), posterior=None)
+        if p.dead_min_run or p.handover_lag or p.spell_merge_frames or p.spell_push_mps or p.spell_flip_p:
+            return Decoded(codes=_rules(codes, half, p, logodds), posterior=None)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
     @property
@@ -339,7 +372,7 @@ class Decoder:
         """True when decoding reads Half.geometry, Half.pace_mps or Half.push_mps, which only challenge.observe
         supplies."""
         p = self.params
-        return self.emission.needs_geometry or bool(p.spell_push_mps) or bool(p.dead_min_run and (
+        return self.emission.needs_geometry or bool(p.spell_push_mps or p.spell_flip_p) or bool(p.dead_min_run and (
             p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps))
 
     def replace(self, **flat: object) -> "Decoder":
@@ -398,10 +431,96 @@ def _strict(cls: type, values: Mapping[str, object]):
     return cls(**values)
 
 
-def _rules(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
+def _rules(codes: NDArray[np.int8], half: Half, p: DecoderParams,
+           logodds: NDArray[np.float64] | None = None) -> NDArray[np.int8]:
     flipped = _push_flip(_missing_run_dead(codes, half, p), half, p)
     merged = _merge_spells(flipped, p.spell_merge_frames, p.spell_merge_tails)
-    return _lag_handovers(merged, p.handover_lag)
+    return _lag_handovers(_spell_flip(merged, half, p, logodds), p.handover_lag)
+
+
+def _frame_logodds(g: NDArray[np.float64], half: Half, stride: int, m: int) -> NDArray[np.float64]:
+    """Per frame, ln P(H) - ln P(A) of the block posterior rounded to 9 places (floored at 1e-12); 0 before
+    kickoff."""
+    h, a = np.maximum(np.round(g[:, 0], 9), 1e-12), np.maximum(np.round(g[:, 1], 9), 1e-12)
+    out = np.zeros(half.n)
+    out[half.id.kickoff:] = np.repeat(np.log(h) - np.log(a), stride)[:m]
+    return out
+
+
+def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
+                logodds: NDArray[np.float64]) -> list[tuple[int, int, int, tuple[float, ...]]]:
+    """(start, stop, team, SPELL_FEATURES) for each team run of codes after kickoff shorter than frames, every
+    feature rounded to 9 places. Means are math.fsum sums, so no feature depends on summation order.
+
+    len: ln(frames / FPS). seen: share of frames with a token. own_tok, other_tok: shares of those frames whose
+    token is the run's team, the other team. closest_own: ln(1 + the nearest distance on own-token frames,
+    capped at 10 m). speed_med, speed_max: ln(1 + median, max ball speed on seen frames, max capped at 40 m/s).
+    margin_own: ln(1 + median team margin on own-token frames, capped at 30 m). push: mean push toward the run's
+    team, clipped to +-5 m/s. logodds: mean chain log-odds toward the run's team, clipped to +-20. sandwiched: 1
+    when both neighbouring runs are the other team. prev_len, next_len: ln(1 + neighbour length). next_to_d: 1
+    when a neighbour is D (the half's edges count as D).
+    """
+    g = half.geometry
+    if g is None or half.push_mps is None:
+        raise ValueError(f"{half.id}: spell_flip_p reads Half.geometry and Half.push_mps and the Half has none; "
+                         "observe it from a Geometry (challenge.halves('atd')), not from baseline_raw")
+    edges = np.flatnonzero(np.diff(codes)) + 1
+    starts, stops = np.r_[0, edges].tolist(), np.r_[edges, half.n].tolist()
+    out = []
+    for k, (a, b) in enumerate(zip(starts, stops)):
+        team = int(codes[a])
+        if team == D or a < half.id.kickoff or b - a >= frames:
+            continue
+        tok = half.nearest_team[a:b]
+        seen, own = tok != NO_TEAM, tok == team
+        ns = max(int(seen.sum()), 1)
+        near = g.nearest_m[a:b][own].astype(np.float64)
+        near = near[~np.isnan(near)]
+        speed = g.speed_mps[a:b][seen].astype(np.float64)
+        speed = speed[np.isfinite(speed)]
+        margin = np.minimum(g.margin_m[a:b][own].astype(np.float64), _MARGIN_CAP_M)
+        margin = margin[~np.isnan(margin)]
+        push = half.push_mps[a:b].astype(np.float64)
+        push = push[np.isfinite(push)]
+        sign = 1.0 if team == H else -1.0
+        prev = (int(codes[starts[k - 1]]), stops[k - 1] - starts[k - 1]) if k else (D, 0)
+        nxt = (int(codes[starts[k + 1]]), stops[k + 1] - starts[k + 1]) if k + 1 < len(starts) else (D, 0)
+        x = (math.log((b - a) / FPS), int(seen.sum()) / (b - a), int(own.sum()) / ns,
+             int((tok == 1 - team).sum()) / ns,
+             math.log1p(min(float(near.min()), 10.0)) if len(near) else math.log1p(10.0),
+             math.log1p(float(np.median(speed))) if len(speed) else 0.0,
+             math.log1p(min(float(speed.max()), _SPEED_CAP_MPS)) if len(speed) else 0.0,
+             math.log1p(float(np.median(margin))) if len(margin) else 0.0,
+             min(max(sign * math.fsum(push.tolist()) / len(push), -5.0), 5.0) if len(push) else 0.0,
+             min(max(sign * math.fsum(logodds[a:b].tolist()) / (b - a), -20.0), 20.0),
+             float(prev[0] == nxt[0] == 1 - team), math.log1p(prev[1]), math.log1p(nxt[1]),
+             float(D in (prev[0], nxt[0])))
+        out.append((a, b, team, tuple(round(v, 9) for v in x)))
+    return out
+
+
+def _spell_z(x: tuple[float, ...], w: Mapping[str, float]) -> float:
+    """The spell logit a + sum(w * x) over SPELL_FEATURES, as an exactly rounded math.fsum, rounded to 6 places."""
+    return round(math.fsum([w["a"]] + [w[f] * v for f, v in zip(SPELL_FEATURES, x)]), 6)
+
+
+_SEEN = SPELL_FEATURES.index("seen")
+
+
+def _spell_flip(codes: NDArray[np.int8], half: Half, p: DecoderParams,
+                logodds: NDArray[np.float64] | None) -> NDArray[np.int8]:
+    """Each _spell_runs run with a token share of at least spell_flip_seen takes the other team when its spell
+    logit reaches logit(spell_flip_p), both rounded to 6 places; judged on the input runs."""
+    if not p.spell_flip_p:
+        return codes
+    if logodds is None:
+        raise ValueError("spell_flip_p needs the chain's frame log-odds; only Decoder.decode supplies them")
+    cut = round(math.log(p.spell_flip_p / (1 - p.spell_flip_p)), 6)
+    out = codes.copy()
+    for a, b, team, x in _spell_runs(codes, half, p.spell_flip_frames, logodds):
+        if x[_SEEN] >= p.spell_flip_seen and _spell_z(x, p.spell_logit) >= cut:
+            out[a:b] = 1 - team
+    return out
 
 
 def _push_flip(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:

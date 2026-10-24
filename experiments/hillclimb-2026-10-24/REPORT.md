@@ -10,7 +10,9 @@ their findings; the log's last rows list each one.
 
 ## Result
 
-Nine new params files, each one confirmed on held-out data before the next was built:
+Ten new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed every
+held-out test and was then stopped by its registered BAR-ATH transfer check, so tier0_v10 stays the
+recommendation:
 
 | params | adds to the previous file | builds from | sha256 of the CSV |
 |---|---|---|---|
@@ -23,6 +25,7 @@ Nine new params files, each one confirmed on held-out data before the next was b
 | `params/tier0_v8.json` | `spell_merge_frames` 50: a possession under 2 s inside another team's spell joins its neighbours (rule v4) | the gated ATD | `abb0ed9c2b8c2921…` |
 | `params/tier0_v9.json` | to tier0_v7, not v8: `spell_push_*` 2.0 / 250 / 0.5: a possession under 10 s, at least half without a ball sighting, whose players push 2 m/s or more against its team goes to the other team | the gated ATD | `36d911031fcb7a0f…` |
 | `params/tier0_v10.json` | `switch_penalty` 1.0: the decode charges 1 nat per change of team, so an island of one team inside the other survives only when its summed block log-odds reach 2 nats | the gated ATD | `d137e9e61c7a9b3e…` |
+| `params/tier0_v11.json` (stopped) | `spell_flip_*`: a logistic over 14 label-free spell features, fitted on PFF-A labels, gives a short possession with a token on half its frames to the other team at P 0.8 or more | the gated ATD | `119e1f080f3470e2…` |
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
 the held-out half is"). The numbers are spellF1 margins over `baseline_smooth50`; the PFF columns are the 32
@@ -40,6 +43,7 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 | tier0_v8 | +0.139 [+0.131, +0.148] | +0.175 [+0.166, +0.184] | +0.005 [+0.002, +0.008] 23/32 / +0.011 [+0.009, +0.014] 29/32; StatsBomb +0.016 [+0.014, +0.019] 32/32 | +0.099 (IDSSE m0) |
 | tier0_v9 | +0.139 [+0.130, +0.149] | +0.172 [+0.161, +0.182] | over v7: +0.005 [+0.003, +0.007] 25/32 / +0.009 [+0.006, +0.012] 27/32 | +0.107 (IDSSE m0) |
 | **tier0_v10** | +0.143 [+0.134, +0.153] | +0.179 [+0.168, +0.189] | over v9: +0.004 [+0.002, +0.005] 25/32 / +0.007 [+0.005, +0.009] 29/32 | +0.105 (IDSSE m0) |
+| tier0_v11 (stopped) | +0.151 [+0.142, +0.160] | +0.190 [+0.180, +0.199] | over v10: +0.008 [+0.005, +0.011] 29/32 / +0.011 [+0.008, +0.014] 32/32 | +0.106 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
   about half again on top of v2's margin. tier0_v8's margin is +0.049 and +0.060 above v2's (a difference of
@@ -53,6 +57,16 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   in 12 of 15 synthetic groups (h3p3 +0.012 to +0.016, IDSSE m2 +0.005 to +0.008), and gave up 0.0007 to
   0.0016 on IDSSE m0, as it did on the selection seeds (0.0009 to 0.0015). Its held-out gain is about three
   quarters of its selection gain (A: m0 +0.0050, m2 +0.0087).
+- tier0_v11 (experiments 54 to 56) is the largest confirmed step since v5. A label-reading oracle put the
+  ceiling of giving short possessions to the other team at +0.041 on PFF-A m0; a logistic over label-free
+  spell features recovers about a quarter of it out of fold (+0.0095) and +0.0078 on the held-out games, and it
+  sits above v10 in all 15 synthetic groups of seeds 15-24, IDSSE m0 included (+0.0008 to +0.0025). It was
+  stopped by the transfer check registered with it: the median token share of BAR-ATH's short runs is 1.000,
+  above PFF-A's 90th percentile (0.946), and the token-share feature carries the largest weight. On BAR-ATH it
+  would cut 12.8% of the team runs against 4% on PFF-A. The synthetic veto worlds share BAR-ATH's regime (token
+  share median 1.000, about half the short runs fully seen, against 8% on PFF-A), so the veto and the
+  confirmation did exercise the rule there, and it gained. The stop still stands, because it was registered as
+  binding. Experiment 57 refits without the token-share feature.
 - The synthetic confirmation is weak. Its bar is every group above smooth50, which v6 onward clear by about
   0.10, so the binding test of each step was the paired PFF-B bound. That bound used the same 32 games eleven
   times in sequence (ten confirmations and E19's rejection), with 90% intervals and no correction for
@@ -292,6 +306,10 @@ overstates how independent the B columns are:
 | 50 | label-free check of the shipped push signal on BAR-ATH (`probes.py barath-push`), against the same statistic on PFF-A m0 (`pff-push-tokens`) | review flag: v9 was never checked on BAR-ATH itself | the sign is right in both halves; at push of -3 m/s or less the home-token share falls 0.10 below the half mean (PFF-A 0.11); at +3 m/s and over it rises less, and in half 1 not at all; 148 of v9's 373 changed frames are half-1 away-to-home flips | v9 kept; the weak tail is a disclosed limitation |
 | 51 | switch-penalized decode path (E27): the block posterior decoded by a Viterbi that charges `switch_penalty` per change of team, D blips free, then v9's rules; lambda {1, 2, 4, 8, 16, 32}, 8 and 16 also with no charge into dead frames; base tier0_v9, rule v2, PFF-A first | design fan-out 2's top design: fewer predicted possessions is the one lever that cleared the tie band (E22), and posterior mass might spare confident per-touch possessions | PFF-A minimum 0.1316 at base; lambda 2 0.1390, 8 no-charge 0.1378, 4 0.1377, 1 0.1365; only lambda 1 passes the veto (IDSSE m0 -0.0009 to -0.0015; lambda 2 misses by 0.0010); lambda 1 removes 169 possessions, 5.3% of them matched; confidence separates matched from unmatched short possessions by only 0.04 to 0.06 within a length band | **tier0_v10**: confirmed on PFF-B (m0 +0.0037 [+0.0020, +0.0054], 25 of 32 games; m2 +0.0068 [+0.0047, +0.0088], 29 of 32), above smooth50 in all 15 groups of seeds 15-24, above v9 in 12; equivpath 0 of 6,237,132 frames; under the fan-out ranker's own gates and grid the result would have been no change |
 | 52 | control D2, not a candidate: E22's length merge at 25, 35 and 50 frames on tier0_v9 | both v10 reviewers: λ 1 may be E22's lever at another dose | PFF-A minimum 0.1336, 0.1360 and 0.1377 at 7,629, 7,513 and 7,310 predicted possessions (λ 1 0.1365 at 7,451, λ 2 0.1390 at 7,303); IDSSE m0 +0.0012 to +0.0017, +0.0003 to +0.0012, and -0.0062 to -0.0081 (λ 1 -0.0009 to -0.0015) | the penalty buys nothing a length cut does not; at v10's dose a 35-frame merge is gentler on per-touch labels; not tested on held-out data |
+| 53 | E28 first gate, label-reading oracle, never a candidate (`probes.py deadruns`): every interior flagged run of 126+ frames vetoed (adds no D) when the PFF-A m0 labels show no labelled-D stretch of 25+ frames in its trimmed span (B), or a labelled-D share under 0.2 (A); `_g` keeps only runs with no slow or off-pitch frame | design fan-out 3's top design, a fitted run-level veto; its critic and ranker required this ceiling first, with kills set before the run: K1 B_g under +0.008 on PFF-A m0 or a paired 90% lower bound at or below 0, K2 under a quarter of the possessions that leave the dead class becoming matched, K3 over 25% of the y < 0.2 runs looking like set pieces | 1,226 of 4,316 runs hold no labelled stoppage and carry 45% of v10's false-D frames; B_g lifts PFF-A m0 +0.0029 (paired 90% [-0.0012, +0.0066], 17 of 32 games), B +0.0036, m2 +0.0142; of 645 possessions that leave the dead class, 107 become matched, 313 wrong team and 222 overlong, and 294 matched possessions turn overlong; 7.3% look like set pieces | **killed at K1 and K2**, no fit and no decoder change: even a perfect whole-run veto stays inside the tie band on m0, because the chain's team across a long missing run is rarely the labelled possession |
+| 54 | ceiling of short-possession flips, label-reading, never a candidate (`probes.py flipruns`): on v10's codes after its push flip, a greedy left-to-right oracle gives each team run under 250 frames to the other team when that raises the half's mean matched count minus F/2 per predicted spell; populations by token share (seen 0.5+, unseen under 0.5, all) | E28's oracle closed the dead stage; the touch rule's ranker wanted a ceiling that holds whatever the detector does; kill set before the run: under +0.006 on PFF-A m0 for seen runs | PFF-A m0 +0.0413 for seen runs (754 flips; paired 90% [+0.0346, +0.0474], 32 of 32 games), +0.0236 unseen (641), +0.0617 all (1,304); m2 +0.0550, +0.0311, +0.0822 | the headroom is in team calls on short possessions, about seven times the bar; opens E29 |
+| 55 | E29 first gate (`probes.py spellflip`): a ridge-1 Newton logistic over 14 label-free spell features (`decoder.SPELL_FEATURES`: length, token shares, closest own approach, ball speed, own margin, push, the chain's log-odds, neighbours) predicts whether giving one short possession away alone raises the half's matched count minus F/2 per predicted spell on the PFF-A m0 labels; 2-fold game-OOF; arms token share 0.5+ (seen) or all runs at P 0.8, 0.65, 0.5 | experiment 54 put the ceiling at about seven times the bar; this is the fan-out's spell logit, ranked last there, in its critic's revised form (a spell-level target, ridge with a convergence check, OOF spellF1 with a paired interval); kill set before the run: no arm at +0.006 with a lower bound above 0 | 3,734 runs, flip helps alone on 42%; OOF AUC 0.78 (seen) and 0.76 (all); PFF-A m0 seen>=0.8 +0.0095 [+0.0071, +0.0119] 29 of 32, all>=0.8 +0.0101, seen>=0.65 +0.0148, all>=0.65 +0.0156 [+0.0120, +0.0192]; m2 +0.013 to +0.027; the decoder's own path (fsum features rounded to 9 places, logit rounded to 6) reproduces every number | passes; two feature pairs are exactly collinear (own_tok + other_tok = 1, sandwiched = 1 - next_to_d), so the ridge splits their weights |
+| 56 | E29 selection, confirmation and transfer stop: rule v2 with the all-A weights on the synthetic veto (tie order, fixed after the first gate by structure: higher cut first, token-gated first) | pre-registered; the BAR-ATH stop (any feature median outside PFF-A's 10th-90th percentile stops the freeze) was registered with the tie order | veto: the 0.65 and 0.5 arms fail IDSSE m0; seen>=0.8 lifts all 15 groups over v10 and wins the tie with all>=0.8; frozen as tier0_v11; PFF-B m0 +0.0078 [+0.0048, +0.0109] 29 of 32, m2 +0.0112 [+0.0082, +0.0143] 32 of 32; seeds 15-24 above v10 in all 15 groups; v11 changes 1,790 BAR-ATH frames and cuts its team runs from 406 to 354 (12.8%, against 4% on PFF-A) | **stopped by the BAR-ATH check**: the median seen share of BAR-ATH's short runs is 1.000 against PFF-A's 90th percentile 0.946; v10 stays recommended; v11 is kept as a frozen, confirmed, unrecommended file; v11 was frozen before the check, against the registered order |
 
 ## What did not work, and why
 
@@ -478,6 +496,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-merge 50 --out params/tier0_v8.json
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --out params/tier0_v9.json
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --out params/tier0_v10.json
+S="0.3779 -0.8193 1.7699 0.0158 -0.0158 0.9423 -0.0854 -0.1028 0.7363 -0.2175 -0.2681 -0.4221 -0.0753 -0.0892 0.4221"
+python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.8 250 0.5 --spell-logit $S --out params/tier0_v11.json
 python -m possession make-submission --params params/tier0_v10.json --out tier0_v10.csv
 ```
 

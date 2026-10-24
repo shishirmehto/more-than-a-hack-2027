@@ -84,6 +84,21 @@ equivpath SHIPPED BASE
 mergedose PARAMS --out CSV
                      diagnostic, not a candidate: E22's length merge at 25, 35 and 50 frames on PARAMS, to compare a
                      length cut with E27's penalty at a similar dose
+deadruns PARAMS BASE9
+                     E28 oracle, label-reading: interior flagged runs vetoed by the PFF-A m0 labels, rescored on
+                     PFF-A m0 and m2 under PARAMS and BASE9, with the run table, census transitions and a
+                     convention check
+flipruns PARAMS      label-reading ceiling of short-possession flips: a greedy oracle gives team runs under 250
+                     frames to the other team on PFF-A m0 and m2 (populations seen, unseen, all)
+spellflip PARAMS --out PREFIX
+                     E29: a ridge logistic on decoder._spell_runs features predicts which short possessions to
+                     give to the other team; 2-fold game-OOF on PFF-A; writes PREFIX-pff.csv and PREFIX-weights.json
+barath-spell PARAMS  E29's registered stop, label-free: spell-feature medians on BAR-ATH's candidate runs against
+                     PFF-A m0's 10th-90th percentiles, and the frames PARAMS's spell flip changes on BAR-ATH
+spellseen PARAMS     label-free: spell-feature medians and the fully-seen share of candidate runs on synthetic
+                     IDSSE m0 and Metrica m0 (r2.6, seed 0) and on PFF-A m0
+spellveto PARAMS WEIGHTS --out CSV
+                     E29 veto rows: PARAMS with the spell flip at each registered arm and spellflip's all-A weights
 subs CSV...          label-free: label shares, H, A and D runs and differing frames of our own submission CSVs
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -94,6 +109,7 @@ label or the public window.
 import argparse
 import dataclasses
 import itertools
+import json
 from pathlib import Path
 
 import numpy as np
@@ -1502,8 +1518,521 @@ def spellmass(params, variants):
               f"median length {gone.frames.median():.0f} frames")
 
 
-MOTION_K = 12
-MOTION_BINS = [0, 0.5, 1, 1.5, 2, 3, 1e9]
+def flag_runs(h, p):
+    """_missing_run_dead's flags as it builds them, each bool [n]: (flagged, unseen, slow, walk, outside)."""
+    z = np.zeros(h.n, bool)
+    unseen, slow = h.nearest_team == NO_TEAM, z.copy()
+    if p.dead_still_mps:
+        for a, b in zip(*_runs(h.geometry.speed_mps < p.dead_still_mps)):
+            if b - a >= p.dead_still_frames:
+                slow[a:b] = True
+    walk = h.pace_mps < p.dead_pace_still_mps if p.dead_pace_still_mps else z
+    outside = h.geometry.outside_m > p.dead_outside_m if p.dead_outside_m else z
+    flagged = unseen | slow | walk | outside
+    if p.dead_pace_live_mps:
+        flagged = flagged & ~(h.pace_mps > p.dead_pace_live_mps)
+    return flagged, unseen, slow, walk, outside
+
+
+def veto_dead(codes, h, p, runs, veto):
+    """_missing_run_dead over the flagged RUNS, except that a run whose start is in VETO adds no D: it is skipped
+    inside the run loop, before dead_close, so its frames keep the filled team."""
+    kickoff, n = h.id.kickoff, h.n
+    team = codes.copy()
+    called = np.flatnonzero(team != D)
+    if len(called):
+        last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
+        team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
+    dead = np.zeros(n + 1, dtype=np.int32)
+    for start, stop in runs:
+        if start in veto:
+            continue
+        lo = start + p.dead_trim if start > 0 else -p.dead_min_run
+        hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
+        if hi - lo >= p.dead_min_run - 2 * p.dead_trim and min(hi, n) > max(lo, 0):
+            dead[max(lo, 0)] += 1
+            dead[min(hi, n)] -= 1
+    out = np.where(np.cumsum(dead[:n]) > 0, D, team).astype(np.int8)
+    out[:kickoff] = D
+    if p.dead_close:
+        for start, stop in zip(*_runs(out != D)):
+            if start > kickoff and stop < n and stop - start < p.dead_close:
+                out[start:stop] = D
+    return out
+
+
+def census_kinds(gt, pred, runs):
+    """census()'s kind for each labelled possession of GT under PRED (both assembled)."""
+    spells = score.possession_spells(pred, runs)
+    starts = np.array([a for a, _, _ in spells])
+    kinds = []
+    for a, b, c in score.possession_spells(gt, runs):
+        seg = pred[a:b]
+        same = [(x, y) for x, y, k in spells[max(np.searchsorted(starts, a, "right") - 1, 0):
+                                             np.searchsorted(starts, b)] if k == c and x < b and y > a]
+        iou = max(((min(b, y) - max(a, x)) / (max(b, y) - min(a, x)) for x, y in same), default=0.0)
+        if iou >= 0.5:
+            kinds.append("matched")
+        elif (seg == c).sum() * 2 < b - a:
+            kinds.append("dead" if (seg == D).sum() >= ((seg != c) & (seg != D)).sum() else "wrong_team")
+        else:
+            kinds.append("fragmented" if len(same) > 1 else "overlong")
+    return kinds
+
+
+def native_a():
+    """(world, PFF-A pooled Case, its halves' labels, its per-game Cases) per native PFF world, m0 first; B games
+    are dropped before any decode."""
+    worlds = bench.dev_worlds(NATIVE, (2.6,), seeds=(0,))
+    for world, cases in sorted(worlds.items(), key=lambda kv: "_m2_" in kv[0]):
+        case = bench.pooled(cases)
+        games = list(dict.fromkeys(h.id.match for h in case.halves))
+        keep = set(games[0::2])
+        labels = case.layout.cut(case.gt)
+        idx = [i for i, h in enumerate(case.halves) if h.id.match in keep]
+        sub = bench._dev_cases([labels[i] for i in idx], [case.halves[i] for i in idx])
+        yield world, bench.pooled(sub), [labels[i] for i in idx], [c for c in sub if c.name != "dev_pooled"]
+
+
+def paired_delta(per_game, variants):
+    """Per-game paired spellF1 delta of each variant over base on PFF-A m0: mean [90% t interval], games won."""
+    g = pd.DataFrame(per_game).pivot_table(index=["base", "game"], columns="variant", values="spell_f1")
+    print("\nper-game paired delta on PFF-A m0, mean [90% t interval], games won")
+    for bname, w in g.groupby(level="base"):
+        for name in variants:
+            d = (w[name] - w["base"]).to_numpy()
+            hw = T90 * d.std(ddof=1) / np.sqrt(len(d))
+            print(f"  {bname} {name}: {d.mean():+.4f} [{d.mean() - hw:+.4f}, {d.mean() + hw:+.4f}] "
+                  f"{(d > 0).sum()}/{len(d)}")
+
+
+VETO_SETS = {"A": lambda r: r.y < 0.2, "B": lambda r: ~r.has_D,
+             "A_g": lambda r: (r.y < 0.2) & r.guarded, "B_g": lambda r: ~r.has_D & r.guarded}
+
+
+def deadruns(params, base9):
+    """E28 oracle, label-reading and never a candidate: on native PFF-A m0 and m2, each interior flagged run of
+    126+ frames is vetoed (adds no D) when the m0 labels say so (VETO_SETS: A, labelled-D share of the trimmed span
+    under 0.2; B, no labelled-D stretch of 25+ frames there; _g, only runs with no slow or outside frame and finite
+    pace on half their frames). One veto set per half serves both worlds and both bases (PARAMS and BASE9)."""
+    from possession.decoder import _lag_handovers, _merge_spells, _push_flip
+    s50 = bench.Smoother(50)
+    bases = {}
+    for path in (params, base9):
+        m = Decoder.load(path)
+        chain = m.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
+                          dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0,
+                          spell_merge_frames=0, spell_merge_tails=0, spell_push_mps=0.0, spell_push_frames=0,
+                          spell_push_between=0, spell_push_unseen=0.0)
+        bases[Path(path).stem] = (m, chain)
+    p = next(iter(bases.values()))[0].params
+    assert all(getattr(m.params, f) == getattr(p, f) for m, _ in bases.values() for f in
+               ("dead_min_run", "dead_trim", "dead_close", "dead_still_mps", "dead_still_frames",
+                "dead_pace_still_mps", "dead_pace_live_mps", "dead_outside_m")), "bases must share the dead flags"
+    table, vetoes, rows, per_game, census_rows, false_d, edge_runs = [], {}, [], [], {}, [0, 0], 0
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        m0 = "_m0_" in world
+        flags = {}
+        for h, lab in zip(halves, labs):
+            key = (h.id.match, h.id.half)
+            flagged, unseen, slow, walk, outside = flag_runs(h, p)
+            runs = list(zip(*_runs(flagged)))
+            flags[key] = runs
+            if not m0:
+                continue
+            edge_runs += sum(1 for s, e in runs if (s == 0 or e == h.n) and e - s >= p.dead_min_run - 2 * p.dead_trim)
+            t = p.dead_trim
+            for s, e in runs:
+                if not (s > 0 and e < h.n and e - s >= p.dead_min_run):
+                    continue
+                span = lab[s + t:e - t] == D
+                pace = h.pace_mps[s:e].astype(np.float64)
+                fin = pace[np.isfinite(pace)]
+                table.append({"key": key, "s": int(s), "e": int(e), "frames": int(e - s), "y": span.mean(),
+                              "has_D": any(b - a >= 25 for a, b in zip(*_runs(span))),
+                              "guarded": bool(not slow[s:e].any() and not outside[s:e].any()
+                                              and np.isfinite(pace).mean() >= 0.5),
+                              "pace": float(np.median(fin)) if len(fin) else np.nan,
+                              "false_d": int((~span).sum()), "unseen": unseen[s:e].mean(), "walk": walk[s:e].mean(),
+                              "slow": slow[s:e].mean(), "outside": outside[s:e].mean()})
+        if m0:
+            t = pd.DataFrame(table)
+            for name, rule in VETO_SETS.items():
+                chosen = t[rule(t)]
+                vetoes[name] = {k: set(g.s) for k, g in chosen.groupby("key")}
+        runs_ = score.valid_runs(pooled_a.gt)
+        floor, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [s50.decode(h).codes for h in halves], runs_)
+        for bname, (model, chain) in bases.items():
+            bp = model.params
+            chained = [chain.decode(h).codes for h in halves]
+            variants = {}
+            for name in ["base"] + list(VETO_SETS):
+                codes = []
+                for c, h in zip(chained, halves):
+                    key = (h.id.match, h.id.half)
+                    x = veto_dead(c, h, bp, flags[key], vetoes.get(name, {}).get(key, set()))
+                    x = _lag_handovers(_merge_spells(_push_flip(x, h, bp), bp.spell_merge_frames,
+                                                    bp.spell_merge_tails), bp.handover_lag)
+                    codes.append(x)
+                variants[name] = codes
+            assert all(np.array_equal(c, model.decode(h).codes) for c, h in zip(variants["base"], halves)), bname
+            gt_cut = labs
+            for name, codes in variants.items():
+                sc = score.evaluate(pooled_a.layout, pooled_a.gt, codes)
+                base_codes = variants["base"]
+                relab = sum(int((c != b).sum()) for c, b in zip(codes, base_codes))
+                made_live = sum(int(((b == D) & (c != D) & (g == D)).sum()) for c, b, g in zip(codes, base_codes, gt_cut))
+                nveto = sum(len(v) for v in vetoes.get(name, {}).values()) if name != "base" else 0
+                rows.append({"base": bname, "world": world, "variant": name, "spell_f1": sc.spell_f1,
+                             "margin": sc.spell_f1 - floor, "n_pred": sc.n_pred_spells, "macro_f1": sc.macro_f1,
+                             "f1_d": sc.f1_d, "vetoed": nveto, "relabelled": relab, "labelled_d_made_live": made_live})
+                if m0:
+                    by_key = {(h.id.match, h.id.half): c for h, c in zip(halves, codes)}
+                    for g in games_a:
+                        gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                        f1, _ = score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))
+                        per_game.append({"base": bname, "game": g.name, "variant": name, "spell_f1": f1})
+            if m0 and bname == Path(params).stem:
+                pa = {n: score._assemble_checked(pooled_a.layout, pooled_a.gt, variants[n]) for n in ("base", "B_g")}
+                census_rows = {n: census_kinds(pooled_a.gt, v, runs_) for n, v in pa.items()}
+                for h, lab, c in zip(halves, labs, variants["base"]):
+                    key = (h.id.match, h.id.half)
+                    fd = (c == D) & (lab != D)
+                    fd[:h.id.kickoff] = False
+                    inside = np.zeros(h.n, bool)
+                    for s in vetoes["B"].get(key, ()):
+                        e = next(e for s2, e in flags[key] if s2 == s)
+                        inside[s + p.dead_trim:e - p.dead_trim] = True
+                    false_d[0] += int(fd.sum())
+                    false_d[1] += int((fd & inside).sum())
+        print(world, flush=True)
+    t = pd.DataFrame(table)
+    t["ybin"] = pd.cut(t.y, [-1, 0, 0.2 - 1e-12, 0.8 - 1e-12, 1.0], labels=["0", "(0,0.2)", "[0.2,0.8)", "[0.8,1]"])
+    print(f"\n1. interior qualifying runs on PFF-A m0: {len(t)} (half-edge runs {edge_runs}); "
+          f"has_D false {int((~t.has_D).sum())}; guarded {int(t.guarded.sum())}")
+    print(t.groupby("ybin", observed=True).agg(runs=("y", "size"), median_frames=("frames", "median"),
+                                               false_d=("false_d", "sum"), guarded=("guarded", "mean"),
+                                               median_pace=("pace", "median"),
+                                               pace_under_1=("pace", lambda s: (s < 1).mean()),
+                                               unseen=("unseen", "mean"), walk=("walk", "mean"),
+                                               slow=("slow", "mean"), outside=("outside", "mean")).round(3).to_string())
+    print(f"share of {Path(params).stem}'s false-D frames (PFF-A m0) inside trimmed spans of has_D-false runs: "
+          f"{false_d[1]}/{false_d[0]} = {false_d[1] / max(false_d[0], 1):.3f}")
+    r = pd.DataFrame(rows)
+    ref = r[r.variant == "base"].set_index(["base", "world"]).spell_f1
+    r["delta"] = r.spell_f1.to_numpy() - ref.loc[list(zip(r.base, r.world))].to_numpy()
+    print("\n2. oracle table (PFF-A pooled; margin over smooth50)")
+    print(r.round(4).to_string(index=False))
+    paired_delta(per_game, VETO_SETS)
+    k = pd.DataFrame({"base": census_rows["base"], "B_g": census_rows["B_g"]})
+    print(f"\n3. census transitions on PFF-A m0, {Path(params).stem} base -> oracle B_g (labelled possessions)")
+    print(pd.crosstab(k.base, k.B_g).to_string())
+    left = k[(k.base == "dead") & (k.B_g != "dead")]
+    print(f"left the dead class: {len(left)}; to matched {int((left.B_g == 'matched').sum())}; "
+          f"entered dead: {int(((k.base != 'dead') & (k.B_g == 'dead')).sum())}")
+    low = t[t.y < 0.2]
+    conv = (low.pace < 1) | (low.slow > 0) | (low.outside > 0)
+    print(f"\n4. convention: of {len(low)} runs with y < 0.2, median pace under 1 m/s {(low.pace < 1).mean():.3f}, "
+          f"a slow or outside frame {((low.slow > 0) | (low.outside > 0)).mean():.3f}, either {conv.mean():.3f}")
+
+
+FLIP_POPS = {"seen": lambda share: share >= 0.5, "unseen": lambda share: share < 0.5, "all": lambda share: True}
+
+
+def flipruns(params, frames=250):
+    """Label-reading ceiling of any rule that gives short possessions to the other team, never a candidate: on
+    native PFF-A m0 and m2, PARAMS's codes after its push flip and before its lag; left to right, each team run
+    under FRAMES of a FLIP_POPS population (share of frames with a token) is flipped when that raises the half's
+    mean matched count over SPELL_IOUS minus F/2 per predicted spell (F = the world's base spellF1, so the step
+    is the sign of the pooled spellF1 change), each world on its own labels."""
+    from possession.decoder import _lag_handovers, _merge_spells, _push_flip
+    model, rows, per_game = Decoder.load(params), [], []
+    p = model.params
+    chain = model.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
+                          dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0,
+                          spell_merge_frames=0, spell_merge_tails=0, spell_push_mps=0.0, spell_push_frames=0,
+                          spell_push_between=0, spell_push_unseen=0.0)
+    lag = lambda x: _lag_handovers(x, p.handover_lag)
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        pre = [_merge_spells(_push_flip(_missing_run_dead(chain.decode(h).codes, h, p), h, p),
+                             p.spell_merge_frames, p.spell_merge_tails) for h in halves]
+        assert all(np.array_equal(lag(c), model.decode(h).codes) for c, h in zip(pre, halves))
+        f_base, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [lag(c) for c in pre], score.valid_runs(pooled_a.gt))
+
+        def value(lab, codes):
+            s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+            return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f_base / 2 * s["n_pred"]
+
+        variants, flips = {"base": [lag(c) for c in pre]}, dict.fromkeys(FLIP_POPS, 0)
+        for name, keep in FLIP_POPS.items():
+            out = []
+            for c, h, lab in zip(pre, halves, labs):
+                cur, best = c.copy(), value(lab, lag(c))
+                for a, b, team in _team_runs(c, h.id.kickoff):
+                    if b - a >= frames or not keep((h.nearest_team[a:b] != NO_TEAM).mean()):
+                        continue
+                    trial = cur.copy()
+                    trial[a:b] = 1 - team
+                    v = value(lab, lag(trial))
+                    if v > best:
+                        cur, best = trial, v
+                        flips[name] += 1
+                out.append(lag(cur))
+            variants[name] = out
+        runs_ = score.valid_runs(pooled_a.gt)
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs_)
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f_base, "n_pred": n,
+                         "flipped": flips.get(name, 0)})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    paired_delta(per_game, FLIP_POPS)
+
+
+SPELL_CUTS = (0.8, 0.65, 0.5)
+SPELL_ARMS = [("seen", 0.8), ("all", 0.8), ("seen", 0.65), ("all", 0.65), ("seen", 0.5), ("all", 0.5)]
+SPELL_SEEN = {"seen": 0.5, "all": 0.0}
+
+
+def _rules_off(model):
+    return model.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
+                         dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0,
+                         spell_merge_frames=0, spell_merge_tails=0, spell_push_mps=0.0, spell_push_frames=0,
+                         spell_push_between=0, spell_push_unseen=0.0, spell_flip_p=0.0, spell_flip_frames=0,
+                         spell_flip_seen=0.0, spell_logit={})
+
+
+def _pre_lag(model, chain, h):
+    """MODEL's codes before its spell flip and lag, and the chain's frame log-odds as decode builds them."""
+    from possession.decoder import _frame_logodds, _merge_spells, _push_flip
+    p = model.params
+    pre = _merge_spells(_push_flip(_missing_run_dead(chain.decode(h).codes, h, p), h, p),
+                        p.spell_merge_frames, p.spell_merge_tails)
+    g, m = _block_posterior(model, h)
+    return pre, _frame_logodds(g, h, p.stride, m)
+
+
+def ridge_newton(x, y, lam=1.0, steps=50):
+    """Logistic weights on raw features X (column 0 the intercept), fitted on standardised columns with a ridge
+    LAM on every weight but the intercept; raises unless the step falls under 1e-8."""
+    mu, sd = x[:, 1:].mean(axis=0), x[:, 1:].std(axis=0)
+    sd[sd == 0] = 1.0
+    z = np.column_stack([np.ones(len(x)), (x[:, 1:] - mu) / sd])
+    w, ridge = np.zeros(z.shape[1]), lam * np.eye(z.shape[1])
+    ridge[0, 0] = 0.0
+    for _ in range(steps):
+        q = 1 / (1 + np.exp(-z @ w))
+        dw = np.linalg.solve(z.T @ (z * (q * (1 - q))[:, None]) + ridge, z.T @ (q - y) + ridge @ w)
+        w -= dw
+        if np.abs(dw).max() < 1e-8:
+            return np.r_[w[0] - (w[1:] / sd * mu).sum(), w[1:] / sd]
+    raise RuntimeError("ridge_newton did not converge")
+
+
+def auc(score_, y):
+    r = pd.Series(score_).rank().to_numpy()
+    pos = y.astype(bool)
+    return (r[pos].sum() - pos.sum() * (pos.sum() + 1) / 2) / (pos.sum() * (~pos).sum())
+
+
+def _spell_weights(x, y):
+    """ridge_newton on X and Y, rounded to 4 places, as the spell_logit mapping decode reads."""
+    from possession.decoder import SPELL_FEATURES
+    return dict(zip(("a",) + SPELL_FEATURES, (round(float(v), 4) for v in ridge_newton(x, y))))
+
+
+def _flipped(pre, rows, w, pop, cut):
+    """_spell_flip's choice over ROWS with weights W at POP and CUT: the codes and the number of runs flipped."""
+    from possession.decoder import _SEEN, _spell_z
+    zc, out, n = round(np.log(cut / (1 - cut)), 6), pre.copy(), 0
+    for a, b, team, x in rows:
+        if x[_SEEN] >= SPELL_SEEN[pop] and _spell_z(x, w) >= zc:
+            out[a:b] = 1 - team
+            n += 1
+    return out, n
+
+
+def spellflip(params, out):
+    """E29 first gate, PFF-A only: a ridge logistic on decoder._spell_runs features predicts whether giving a short
+    possession to the other team alone raises the half's matched-minus-F/2 value on the m0 labels; 2-fold
+    game-OOF weights at SPELL_ARMS flip runs together on m0 and m2, the decoder's own rule; writes OUT-pff.csv
+    (OOF margins over smooth50, for pick) and OUT-weights.json (the all-A fit per population)."""
+    from possession.decoder import SPELL_FEATURES, _lag_handovers, _spell_runs
+    model, s50 = Decoder.load(params), bench.Smoother(50)
+    p, chain = model.params, _rules_off(model)
+    lag = lambda x: _lag_handovers(x, p.handover_lag)
+    by_world, table = {}, []
+    for world, pooled_a, labs, games_a in native_a():
+        halves, pres, rows_ = pooled_a.halves, [], []
+        games = list(dict.fromkeys(h.id.match for h in halves))
+        runs = score.valid_runs(pooled_a.gt)
+        f_base, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [model.decode(h).codes for h in halves], runs)
+        floor, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [s50.decode(h).codes for h in halves], runs)
+        for h, lab in zip(halves, labs):
+            pre, lo = _pre_lag(model, chain, h)
+            assert np.array_equal(lag(pre), model.decode(h).codes), h.id
+            rows = _spell_runs(pre, h, 250, lo)
+            pres.append(pre)
+            rows_.append(rows)
+            if "_m0_" not in world:
+                continue
+
+            def value(codes):
+                s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+                return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f_base / 2 * s["n_pred"]
+
+            v0 = value(lag(pre))
+            for a, b, t, x in rows:
+                trial = pre.copy()
+                trial[a:b] = 1 - t
+                table.append({"key": (h.id.match, h.id.half), "fold": games.index(h.id.match) % 2, "a": a,
+                              "y": float(value(lag(trial)) > v0), **dict(zip(SPELL_FEATURES, x))})
+        by_world[world] = (pooled_a, pres, rows_, games_a, floor)
+        print(world, flush=True)
+    t = pd.DataFrame(table)
+    x_all, y_all = np.column_stack([np.ones(len(t)), t[list(SPELL_FEATURES)].to_numpy(np.float64)]), t.y.to_numpy()
+    print(f"\n{len(t)} candidate runs on PFF-A m0, flip helps on {t.y.mean():.3f}; seen share >= 0.5 on "
+          f"{(t.seen >= 0.5).mean():.3f}")
+    print("univariate AUC: " + ", ".join(f"{f} {auc(t[f].to_numpy(), y_all):.3f}" for f in SPELL_FEATURES))
+    masks = {pop: (t.seen >= SPELL_SEEN[pop]).to_numpy() for pop in SPELL_SEEN}
+    folds = {pop: [_spell_weights(x_all[m & (t.fold != f).to_numpy()], y_all[m & (t.fold != f).to_numpy()])
+                   for f in (0, 1)] for pop, m in masks.items()}
+    full = {pop: _spell_weights(x_all[m], y_all[m]) for pop, m in masks.items()}
+    for pop, w in full.items():
+        print(f"{pop}: all-A weights " + ", ".join(f"{k} {v:+.4f}" for k, v in w.items()))
+    fold_of = {(k, a): f for k, a, f in zip(t.key, t.a, t.fold)}
+    rows, per_game = [], []
+    for world, (pooled_a, pres, rows_, games_a, floor) in by_world.items():
+        runs = score.valid_runs(pooled_a.gt)
+        variants, flips = {"base": [lag(c) for c in pres]}, {}
+        for pop, cut in SPELL_ARMS:
+            name, n, codes = f"{pop}>={cut}", 0, []
+            for h, pre, rr in zip(pooled_a.halves, pres, rows_):
+                key = (h.id.match, h.id.half)
+                c = pre.copy()
+                for fold in (0, 1):
+                    sub_rows = [r for r in rr if fold_of[(key, r[0])] == fold]
+                    flipped, k = _flipped(pre, sub_rows, folds[pop][fold], pop, cut)
+                    mask = flipped != pre
+                    c[mask] = flipped[mask]
+                    n += k
+                codes.append(lag(c))
+            variants[name], flips[name] = codes, n
+        f0 = None
+        for name, codes in variants.items():
+            f1, npred = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
+            f0 = f1 if name == "base" else f0
+            rows.append({"group": world + "_A", "world": world + "_A", "variant": name, "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "delta": f1 - f0, "n_pred": npred,
+                         "flipped": flips.get(name, 0)})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(pooled_a.halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+    r = pd.DataFrame(rows)
+    print("\nOOF flips on PFF-A (oracle ceilings from flipruns: m0 seen +0.0413, all +0.0617)")
+    print(r.drop(columns=["group"]).round(4).to_string(index=False))
+    paired_delta(per_game, [n for n in r.variant.unique() if n != "base"])
+    r.drop(columns=["delta", "flipped"]).to_csv(f"{out}-pff.csv", index=False, float_format="%.6f")
+    Path(f"{out}-weights.json").write_text(json.dumps(full, indent=2, sort_keys=True) + "\n")
+    print(f"{out}-pff.csv {out}-weights.json")
+
+
+def barath_spell(params):
+    """E29's registered stop, label-free: the SPELL_FEATURES medians over BAR-ATH's candidate runs (short team runs
+    of PARAMS's codes before its spell flip and lag, ATD inputs only) against the 10th-90th percentile range of
+    the same features over PFF-A m0's candidate runs; prints STOP for any median outside it, and the runs PARAMS's
+    spell flip gives away on BAR-ATH. Never rescales or refits."""
+    from possession.decoder import SPELL_FEATURES, _spell_flip, _spell_runs
+    model = Decoder.load(params)
+    p, chain = model.params, _rules_off(model)
+    frames = p.spell_flip_frames or 250
+    ref = []
+    for world, pooled_a, _, _ in native_a():
+        if "_m0_" not in world:
+            continue
+        for h in pooled_a.halves:
+            pre, lo = _pre_lag(model, chain, h)
+            ref += [x for _, _, _, x in _spell_runs(pre, h, frames, lo)]
+    ref = pd.DataFrame(ref, columns=list(SPELL_FEATURES))
+    rows, flipped, n_runs = [], 0, 0
+    for g, hid in zip(challenge.load_geometry(), challenge._half_ids()):
+        h = challenge.observe(g, hid)
+        pre, lo = _pre_lag(model, chain, h)
+        runs = _spell_runs(pre, h, frames, lo)
+        rows += [x for _, _, _, x in runs]
+        n_runs += len(runs)
+        if p.spell_flip_p:
+            flipped += int((_spell_flip(pre, h, p, lo) != pre).sum())
+    bar = pd.DataFrame(rows, columns=list(SPELL_FEATURES))
+    t = pd.DataFrame({"pff_a_p10": ref.quantile(0.1), "pff_a_p90": ref.quantile(0.9), "barath_median": bar.median()})
+    t["stop"] = (t.barath_median < t.pff_a_p10) | (t.barath_median > t.pff_a_p90)
+    print(f"{len(ref)} PFF-A m0 candidate runs, {n_runs} BAR-ATH candidate runs")
+    print(t.round(4).to_string())
+    print("STOP" if t.stop.any() else "no feature median outside the PFF-A 10th-90th range")
+    if p.spell_flip_p:
+        print(f"{Path(params).stem}'s spell flip changes {flipped} BAR-ATH frames")
+
+
+def spellseen(params):
+    """Label-free: SPELL_FEATURES medians and the fully-seen share over the candidate runs of PARAMS's codes before
+    its spell flip and lag, on synthetic IDSSE m0 and Metrica m0 (dead_bias 2.6, seed 0) and on PFF-A m0, to say
+    which gap regime the veto worlds exercise."""
+    from possession.decoder import SPELL_FEATURES, _spell_runs
+    model = Decoder.load(params)
+    chain, frames, out = _rules_off(model), model.params.spell_flip_frames or 250, {}
+    sources = [(w, c.halves) for _, w, c in scored_cases(bench.dev_worlds(["idsse:m0", "m0"], (2.6,), seeds=(0,)))]
+    sources += [(w + "_A", c.halves) for w, c, _, _ in native_a() if "_m0_" in w]
+    for world, halves in sources:
+        rows = []
+        for h in halves:
+            pre, lo = _pre_lag(model, chain, h)
+            rows += [x for _, _, _, x in _spell_runs(pre, h, frames, lo)]
+        t = pd.DataFrame(rows, columns=list(SPELL_FEATURES))
+        out[world] = {"runs": len(t), "fully_seen": (t.seen == 1).mean(), **t.median().to_dict()}
+        print(world, flush=True)
+    print(pd.DataFrame(out).round(4).to_string())
+
+
+def spellveto(params, weights, out, rhos, items):
+    """E29 veto rows: PARAMS with spell_flip at each SPELL_ARMS entry and the all-A WEIGHTS (spellflip's JSON),
+    applied by decoder._spell_flip on top of PARAMS's codes before its lag; the first two halves of each world are
+    also decoded end to end and must match."""
+    from possession.decoder import _lag_handovers, _spell_flip
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    w = json.loads(Path(weights).read_text())
+    chain = _rules_off(base)
+    arms = {f"{pop}>={cut}": base.replace(spell_flip_p=cut, spell_flip_frames=250, spell_flip_seen=SPELL_SEEN[pop],
+                                          spell_logit=w[pop]) for pop, cut in SPELL_ARMS}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        pre = [_pre_lag(base, chain, h) for h in case.halves]
+        lag = lambda x: _lag_handovers(x, base.params.handover_lag)
+        variants = {"base": [lag(c) for c, _ in pre]}
+        for name, m in arms.items():
+            variants[name] = [lag(_spell_flip(c, h, m.params, lo)) for (c, lo), h in zip(pre, case.halves)]
+            assert all(np.array_equal(x, m.decode(h).codes) for x, h in zip(variants[name][:2], case.halves)), name
+        assert all(np.array_equal(x, base.decode(h).codes) for x, h in zip(variants["base"][:2], case.halves))
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, codes, runs)
+            rows.append({"group": group, "world": world, "variant": name, "spell_f1": f1, "floor": floor,
+                         "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
 
 
 def centroid_speed(g):
@@ -1759,7 +2288,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -1773,7 +2302,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

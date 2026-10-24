@@ -662,6 +662,73 @@ def switch_penalty_known_answer() -> None:
         assert Decoder.load(Path(tmp) / "sw.json") == model
 
 
+def spell_flip_known_answer() -> None:
+    """decoder._spell_flip: a short run takes the other team when the spell logit over its features reaches
+    logit(spell_flip_p); feature values, the length limit, the token-share gate, D runs, mirroring, the
+    exactly rounded logit, decode, guards and save."""
+    code = {"H": H, "A": A, "D": D}
+    letter = {v: k for k, v in code.items()}
+    zero = dict.fromkeys(("a",) + decoder.SPELL_FEATURES, 0.0)
+
+    def half(codes: str, near: float = 3.0, swap: bool = False) -> Half:
+        tok = np.array([{"H": HOME, "A": AWAY, "D": NO_TEAM}[c] for c in codes], np.int8)
+        tok = np.where(tok == NO_TEAM, NO_TEAM, 1 - tok).astype(np.int8) if swap else tok
+        n, gap = len(codes), tok == NO_TEAM
+        geo = BallGeometry(*(np.where(gap, np.nan, v).astype(np.float32) for v in (2.0, near, 0.0, 5.0)))
+        return Half(HalfId("flip", 1, 0), tok, geo, pace_mps=np.ones(n, np.float32),
+                    push_mps=np.zeros(n, np.float32))
+
+    def flip(codes: str, cut: float, frames: int = 4, seen: float = 0.0, near: float = 3.0, swap: bool = False,
+             tok_codes: str | None = None) -> str:
+        p = DecoderParams(spell_flip_p=cut, spell_flip_frames=frames, spell_flip_seen=seen,
+                          spell_logit={**zero, "a": -1.0, "closest_own": 1.0})
+        h = half(tok_codes or codes, near, swap)
+        out = decoder._spell_flip(np.array([code[c] for c in codes], np.int8), h, p, np.zeros(len(codes)))
+        return "".join(letter[int(c)] for c in out)
+
+    (a, b, team, x), = [r for r in decoder._spell_runs(np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8),
+                                                        half("HHHHHAAAHHHHH"), 4, np.zeros(13))]
+    assert (a, b, team) == (5, 8, A)
+    assert x == tuple(round(v, 9) for v in (math.log(3 / 25), 1.0, 1.0, 0.0, math.log1p(3.0), math.log1p(5.0),
+                                            math.log1p(5.0), math.log1p(2.0), 0.0, 0.0, 1.0, math.log1p(5),
+                                            math.log1p(5), 0.0)), x
+    assert flip("HHHHHAAAHHHHH", 0.5) == "HHHHHHHHHHHHH"
+    assert flip("HHHHHAAAHHHHH", 0.65) == "HHHHHAAAHHHHH"
+    assert flip("HHHHHAAAHHHHH", 0.5, frames=3) == "HHHHHAAAHHHHH"
+    assert flip("HHHHHAAAHHHHH", 0.5, near=1.0) == "HHHHHAAAHHHHH"
+    assert flip("HHHHHAAAHHHHH", 0.5, seen=0.5, tok_codes="HHHHHADDHHHHH") == "HHHHHAAAHHHHH"
+    assert flip("HHHHHAAAHHHHH", 0.5, seen=0.3, tok_codes="HHHHHADDHHHHH") == "HHHHHHHHHHHHH"
+    assert flip("HHHHHDDDHHHHH", 0.5) == "HHHHHDDDHHHHH"
+    assert flip("AAAAAHHHAAAAA", 0.5, swap=True) == "AAAAAAAAAAAAA"
+    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 1.5
+    tok = np.array([HOME] * 10 + [AWAY] * 2 + [HOME] * 10, np.int8)
+    n = len(tok)
+    live = Half(HalfId("flip", 1, 0), tok, BallGeometry(*(np.full(n, v, np.float32) for v in (2.0, 3.0, 0.0, 5.0))),
+                pace_mps=np.ones(n, np.float32), push_mps=np.zeros(n, np.float32))
+    base = Decoder(Tier0Emission(q=0.99), DecoderParams(temper=1.0, poss_mean_s=0.2, stride=1))
+    assert base.decode(live).codes.tolist() == [H] * 10 + [A] * 2 + [H] * 10
+    on = base.replace(spell_flip_p=0.5, spell_flip_frames=4, spell_logit={**zero, "a": -1.0, "closest_own": 1.0})
+    flipped = on.decode(live)
+    assert flipped.posterior is None and flipped.codes.tolist() == [H] * n
+    assert on.needs_geometry and not base.needs_geometry
+    _raises(ValueError, decoder._spell_flip, np.zeros(n, np.int8), live, on.params, None)
+    for bad in ({"spell_flip_p": 0.5}, {"spell_flip_p": 0.5, "spell_flip_frames": 4},
+                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {"a": 1.0}},
+                {"spell_flip_p": 1.5, "spell_flip_frames": 4, "spell_logit": zero}, {"spell_flip_seen": 0.5},
+                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {**zero, "a": math.inf}},
+                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": zero, "decode_rule": "map"}):
+        try:
+            DecoderParams(**bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad} was accepted")
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = json.loads(on.save(Path(tmp) / "flip.json", {}).read_text())["params"]
+        assert (saved["spell_flip_p"], saved["spell_flip_frames"], saved["spell_logit"]["closest_own"]) == (0.5, 4, 1.0)
+        assert "spell_logit" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(Path(tmp) / "flip.json") == on
+
+
 def team_push_known_answer() -> None:
     """challenge._team_push: each team's median slot x velocity, signed toward the goal its kick-off side faces,
     home minus away; NaN at the half's ends and when a team has no slot at kick-off; slot order does not matter."""
@@ -1150,6 +1217,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     spell_push_known_answer,
     team_push_known_answer,
     switch_penalty_known_answer,
+    spell_flip_known_answer,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     tags_and_rates_known_answer,

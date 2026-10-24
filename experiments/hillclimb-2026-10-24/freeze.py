@@ -2,7 +2,8 @@
 
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/freeze.py RUN TRIM CLOSE [--dead-outside-m M]
         [--q-logit A B C] [--handover-lag L] [--dead-still MPS FRAMES] [--dead-pace-still MPS] [--spell-merge FRAMES]
-        [--spell-push MPS FRAMES UNSEEN] [--switch-penalty LAMBDA] --out PATH
+        [--spell-push MPS FRAMES UNSEEN] [--switch-penalty LAMBDA] [--spell-flip P FRAMES SEEN]
+        [--spell-logit A W...] --out PATH
 
 Every value except the dead-ball fields (dead_still_* among them), handover_lag and the emission's q_logit terms
 is copied from
@@ -16,7 +17,7 @@ import sys
 from pathlib import Path
 
 from possession import bench, dropout
-from possession.decoder import Decoder
+from possession.decoder import SPELL_FEATURES, Decoder
 
 V1 = Path("params/tier0_v1.json")
 SELECTION = ("Pre-registered rule v2 (.audit/hillclimb-2026-10-24.tsv): candidates are v1's chain with dead_min_run "
@@ -78,6 +79,19 @@ SWITCH = ("switch_penalty comes from pre-registered experiment E27 on tier0_v9: 
           "possessions by 0.10 beyond length, was demoted to a diagnostic before any result and then failed (0.04 "
           "and 0.06), so under the fan-out's registration the result would be no change, and the penalty acts as a "
           "cut of the shortest weak islands. No StatsBomb data entered this selection.")
+SPELL = ("spell_flip_p and spell_logit come from pre-registered experiment E29 on tier0_v10. A label-reading oracle "
+         "(probes.py flipruns) put the ceiling of giving short possessions to the other team at +0.041 on PFF-A m0 "
+         "for runs with a token on half their frames or more. A ridge-1 Newton logistic over decoder.SPELL_FEATURES "
+         "(label-free: length, token shares, closest own approach, ball speed, own margin, push, the chain's "
+         "log-odds and the neighbours) was fitted on the PFF-A m0 labels (pff.GAMES[0::2]) to say when giving one "
+         "short possession away alone raises the half's matched possessions minus F/2 per predicted spell; the "
+         "weights are that fit on all A games, rounded to 4 places. Candidates, registered before the first gate: "
+         "base and token share 0.5+ or all runs at P 0.8, 0.65 and 0.5, ranked on 2-fold game-OOF PFF-A margins; "
+         "the tie order (higher cut first, token-gated before all) was fixed after the first-gate numbers by "
+         "structure. Rule v2 (synthetic veto at tier0_v10 minus 0.003 in every group with the all-A weights; the "
+         "odd-game OOF minimum over PFF m0 and m2 ranks; ties within 0.003 to the base, then the tie order) chose "
+         "token share 0.5+ at P 0.8; the 0.65 and 0.5 cuts failed the IDSSE m0 groups. Even-indexed PFF games and "
+         "seeds 15-24 only confirm. The weights are PFF-derived numbers. No StatsBomb data entered this selection.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -99,6 +113,9 @@ def main(argv):
     ap.add_argument("--spell-merge", type=int, default=0, metavar="FRAMES")
     ap.add_argument("--spell-push", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("MPS", "FRAMES", "UNSEEN"))
     ap.add_argument("--switch-penalty", type=float, default=0.0, metavar="LAMBDA")
+    ap.add_argument("--spell-flip", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("P", "FRAMES", "SEEN"))
+    ap.add_argument("--spell-logit", type=float, nargs=1 + len(SPELL_FEATURES), default=None,
+                    metavar="W", help="the intercept, then one weight per decoder.SPELL_FEATURES name in order")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     v1_doc = json.loads(V1.read_text())
@@ -109,7 +126,9 @@ def main(argv):
                                      dead_still_frames=int(a.dead_still[1]), dead_pace_still_mps=a.dead_pace_still,
                                      spell_merge_frames=a.spell_merge, spell_push_mps=a.spell_push[0],
                                      spell_push_frames=int(a.spell_push[1]), spell_push_unseen=a.spell_push[2],
-                                     switch_penalty=a.switch_penalty)
+                                     switch_penalty=a.switch_penalty, spell_flip_p=a.spell_flip[0],
+                                     spell_flip_frames=int(a.spell_flip[1]), spell_flip_seen=a.spell_flip[2],
+                                     spell_logit=dict(zip(("a",) + SPELL_FEATURES, a.spell_logit or ())))
     logit = any(a.q_logit)
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
@@ -125,6 +144,9 @@ def main(argv):
         changed = changed.replace("handover_lag", "handover_lag, spell_push_mps, spell_push_frames, spell_push_unseen", 1)
     if a.switch_penalty:
         changed = changed.replace("handover_lag", "handover_lag, switch_penalty", 1)
+    if a.spell_flip[0]:
+        changed = changed.replace("handover_lag", "handover_lag, spell_flip_p, spell_flip_frames, spell_flip_seen, "
+                                  "spell_logit", 1)
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -133,7 +155,8 @@ def main(argv):
         "selection": SELECTION + (" " + GEOMETRY if a.dead_outside_m else "") + (" " + LOGIT if logit else "") +
                      (" " + LAG if a.handover_lag else "") + (" " + STILL if a.dead_still[0] else "") +
                      (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else "") +
-                     (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else ""),
+                     (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
+                     (" " + SPELL if a.spell_flip[0] else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -143,13 +166,16 @@ def main(argv):
                     (", spellpush-v7b.out, pushflip-*.csv and pushunseen-*.csv" if a.spell_push[0] else "") +
                     (", switchpen-pff.csv, switchpen-synth.csv, select-e27.out and spellmass-v9.out"
                      if a.switch_penalty else "") +
+                    (", flipruns-v10.out, spellflip-v10.out, e29-spellflip.out, e29-pff.csv, e29-synth.csv and "
+                     "select-e29.out" if a.spell_flip[0] else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
         "public_window": f"The hillclimb changed only {changed}. It scored files on the public window as a "
                          "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
                          "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Every experiment from E17 on, "
-                         "selection rules v3 and v4, spell_merge_frames, the spell_push fields and switch_penalty came after the "
+                         "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and "
+                         "the spell_flip fields came after the "
                          "first read. Inherited from "
                          "tier0_v1: " + v1_doc["provenance"]["public_window"],
     })
