@@ -47,6 +47,10 @@ motion               P(dead) by the median player speed on the PFF A games, over
                      run length, and the same speed on BAR-ATH (no labels)
 pacegrid PARAMS --out CSV
                      E13: the median-player-speed knobs of the dead-run stage on PARAMS, as stillgrid does
+push                 P(home possession) by the teams' push toward the goal they attack (median per-player x
+                     velocity, signed by the attacking direction at kick-off) on PFF A games, ball seen or not
+pushgrid PARAMS --out CSV
+                     E16: the push_logit emission term on PARAMS, each decoded in full; B games are not decoded
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -857,6 +861,67 @@ def motion_probe():
               np.nanpercentile(cv[~seen], [10, 50, 90]).round(2).tolist())
 
 
+def team_push(g, kickoff):
+    """Per team, the median over its slots present at t-K and t+K of the x velocity in m/s, signed so that
+    positive is toward the goal the team attacks (it starts the half in the other half of the pitch)."""
+    k, out = MOTION_K, np.full((g.n, 2), np.nan)
+    length = g.pitch_m[0]
+    for team in (0, 1):
+        slots = g.slot_team == team
+        own_x = np.nanmean(g.players_xy[kickoff, slots, 0])
+        sign = 1.0 if own_x < length / 2 else -1.0
+        x = g.players_xy[:, slots, 0].astype(np.float64)
+        dx = (x[2 * k:] - x[:-2 * k]) / (2 * k) * FPS
+        with np.errstate(all="ignore"):
+            out[k:-k, team] = sign * np.nanmedian(dx, axis=1)
+    return out
+
+
+def push_probe():
+    from possession import pff
+    games, parts = [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        push = team_push(c.geometry, c.id.kickoff)
+        seen = pff.native_seen(c)
+        keep = (np.arange(c.geometry.n) >= c.id.kickoff) & (c.labels != D)
+        parts.append(pd.DataFrame({"diff": (push[:, 0] - push[:, 1])[keep], "seen": seen[keep],
+                                   "home": c.labels[keep] == H}))
+    t = pd.concat(parts, ignore_index=True).dropna()
+    print(f"{len(t)} live frames after kick-off in the A games, P(home) {t.home.mean():.3f}")
+    bins = [-1e9, -3, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 1e9]
+    for name, f in (("all", t), ("ball missing", t[~t.seen]), ("ball seen", t[t.seen])):
+        g = f.groupby(pd.cut(f["diff"], bins), observed=False)
+        print(name, "home push minus away push (m/s):")
+        print(pd.DataFrame({"share": g.size() / len(f), "p_home": g.home.mean()}).round(3).T.to_string())
+    x = np.column_stack([np.ones(len(t)), t["diff"].clip(-5, 5)])
+    w = _newton(x, t.home.to_numpy(float))
+    print("logistic P(home) = sigmoid(a + b * diff):", w.round(4).tolist())
+
+
+PUSH_LOGITS = (0.0, 0.15, 0.31, 0.45)
+
+
+def pushgrid(params, out, rhos, items):
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    variants = {b: base.replace(push_logit=b) for b in PUSH_LOGITS}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for b, model in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
+            rows.append({"group": group, "world": world, "variant": f"push_logit={b}", "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
 def lag_grid(params, out, rhos, items):
     model, s50, rows = Decoder.load(params), bench.Smoother(50), []
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
@@ -907,7 +972,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "pushgrid"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -927,4 +992,5 @@ if __name__ == "__main__":
      "masked": lambda: masked_grid(one, a.out, a.dead_bias, a.rule), "still": still_probe,
      "stillgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, STILL_GRID),
      "dead6": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DEAD6_GRID), "motion": motion_probe,
-     "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID)}[a.probe]()
+     "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID), "push": push_probe,
+     "pushgrid": lambda: pushgrid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
