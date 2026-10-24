@@ -6,8 +6,9 @@ oracle PARAMS        headroom: perfect dead ball or perfect team calls on top of
 geometry             how the nearest-team token and dead ball depend on geometry, on Metrica and IDSSE labels
 barath-geometry      the same geometry, match-wide on BAR-ATH's ATD, with no labels read
 close PARAMS         PARAMS with short live gaps between dead runs closed, on the 7-group objective
-deadrule PARAMS      every (dead_min_run, dead_trim, close gap) on PARAMS's chain, decoded once per world,
-                     on the 7-group objective (equal to fit-dev's numbers, much faster)
+deadrule PARAMS --out CSV
+                     every (dead_min_run, dead_trim, close gap) on PARAMS's chain, decoded once per world;
+                     native PFF worlds split into odd (A, selection) and even (B, held-out) games
 chain PARAMS         a grid of chain constants on top of PARAMS, each decoded once, under a few dead rules
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -152,16 +153,31 @@ def close(params):
     print(t.pivot_table(index="gap", columns="group", values="n_pred").round(0).to_string())
 
 
-RUNS = (76, 101, 126, 151, 201, 251)
-TRIMS = (0, 25, 50)
-GAPS = (0, 50, 100, 150, 200, 300, 450)
+RUNS = (101, 126, 151, 201)
+TRIMS = (0, 12, 25, 37, 50)
+GAPS = (0, 100, 150, 200, 300)
 
 
-def deadrule(params):
+def scored_cases(worlds):
+    """(group, pooled Case) per world; a native world becomes two cases, its odd-indexed games ("_A",
+    the selection half) and its even-indexed games ("_B", held out)."""
+    for world, cases in worlds.items():
+        case = bench.pooled(cases)
+        if not world.endswith("_native"):
+            yield bench.group(world), world, case
+            continue
+        games = list(dict.fromkeys(h.id.match for h in case.halves))
+        labels = case.layout.cut(case.gt)
+        for tag, keep in (("A", set(games[0::2])), ("B", set(games[1::2]))):
+            idx = [i for i, h in enumerate(case.halves) if h.id.match in keep]
+            sub = bench._dev_cases([labels[i] for i in idx], [case.halves[i] for i in idx])
+            yield f"{world}_{tag}", f"{world}_{tag}", bench.pooled(sub)
+
+
+def deadrule(params, out):
     chain, s50 = Decoder.load(params).replace(dead_min_run=0, dead_trim=0), bench.Smoother(50)
     rows = []
-    for world, cases in bench.dev_worlds(SEARCH + NATIVE, [2.6], seeds=SEEDS).items():
-        case = bench.pooled(cases)
+    for group, world, case in scored_cases(bench.dev_worlds(SEARCH + NATIVE, [2.6], seeds=SEEDS)):
         runs = score.valid_runs(case.gt)
         codes = [chain.decode(h).codes for h in case.halves]
         floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
@@ -172,19 +188,22 @@ def deadrule(params):
                 for gap in GAPS:
                     preds = [close_dead(c, gap, h.id.kickoff) for c, h in zip(dead, case.halves)]
                     f1, n = score.spell_f1(case.layout, case.gt, preds, runs)
-                    rows.append({"group": bench.group(world), "run": run, "trim": trim, "gap": gap,
-                                 "margin": f1 - floor, "n_pred": n})
+                    rows.append({"group": group, "world": world, "run": run, "trim": trim, "gap": gap,
+                                 "spell_f1": f1, "floor": floor, "margin": f1 - floor, "n_pred": n})
         print(world, flush=True)
     t = pd.DataFrame(rows)
+    t.to_csv(out, index=False, float_format="%.6f")
     m = t.pivot_table(index=["run", "trim", "gap"], columns="group", values="margin")
-    m["min"], m["mean"] = m.min(1), m.mean(1)
-    print(m.sort_values(["min", "mean"], ascending=False).round(4).head(25).to_string())
-    print(m["min"].unstack("trim").round(4).to_string())
+    select = [c for c in m.columns if not c.endswith("_B")]
+    m["J_select"], m["mean_select"] = m[select].min(axis=1), m[select].mean(axis=1)
+    m["min_B"] = m[[c for c in m.columns if c.endswith("_B")]].min(axis=1)
+    print(m.sort_values(["J_select", "mean_select"], ascending=False).round(4).head(25).to_string())
+    print(out)
 
 
 CHAIN = {"temper": (0.05, 0.1, 0.2), "poss_mean_s": (3.0, 4.5, 6.0, 9.0),
-         "p_dead_after_poss": (0.1, 0.3), "dead_mean_s": (8.0, 15.0)}
-DEAD_RULES = ((101, 50, 0), (101, 25, 0), (151, 25, 0), (151, 0, 0))
+         "p_dead_after_poss": (0.1, 0.3)}
+DEAD_RULES = ((101, 0, 150), (126, 0, 150), (151, 0, 150), (101, 25, 200))
 
 
 def chain_grid(params):
@@ -240,7 +259,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close", "deadrule", "chain", "confirm"))
     ap.add_argument("params", nargs="?")
+    ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     a = ap.parse_args()
     {"oracle": lambda: oracle(a.params), "geometry": geometry, "barath-geometry": barath_geometry,
-     "close": lambda: close(a.params), "deadrule": lambda: deadrule(a.params),
+     "close": lambda: close(a.params), "deadrule": lambda: deadrule(a.params, a.out),
      "chain": lambda: chain_grid(a.params), "confirm": lambda: confirm(a.params)}[a.probe]()
