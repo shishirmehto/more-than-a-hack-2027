@@ -41,6 +41,8 @@ still                P(dead) by ball speed on frames PFF's tracker saw in the A 
 stillgrid PARAMS --out CSV
                      E11: PARAMS with slow-ball runs counted as missing by the dead-run stage; held-out B games are
                      not decoded
+dead6 PARAMS --out CSV
+                     E12: dead_min_run x dead_trim x dead_close on PARAMS's other fields, as stillgrid does
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -757,26 +759,31 @@ def still_probe():
               f">= 100 {(lengths >= 100).sum()}; frames in runs >= 50: {lengths[lengths >= 50].sum()}")
 
 
-STILL_GRID = [(0.0, 0)] + [(v, f) for v in (0.5, 1.0) for f in (25, 50, 100)]
+STILL_GRID = [{}] + [{"dead_still_mps": v, "dead_still_frames": f} for v in (0.5, 1.0) for f in (25, 50, 100)]
+DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
+              for r in (101, 126) for t in (12, 25, 37, 50) for c in (100, 150, 200)]
 
 
-def stillgrid(params, out, rhos, items):
+def rulegrid(params, out, rhos, items, grid):
+    """PARAMS's chain decoded once per half, then each grid entry's dead-run and lag fields applied on top;
+    held-out B games are not decoded."""
     from possession.decoder import _lag_handovers
     base, s50, rows = Decoder.load(params), bench.Smoother(50), []
-    chain = base.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, handover_lag=0)
-    rules = {(v, f): dataclasses.replace(base.params, dead_still_mps=v, dead_still_frames=f) for v, f in STILL_GRID}
+    chain = base.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
+                         dead_still_frames=0, handover_lag=0)
+    rules = {" ".join(f"{k}={v}" for k, v in g.items()) or "base": dataclasses.replace(base.params, **g) for g in grid}
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
             continue
         runs = score.valid_runs(case.gt)
         floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
         chained = [chain.decode(h).codes for h in case.halves]
-        for (v, f), p in rules.items():
+        for name, p in rules.items():
             codes = [_lag_handovers(_missing_run_dead(c, h, p), p.handover_lag) for c, h in zip(chained, case.halves)]
-            if (v, f) == (0.0, 0):
+            if p == base.params:
                 assert all(np.array_equal(c, base.decode(h).codes) for c, h in zip(codes[:2], case.halves))
             f1, n = score.spell_f1(case.layout, case.gt, codes, runs)
-            rows.append({"group": group, "world": world, "variant": f"still {v} {f}", "spell_f1": f1,
+            rows.append({"group": group, "world": world, "variant": name, "spell_f1": f1,
                          "floor": floor, "margin": f1 - floor, "n_pred": n})
         print(world, flush=True)
     pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
@@ -833,7 +840,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -851,4 +858,5 @@ if __name__ == "__main__":
      "chain5": lambda: chain5_grid(one, a.out, a.dead_bias, a.rule),
      "speedlogit": lambda: speedlogit_grid(one, a.out, a.dead_bias, a.rule),
      "masked": lambda: masked_grid(one, a.out, a.dead_bias, a.rule), "still": still_probe,
-     "stillgrid": lambda: stillgrid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
+     "stillgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, STILL_GRID),
+     "dead6": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DEAD6_GRID)}[a.probe]()
