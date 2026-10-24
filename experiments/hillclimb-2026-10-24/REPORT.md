@@ -139,6 +139,27 @@ the cross-model review (experiment 79):
   check barely acts; what v14 gains comes from the lower cut, which every label source except the per-touch
   IDSSE worlds rewards.
 
+### PFF-free fallback
+
+`params/tier0_v13_pfffree.json` (25 October, after the hillclimb) is tier0_v13 with its two fitted weight sets
+refitted on IDSSE and Metrica only, written by `experiments/hillclimb-2026-10-24/pfffree.py`. It reads no PFF or
+StatsBomb file. It exists in case PFF's terms forbid fitting on its data. It is not the recommendation, and
+no rule picked it: it was scored once, after the refit.
+
+- The logistic emission was refitted on 813,018 alive IDSSE and Metrica frames: a 1.4602, distance -1.2345,
+  margin 0.9178, against v13's 1.8596, -1.3627 and 1.0769. The spell weights were refitted on 6,660 candidate
+  runs in IDSSE m0 and Metrica m0 renewal worlds (dead_bias 2.6, seeds 0-4). They keep most of v13's signs but
+  are smaller, and the intercept is about half.
+- Against tier0_v13 on the held-out PFF games: m0 -0.0079 [-0.0107, -0.0051] (6 of 32 games won), m2 -0.0070
+  [-0.0094, -0.0046] (8 of 32). On synthetic seeds 15-24 it sits below v13 by 0.005 to 0.010 in 12 of 15 groups,
+  IDSSE included, and above it by 0.003 to 0.012 in the three Metrica h3p3 groups. Its worst-group margin over
+  smooth50 is 0.1038, against v13's 0.1110. It stays above smooth50 in every group and on all 64 PFF games.
+- The PFF-fitted weights are better even on IDSSE and Metrica, the sources this refit learned from. My guess is
+  that PFF's real tracker gaps teach a more realistic model than synthetic dropout does. That is not measured.
+- Every other value is v13's and was chosen by ranking on PFF-A, so the file removes PFF-fitted weights, not
+  PFF-informed selection. On BAR-ATH it changes 3,066 of v13's frames, and home possessions go from 178 to 174.
+  Its CSV hashes to `2b4467fac2d3ea0f…`.
+
 What follows describes tier0_v13.
 
 - v13's held-out gain over v12 (PFF-B m0 +0.0031 [+0.0022, +0.0041], 29 of 32 games; m2 +0.0033 [+0.0023,
@@ -283,7 +304,11 @@ no StatsBomb data, and tier0_v8's did. Every file from v2 on was ranked on PFF-A
   file and nothing frame-level derived from one is committed. But fitted constants are: the three logistic
   coefficients in tier0_v4 onward were fitted on 1,869,449 PFF-A frames, and the dead-rule, lag, still-ball,
   pace and push constants were chosen on PFF-A. Whether PFF's registration terms allow that in a public repo and a
-  prize submission is not on record. If they do not, no PFF-free selection exists yet.
+  prize submission is not on record. If they do not, no PFF-free selection exists yet. Another team's notes
+  quote PFF's general terms of use as barring use for machine learning; this run has not checked that text.
+  `params/tier0_v13_pfffree.json` (25 October) is the fallback without PFF-fitted weights. It refits the
+  logistic coefficients and the spell weights on IDSSE and Metrica and keeps every PFF-selected constant (see
+  "PFF-free fallback").
 
 ## How the objective evolved
 
@@ -670,6 +695,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-
 python -m possession make-submission --params params/tier0_v13.json --out tier0_v13.csv
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.75 250 0.5 --spell-logit $S2 --dead-lead-cut 0 25 --spell-flip-adjacent --out params/tier0_v14.json
 python -m possession make-submission --params params/tier0_v14.json --out tier0_v14.csv
+python experiments/hillclimb-2026-10-24/pfffree.py --out params/tier0_v13_pfffree.json
+python -m possession make-submission --params params/tier0_v13_pfffree.json --out tier0_v13_pfffree.csv
 ```
 
 Each selection reruns from its probe, for example `python experiments/hillclimb-2026-10-24/probes.py logit
