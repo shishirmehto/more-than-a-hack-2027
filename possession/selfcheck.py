@@ -422,6 +422,44 @@ def geometry_emission_known_answer() -> None:
         assert Decoder.load(path) == model
 
 
+def dead_run_rule_known_answer() -> None:
+    """decoder._missing_run_dead on hand-built halves: run length, trim, half edges, dead_close, kickoff,
+    the team fill and H/A mirroring, each against a literal answer."""
+    code = {"H": H, "A": A, "D": D}
+    letter = {v: k for k, v in code.items()}
+
+    def rule(codes: str, missing: list[range], kickoff: int = 0, **params: int) -> str:
+        tok = np.full(len(codes), HOME, np.int8)
+        for r in missing:
+            tok[r.start:r.stop] = NO_TEAM
+        out = decoder._missing_run_dead(np.array([code[c] for c in codes], np.int8),
+                                        Half(HalfId("rule", 1, kickoff), tok), DecoderParams(**params))
+        return "".join(letter[int(c)] for c in out)
+
+    h20, a20 = "H" * 20, "A" * 20
+    two_runs = [range(5, 10), range(13, 17)]
+    assert rule(h20, two_runs, dead_min_run=5) == "HHHHHDDDDDHHHHHHHHHH"
+    assert rule(h20, two_runs, dead_min_run=5, dead_trim=1) == "HHHHHHDDDHHHHHHHHHHH"
+    assert rule(h20, [range(0, 1), range(19, 20)], dead_min_run=5) == "DHHHHHHHHHHHHHHHHHHD"
+    gap = [range(2, 8), range(10, 16)]
+    assert rule(a20, gap, dead_min_run=5, dead_close=3) == "AADDDDDDDDDDDDDDAAAA"
+    assert rule(a20, gap, dead_min_run=5, dead_close=2) == "AADDDDDDAADDDDDDAAAA"
+    assert rule("DDD" + "H" * 17, [range(5, 10)], kickoff=3, dead_min_run=5, dead_close=10) == "DDDHHDDDDDHHHHHHHHHH"
+    assert rule("HHDDDAAAAA", [], dead_min_run=5) == "HHHHHAAAAA"
+    mixed = "HHDDHHAADDAAHHAADDAA"
+    swap = str.maketrans("HA", "AH")
+    assert (rule(mixed.translate(swap), gap, dead_min_run=5, dead_close=3)
+            == rule(mixed, gap, dead_min_run=5, dead_close=3).translate(swap))
+
+    model = Decoder(Tier0Emission(), DecoderParams(dead_min_run=126, dead_trim=25, dead_close=200, dead_outside_m=0.5))
+    with tempfile.TemporaryDirectory() as tmp:
+        path = model.save(Path(tmp) / "rule.json", {})
+        params = json.loads(path.read_text())["params"]
+        assert {k: params[k] for k in ("dead_min_run", "dead_trim", "dead_close", "dead_outside_m")} == \
+            {"dead_min_run": 126, "dead_trim": 25, "dead_close": 200, "dead_outside_m": 0.5}, params
+        assert Decoder.load(path) == model
+
+
 def _expanded_hmm(p: DecoderParams):
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
@@ -878,6 +916,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     marginal_equals_enumeration,
     params_load_guards,
     geometry_emission_known_answer,
+    dead_run_rule_known_answer,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     tags_and_rates_known_answer,
