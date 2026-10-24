@@ -121,10 +121,13 @@ def main(argv):
     ap.add_argument("--spell-push", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("MPS", "FRAMES", "UNSEEN"))
     ap.add_argument("--switch-penalty", type=float, default=0.0, metavar="LAMBDA")
     ap.add_argument("--spell-flip", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("P", "FRAMES", "SEEN"))
-    ap.add_argument("--spell-logit", type=float, nargs=1 + len(SPELL_FEATURES), default=None,
-                    metavar="W", help="the intercept, then one weight per decoder.SPELL_FEATURES name in order")
+    ap.add_argument("--spell-logit", type=float, nargs="+", default=None, metavar="W",
+                    help="the intercept, then one weight per decoder.SPELL_FEATURES name in order; trailing "
+                         "features left out weigh 0 and are not written")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
+    if a.spell_logit and len(a.spell_logit) > 1 + len(SPELL_FEATURES):
+        ap.error(f"--spell-logit takes at most {1 + len(SPELL_FEATURES)} values")
     v1_doc = json.loads(V1.read_text())
     model = Decoder.load(V1).replace(dead_min_run=a.run, dead_trim=a.trim, dead_close=a.close,
                                      dead_outside_m=a.dead_outside_m, q_logit_a=a.q_logit[0],

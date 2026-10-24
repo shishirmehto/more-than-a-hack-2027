@@ -691,7 +691,7 @@ def spell_flip_known_answer() -> None:
     assert (a, b, team) == (5, 8, A)
     assert x == tuple(round(v, 9) for v in (math.log(3 / 25), 1.0, 1.0, 0.0, math.log1p(3.0), math.log1p(5.0),
                                             math.log1p(5.0), math.log1p(2.0), 0.0, 0.0, 1.0, math.log1p(5),
-                                            math.log1p(5), 0.0)), x
+                                            math.log1p(5), 0.0, 0.0, 0.0)), x
     assert flip("HHHHHAAAHHHHH", 0.5) == "HHHHHHHHHHHHH"
     assert flip("HHHHHAAAHHHHH", 0.65) == "HHHHHAAAHHHHH"
     assert flip("HHHHHAAAHHHHH", 0.5, frames=3) == "HHHHHAAAHHHHH"
@@ -700,7 +700,15 @@ def spell_flip_known_answer() -> None:
     assert flip("HHHHHAAAHHHHH", 0.5, seen=0.3, tok_codes="HHHHHADDHHHHH") == "HHHHHHHHHHHHH"
     assert flip("HHHHHDDDHHHHH", 0.5) == "HHHHHDDDHHHHH"
     assert flip("AAAAAHHHAAAAA", 0.5, swap=True) == "AAAAAAAAAAAAA"
-    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 1.5
+    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 1.7
+    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), {"a": 0.5, "len": 1.0}) == 1.5
+    kick = half("HHHHHAAAHHHHH", near=1.0)
+    speed = np.full(13, 5.0, np.float32)
+    speed[11] = 15.0
+    kick = Half(kick.id, kick.nearest_team, BallGeometry(kick.geometry.margin_m, kick.geometry.nearest_m,
+                kick.geometry.outside_m, speed), pace_mps=kick.pace_mps, push_mps=kick.push_mps)
+    (*_, xk), = decoder._spell_runs(np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8), kick, 4, np.zeros(13))
+    assert xk[-2:] == (round(math.log1p(10.0), 9), 0.0), xk
     tok = np.array([HOME] * 10 + [AWAY] * 2 + [HOME] * 10, np.int8)
     n = len(tok)
     live = Half(HalfId("flip", 1, 0), tok, BallGeometry(*(np.full(n, v, np.float32) for v in (2.0, 3.0, 0.0, 5.0))),
@@ -713,7 +721,8 @@ def spell_flip_known_answer() -> None:
     assert on.needs_geometry and not base.needs_geometry
     _raises(ValueError, decoder._spell_flip, np.zeros(n, np.int8), live, on.params, None)
     for bad in ({"spell_flip_p": 0.5}, {"spell_flip_p": 0.5, "spell_flip_frames": 4},
-                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {"a": 1.0}},
+                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {"len": 1.0}},
+                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {"a": 1.0, "nope": 1.0}},
                 {"spell_flip_p": 1.5, "spell_flip_frames": 4, "spell_logit": zero}, {"spell_flip_seen": 0.5},
                 {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {**zero, "a": math.inf}},
                 {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": zero, "decode_rule": "map"}):

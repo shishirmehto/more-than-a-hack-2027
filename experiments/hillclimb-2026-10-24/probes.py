@@ -90,13 +90,16 @@ deadruns PARAMS BASE9
                      convention check
 flipruns PARAMS      label-reading ceiling of short-possession flips: a greedy oracle gives team runs under 250
                      frames to the other team on PFF-A m0 and m2 (populations seen, unseen, all)
-spellflip PARAMS --out PREFIX
+spellflip PARAMS --out PREFIX [--drop F ...] [--split]
                      E29: a ridge logistic on decoder._spell_runs features predicts which short possessions to
                      give to the other team; 2-fold game-OOF on PFF-A; writes PREFIX-pff.csv and PREFIX-weights.json
 barath-spell PARAMS  E29's registered stop, label-free: spell-feature medians on BAR-ATH's candidate runs against
                      PFF-A m0's 10th-90th percentiles, and the frames PARAMS's spell flip changes on BAR-ATH
 spellseen PARAMS     label-free: spell-feature medians and the fully-seen share of candidate runs on synthetic
                      IDSSE m0 and Metrica m0 (r2.6, seed 0) and on PFF-A m0
+deadsplit PARAMS     label-reading: PARAMS's dead-ball headroom on PFF-A split into inserted, long inserted and removed D
+deadcensus PARAMS    label-reading: label-free statistics of the long stoppages PARAMS misses on PFF-A, against live play
+deadedges PARAMS     label-reading: insert_long split into missed, half and caught stoppages and the caught ones' edges
 spellveto PARAMS WEIGHTS --out CSV
                      E29 veto rows: PARAMS with the spell flip at each registered arm and spellflip's all-A weights
 subs CSV...          label-free: label shares, H, A and D runs and differing frames of our own submission CSVs
@@ -116,7 +119,7 @@ import numpy as np
 import pandas as pd
 
 from possession import bench, challenge, idsse, metrica, score
-from possession.decoder import Decoder, _missing_run_dead
+from possession.decoder import SPELL_FEATURES, Decoder, _missing_run_dead
 from possession.half import FPS, HOME, NO_TEAM, A, BallGeometry, D, H, X
 
 SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
@@ -1865,7 +1868,12 @@ def _flipped(pre, rows, w, pop, cut):
     return out, n
 
 
-def spellflip(params, out, drop=()):
+SPELL_SPLITS = {"fully seen": lambda r, major: r[3][SPELL_FEATURES.index("seen")] == 1.0, "partly seen": lambda r, major: r[3][SPELL_FEATURES.index("seen")] < 1.0,
+                "next to D": lambda r, major: r[3][SPELL_FEATURES.index("next_to_d")] == 1.0, "not next to D": lambda r, major: r[3][SPELL_FEATURES.index("next_to_d")] == 0.0,
+                "to majority": lambda r, major: 1 - r[2] == major, "to minority": lambda r, major: 1 - r[2] != major}
+
+
+def spellflip(params, out, drop=(), split=False):
     """E29 first gate, PFF-A only: a ridge logistic on decoder._spell_runs features (without DROP, E30) predicts
     whether giving a short possession to the other team alone raises the half's matched-minus-F/2 value on the m0
     labels; 2-fold game-OOF weights at SPELL_ARMS flip runs together on m0 and m2, the decoder's own rule; writes
@@ -1931,6 +1939,19 @@ def spellflip(params, out, drop=()):
                     n += k
                 codes.append(lag(c))
             variants[name], flips[name] = codes, n
+        for sub in SPELL_SPLITS if split else ():
+            name, n, codes = f"seen>=0.8 {sub}", 0, []
+            for h, pre, rr in zip(pooled_a.halves, pres, rows_):
+                key, major = (h.id.match, h.id.half), int((h.nearest_team == A).sum() > (h.nearest_team == H).sum())
+                c = pre.copy()
+                for fold in (0, 1):
+                    sub_rows = [r for r in rr if fold_of[(key, r[0])] == fold and SPELL_SPLITS[sub](r, major)]
+                    flipped, k = _flipped(pre, sub_rows, folds["seen"][fold], "seen", 0.8)
+                    mask = flipped != pre
+                    c[mask] = flipped[mask]
+                    n += k
+                codes.append(lag(c))
+            variants[name], flips[name] = codes, n
         f0 = None
         for name, codes in variants.items():
             f1, npred = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
@@ -1984,7 +2005,7 @@ def barath_spell(params):
     t = pd.DataFrame({"pff_a_p10": ref.quantile(0.1), "pff_a_p90": ref.quantile(0.9), "barath_median": bar.median()})
     t["stop"] = (t.barath_median < t.pff_a_p10) | (t.barath_median > t.pff_a_p90)
     if p.spell_logit:
-        t["weight"] = pd.Series(p.spell_logit)
+        t["weight"] = pd.Series(p.spell_logit).reindex(list(SPELL_FEATURES)).fillna(0.0)
         t["stop"] &= t.weight != 0
     print(f"{len(ref)} PFF-A m0 candidate runs, {n_runs} BAR-ATH candidate runs")
     print(t.round(4).to_string())
@@ -2011,6 +2032,161 @@ def spellseen(params):
         out[world] = {"runs": len(t), "fully_seen": (t.seen == 1).mean(), **t.median().to_dict()}
         print(world, flush=True)
     print(pd.DataFrame(out).round(4).to_string())
+
+
+def deadsplit(params):
+    """Label-reading, never a candidate: where PARAMS's dead-ball headroom sits on native PFF-A m0 and m2. On its
+    final codes: insert (labelled D frames become D), insert_long (only labelled D stretches of 50+ frames),
+    remove (D frames labelled live take the previous team call, else the next), both (D exactly where labelled)."""
+    model, rows, per_game = Decoder.load(params), [], []
+
+    def fill(codes, gap):
+        out = np.where(gap, D, codes).astype(np.int8)
+        idx = np.where(out != D, np.arange(len(out)), -1)
+        last = np.maximum.accumulate(idx)
+        nxt = np.minimum.accumulate(np.where(out != D, np.arange(len(out)), len(out))[::-1])[::-1]
+        src = np.where(last >= 0, last, np.minimum(nxt, len(out) - 1))
+        return np.where(gap & (out[src] != D), out[src], codes).astype(np.int8)
+
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        variants = {k: [] for k in ("base", "insert", "insert_long", "remove", "both")}
+        for h, lab in zip(halves, labs):
+            c = model.decode(h).codes
+            dead = lab == D
+            long_ = np.zeros(h.n, bool)
+            for a, b in zip(*_runs(dead)):
+                if b - a >= 50:
+                    long_[a:b] = True
+            removed = fill(c, (c == D) & ~dead)
+            variants["base"].append(c)
+            variants["insert"].append(np.where(dead, D, c).astype(np.int8))
+            variants["insert_long"].append(np.where(long_, D, c).astype(np.int8))
+            variants["remove"].append(removed)
+            variants["both"].append(np.where(dead, D, removed).astype(np.int8))
+        runs = score.valid_runs(pooled_a.gt)
+        f0 = None
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
+            f0 = f1 if name == "base" else f0
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f0, "n_pred": n})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    paired_delta(per_game, ["insert", "insert_long", "remove", "both"])
+
+
+def deadcensus(params):
+    """Label-reading, never a candidate: on PFF-A m0, PARAMS's final codes over each labelled stretch of 50+
+    frames, split into labelled D stretches the decoder misses (under 10% D), half-catches and catches (50%+ D),
+    and labelled live stretches it calls a team (control); per class the count, frames and medians of label-free
+    stretch statistics."""
+    model, rows = Decoder.load(params), []
+    for world, pooled_a, labs, _ in native_a():
+        if "_m0_" not in world:
+            continue
+        for h, lab in zip(pooled_a.halves, labs):
+            c, g, pace = model.decode(h).codes, h.geometry, h.pace_mps
+            seen = h.nearest_team != NO_TEAM
+            for dead in (True, False):
+                flag = (lab == D) if dead else np.isin(lab, (H, A))
+                for a, b in zip(*_runs(flag)):
+                    if b - a < 50 or a < h.id.kickoff:
+                        continue
+                    dshare = float((c[a:b] == D).mean())
+                    if dead:
+                        kind = "D missed" if dshare < 0.1 else "D caught" if dshare >= 0.5 else "D half"
+                    elif dshare < 0.1:
+                        kind = "live called team"
+                    else:
+                        continue
+                    s, sp = seen[a:b], g.speed_mps[a:b]
+                    pc = pace[a:b]
+                    pre = slice(max(a - 50, 0), a)
+                    rows.append({"kind": kind, "frames": b - a, "len_s": (b - a) / FPS, "seen": s.mean(),
+                                 "speed_med": np.nanmedian(np.where(s, sp, np.nan)) if s.any() else np.nan,
+                                 "still_share": float(((sp < 1.0) & s).sum() / max(s.sum(), 1)),
+                                 "pace_med": np.nanmedian(pc) if np.isfinite(pc).any() else np.nan,
+                                 "walk_share": float(np.nan_to_num(pc < 0.5).mean()),
+                                 "out_max": np.nanmax(np.where(s, g.outside_m[a:b], np.nan)) if s.any() else np.nan,
+                                 "out_share": float(np.nan_to_num(g.outside_m[a:b] > 0.5).mean()),
+                                 "near_med": np.nanmedian(g.nearest_m[a:b]) if s.any() else np.nan,
+                                 "speed_pre_max": np.nanmax(g.speed_mps[pre]) if np.isfinite(g.speed_mps[pre]).any()
+                                 else np.nan})
+    t = pd.DataFrame(rows)
+    print(t.groupby("kind").agg(n=("frames", "size"), frames=("frames", "sum")).to_string())
+    print("\nmedians")
+    print(t.groupby("kind").median(numeric_only=True).round(3).T.to_string())
+    print("\nmissed D stretches by length (s)")
+    m = t[t.kind == "D missed"]
+    print(pd.cut(m.len_s, [2, 5, 10, 20, 40, 1e9]).value_counts().sort_index().to_string())
+    q = t[t.kind.isin(["D missed", "live called team"])]
+    print("\nunivariate AUC, missed D against live called team")
+    for f in ("len_s", "seen", "speed_med", "still_share", "pace_med", "walk_share", "out_max", "out_share",
+              "near_med", "speed_pre_max"):
+        v = q[f].to_numpy(np.float64)
+        ok = np.isfinite(v)
+        print(f"  {f} {auc(v[ok], (q.kind == 'D missed').to_numpy()[ok].astype(float)):.3f} "
+              f"(finite on {ok.mean():.2f})")
+
+
+def deadedges(params):
+    """Label-reading, never a candidate: deadsplit's insert_long split by what PARAMS's final codes do on each
+    labelled D stretch of 50+ frames on native PFF-A m0 and m2: missed (under 10% D), half (10-50%), caught
+    (50%+) filled whole, and for caught stretches only the start edge (labelled start to the first D frame) or
+    only the end edge (last D frame to labelled end); prints the caught stretches' edge gaps in frames."""
+    model, rows, per_game, gaps = Decoder.load(params), [], [], []
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        names = ("base", "missed", "half", "caught", "caught_start", "caught_end")
+        variants = {k: [] for k in names}
+        for h, lab in zip(halves, labs):
+            c = model.decode(h).codes
+            out = {k: c.copy() for k in names[1:]}
+            for a, b in zip(*_runs(lab == D)):
+                if b - a < 50:
+                    continue
+                d = np.flatnonzero(c[a:b] == D)
+                share = len(d) / (b - a)
+                if share < 0.1:
+                    out["missed"][a:b] = D
+                elif share < 0.5:
+                    out["half"][a:b] = D
+                else:
+                    out["caught"][a:b] = D
+                    out["caught_start"][a:a + d[0]] = D
+                    out["caught_end"][a + d[-1] + 1:b] = D
+                    if "_m0_" in world:
+                        gaps.append({"start_gap": int(d[0]), "end_gap": int(b - a - d[-1] - 1),
+                                     "d_before": int(a > 0 and c[a - 1] == D), "d_after": int(b < h.n and c[b] == D)})
+            variants["base"].append(c)
+            for k in names[1:]:
+                variants[k].append(out[k])
+        runs = score.valid_runs(pooled_a.gt)
+        f0 = None
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
+            f0 = f1 if name == "base" else f0
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f0, "n_pred": n})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    paired_delta(per_game, list(names[1:]))
+    g = pd.DataFrame(gaps)
+    print(f"\ncaught stretches on PFF-A m0: {len(g)}; edge gaps in frames (quantiles 0.1, 0.25, 0.5, 0.75, 0.9)")
+    print(g[["start_gap", "end_gap"]].quantile([0.1, 0.25, 0.5, 0.75, 0.9]).to_string())
+    print(f"decoder D already before the labelled start on {g.d_before.mean():.3f}, after the labelled end on "
+          f"{g.d_after.mean():.3f}")
 
 
 def spellveto(params, weights, out, rhos, items):
@@ -2297,11 +2473,12 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
     ap.add_argument("--drop", nargs="+", default=[], help="spellflip: SPELL_FEATURES left out of the fit (E30: seen)")
+    ap.add_argument("--split", action="store_true", help="spellflip: also the seen>=0.8 arm restricted to each SPELL_SPLITS subset")
     ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--halves", nargs="+", default=["all", "A", "B"], choices=("all", "A", "B"),
@@ -2312,7 +2489,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

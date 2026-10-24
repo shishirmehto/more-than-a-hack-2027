@@ -34,7 +34,8 @@ _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mp
                      "dead_pace_live_mps")
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
-                  "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d")
+                  "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other")
+_TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,8 +192,8 @@ class DecoderParams:
                         away gains matched possessions. "marginal" only: one feature is the chain's log-odds.
     spell_flip_frames:  the length limit for spell_flip_p; set together with it.
     spell_flip_seen:    the token share a possession needs to be judged by spell_flip_p; 0 judges all.
-    spell_logit:        {"a": intercept, feature: weight for each of SPELL_FEATURES}; set exactly when
-                        spell_flip_p is.
+    spell_logit:        {"a": intercept, feature: weight} over SPELL_FEATURES, a feature left out weighing 0;
+                        set exactly when spell_flip_p is.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -274,8 +275,8 @@ class DecoderParams:
         if self.spell_flip_seen and not self.spell_flip_p:
             raise ValueError("spell_flip_seen acts only with spell_flip_p > 0")
         if self.spell_logit:
-            if set(self.spell_logit) != {"a", *SPELL_FEATURES}:
-                raise ValueError(f"spell_logit keys must be 'a' and {', '.join(SPELL_FEATURES)}")
+            if "a" not in self.spell_logit or not set(self.spell_logit) <= {"a", *SPELL_FEATURES}:
+                raise ValueError(f"spell_logit needs 'a' and takes only {', '.join(SPELL_FEATURES)}")
             for name, w in self.spell_logit.items():
                 _number(f"spell_logit[{name}]", w, -math.inf, math.inf)
             if self.decode_rule != "marginal":
@@ -458,7 +459,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     margin_own: ln(1 + median team margin on own-token frames, capped at 30 m). push: mean push toward the run's
     team, clipped to +-5 m/s. logodds: mean chain log-odds toward the run's team, clipped to +-20. sandwiched: 1
     when both neighbouring runs are the other team. prev_len, next_len: ln(1 + neighbour length). next_to_d: 1
-    when a neighbour is D (the half's edges count as D).
+    when a neighbour is D (the half's edges count as D). touch_own, touch_other: ln(1 + the largest change of ball
+    speed between frames t - 5 and t + 5, capped at 40 m/s, over frames t within 1.5 m of a player whose token is
+    the run's team inside the run, the other team's within 25 frames of it); 0 when there is none.
     """
     g = half.geometry
     if g is None or half.push_mps is None:
@@ -466,6 +469,11 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
                          "observe it from a Geometry (challenge.halves('atd')), not from baseline_raw")
     edges = np.flatnonzero(np.diff(codes)) + 1
     starts, stops = np.r_[0, edges].tolist(), np.r_[edges, half.n].tolist()
+    v, s = g.speed_mps.astype(np.float64), _TOUCH_STEP
+    dv = np.full(half.n, np.nan)
+    if half.n > 2 * s:
+        dv[s:-s] = np.abs(v[2 * s:] - v[:-2 * s])
+    touch = np.where(g.nearest_m <= _TOUCH_RADIUS_M, np.minimum(dv, _SPEED_CAP_MPS), np.nan)
     out = []
     for k, (a, b) in enumerate(zip(starts, stops)):
         team = int(codes[a])
@@ -482,6 +490,11 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
         margin = margin[~np.isnan(margin)]
         push = half.push_mps[a:b].astype(np.float64)
         push = push[np.isfinite(push)]
+        hit = touch[a:b][own]
+        hit = hit[~np.isnan(hit)]
+        lo, hi = max(a - _TOUCH_SLACK, 0), min(b + _TOUCH_SLACK, half.n)
+        miss = touch[lo:hi][half.nearest_team[lo:hi] == 1 - team]
+        miss = miss[~np.isnan(miss)]
         sign = 1.0 if team == H else -1.0
         prev = (int(codes[starts[k - 1]]), stops[k - 1] - starts[k - 1]) if k else (D, 0)
         nxt = (int(codes[starts[k + 1]]), stops[k + 1] - starts[k + 1]) if k + 1 < len(starts) else (D, 0)
@@ -494,14 +507,16 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
              min(max(sign * math.fsum(push.tolist()) / len(push), -5.0), 5.0) if len(push) else 0.0,
              min(max(sign * math.fsum(logodds[a:b].tolist()) / (b - a), -20.0), 20.0),
              float(prev[0] == nxt[0] == 1 - team), math.log1p(prev[1]), math.log1p(nxt[1]),
-             float(D in (prev[0], nxt[0])))
+             float(D in (prev[0], nxt[0])), math.log1p(float(hit.max())) if len(hit) else 0.0,
+             math.log1p(float(miss.max())) if len(miss) else 0.0)
         out.append((a, b, team, tuple(round(v, 9) for v in x)))
     return out
 
 
 def _spell_z(x: tuple[float, ...], w: Mapping[str, float]) -> float:
-    """The spell logit a + sum(w * x) over SPELL_FEATURES, as an exactly rounded math.fsum, rounded to 6 places."""
-    return round(math.fsum([w["a"]] + [w[f] * v for f, v in zip(SPELL_FEATURES, x)]), 6)
+    """The spell logit a + sum(w * x) over SPELL_FEATURES (a feature W leaves out weighs 0), as an exactly rounded
+    math.fsum, rounded to 6 places."""
+    return round(math.fsum([w["a"]] + [w[f] * v for f, v in zip(SPELL_FEATURES, x) if f in w]), 6)
 
 
 _SEEN = SPELL_FEATURES.index("seen")
