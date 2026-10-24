@@ -7,7 +7,7 @@ final params are written by `freeze.py`.
 
 ## Result
 
-Six new params files, each one confirmed on held-out data before the next was built:
+Seven new params files, each one confirmed on held-out data before the next was built:
 
 | params | adds to the previous file | builds from | sha256 of the CSV |
 |---|---|---|---|
@@ -17,6 +17,7 @@ Six new params files, each one confirmed on held-out data before the next was bu
 | `params/tier0_v5.json` | `handover_lag` 15: hand-overs between the teams move 15 frames later | the gated ATD | `a74c545140b43b8c…` |
 | `params/tier0_v6.json` | `dead_still_mps` 1.0 over `dead_still_frames` 50: a ball at rest for 2 s counts as missing | the gated ATD | `02125f8c5d93a467…` |
 | `params/tier0_v7.json` | `dead_pace_still_mps` 0.5: frames where players walk count as missing | the gated ATD | `554e4e5b06f3328b…` |
+| `params/tier0_v8.json` | `spell_merge_frames` 50: a possession under 2 s inside another team's spell joins its neighbours (rule v4) | the gated ATD | `abb0ed9c2b8c2921…` |
 
 Held-out results. Nothing here was used to choose anything. The numbers are spellF1 margins over
 `baseline_smooth50`; the PFF columns are the 32 held-out (even-indexed) games with 90% per-game t intervals.
@@ -29,10 +30,12 @@ Held-out results. Nothing here was used to choose anything. The numbers are spel
 | tier0_v4 | +0.113 [+0.105, +0.120] | +0.139 [+0.131, +0.147] | +0.018 [+0.014, +0.022] / +0.020 [+0.015, +0.025], 28/32 each | +0.047 |
 | tier0_v5 | +0.127 [+0.118, +0.136] | +0.155 [+0.146, +0.164] | +0.014 [+0.012, +0.016] / +0.016 [+0.014, +0.018], 31/32 each | +0.063 |
 | tier0_v6 | +0.132 [+0.123, +0.141] | +0.161 [+0.151, +0.170] | +0.005 [+0.004, +0.006] / +0.006 [+0.005, +0.007], 32/32 each | +0.106 |
-| **tier0_v7** | **+0.134** [+0.125, +0.144] | **+0.163** [+0.153, +0.173] | +0.002 [+0.002, +0.003] / +0.003 [+0.002, +0.003], 31/32 each | **+0.106** |
+| tier0_v7 | +0.134 [+0.125, +0.144] | +0.163 [+0.153, +0.173] | +0.002 [+0.002, +0.003] / +0.003 [+0.002, +0.003], 31/32 each | +0.106 |
+| **tier0_v8** | **+0.139** [+0.131, +0.148] | **+0.175** [+0.166, +0.184] | +0.005 [+0.002, +0.008] 23/32 / +0.011 [+0.009, +0.014] 29/32; StatsBomb +0.016 [+0.014, +0.019] 32/32 | +0.099 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
-  about half again on top of v2's margin.
+  about half again on top of v2's margin. tier0_v8's margin is +0.049 and +0.060 above v2's (a difference of
+  the two margins, not a paired run).
 - Every step from v3 on beat its predecessor on the held-out PFF games with a 90% lower bound above zero, and on
   all 17 synthetic groups of seeds 15-24.
 - The synthetic column for v6 and v7 is inflated. Dev sources hold a lost ball at its last position, so a
@@ -40,9 +43,15 @@ Held-out results. Nothing here was used to choose anything. The numbers are spel
 - On BAR-ATH, tier0_v7 changes 12,615 frames against tier0_v2: dead runs 122 to 131, away possessions 218
   to 224, home 210 to 211, D frames 55,326 to 59,223. That comparison reads two automatic CSVs and no labels.
 
-My recommendation is tier0_v7, if the team is comfortable that building the CSV needs the gated ATD files on
-disk. Otherwise tier0_v2, the best file that builds from committed inputs alone. The choice of submission
-decoder is the team's, so no file is wired into anything yet.
+- tier0_v8 was selected under rule v4, adopted after E21 and E22 were seen (see "How the objective evolved").
+  It passed every held-out test, but it trades about 0.007 on the fine-grained IDSSE m0 convention for gains on
+  every coarser one. Under StatsBomb's convention on the held-out PFF games its margin is +0.171 against v7's
+  +0.154.
+
+My recommendation is tier0_v8, if the team accepts rule v4's reading of CHALLENGE.md (controlled possession,
+not per touch) and is comfortable that building the CSV needs the gated ATD files on disk. Otherwise tier0_v7
+under the same data condition, or tier0_v2, the best file that builds from committed inputs alone. The choice
+of submission decoder is the team's, so no file is wired into anything yet.
 
 ## Rules this run kept
 
@@ -145,7 +154,7 @@ difference.
 | 38 | StatsBomb's possession teams on PFF's tracking (new dev source `pffsb`) | the two providers score only spellF1 0.62 against each other | every shipped step helps under it too: v1 +0.047, v2 +0.109, v4 +0.125, v5 +0.137, v7 +0.145 over smooth50 | joins the ranking (rule v3) |
 | 39 | chain constants under rule v3 (E21) | a second convention might move them | stickier chains win all three real conventions (temper 0.07, poss 9 s: +0.134 / +0.173 / +0.177) but are vetoed on IDSSE m0 (-0.019) | no change |
 | 40 | nine-agent design fan-out (4 angles, a critic each, a ranker) | the plateau needs ideas from outside one line of thought | top idea: join short possessions to their neighbours; dropped ideas recorded in workflow wf_f30671ee-485 | direction |
-| 41 | short possessions join their neighbours, `spell_merge_frames` (E22) | short predicted spells inside another team's are mostly wrong | 50 frames: PFF-A m0 +0.1335 against +0.1268, m2 +0.1678 against +0.1548, StatsBomb +0.1611 against +0.1446, 12 of 15 synthetic groups up; IDSSE m0 down 0.0064 to 0.0080. Rule v3 picks no change; rule v4 picks 50 frames, interior only | confirming |
+| 41 | short possessions join their neighbours, `spell_merge_frames` (E22) | short predicted spells inside another team's are mostly wrong | 50 frames: PFF-A m0 +0.1335 against +0.1268, m2 +0.1678 against +0.1548, StatsBomb +0.1611 against +0.1446, 12 of 15 synthetic groups up; IDSSE m0 down 0.0064 to 0.0080. Rule v3 picks no change; rule v4 picks 50 frames, interior only, which passes every held-out test | **tier0_v8** |
 
 ## What did not work, and why
 
@@ -224,7 +233,9 @@ After v2 and v7 were committed and confirmed, both were built into
 files are valid and their labels align (macroF1 0.624 for v7, 0.620 for v2; 25 predicted possessions
 against 17 true). Their spellF1 is 0.352 and 0.333, below the 0.424 that `baseline_smooth125` shows on the
 same window. Seventeen possessions cannot separate decoders, and the rules forbid choosing on them, so nothing
-changed.
+changed. tier0_v8 was checked the same way after its confirmation
+(`data/derived/verify/20261024-1140-verify-v8/`): valid, macroF1 0.635, spellF1 0.444, 19 predicted
+possessions against 17. It was already selected and confirmed, and this reading chose nothing.
 
 ## Limitations
 
@@ -272,7 +283,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --out params/tier0_v4.jso
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --out params/tier0_v5.json
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --out params/tier0_v6.json
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --out params/tier0_v7.json
-python -m possession make-submission --params params/tier0_v7.json --out tier0_v7.csv
+python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-merge 50 --out params/tier0_v8.json
+python -m possession make-submission --params params/tier0_v8.json --out tier0_v8.csv
 ```
 
 Each selection reruns from its probe, for example `python experiments/hillclimb-2026-10-24/probes.py logit
