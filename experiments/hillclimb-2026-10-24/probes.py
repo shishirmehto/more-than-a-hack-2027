@@ -289,6 +289,49 @@ def pushgap(params):
     print("all", round(t.right.mean(), 4), len(t))
 
 
+def spellpush(params):
+    """Per predicted possession on native PFF A games (m0): how often it is mostly wrong (under half its frames
+    carry its team's label), by its mean push toward its own team, its length, its unseen share and whether
+    both neighbours are possessions of the other team; other_gt_right is the mean share of frames labelled
+    with the other team minus the share labelled with its own, so a positive value means flipping helps.
+    Tells whether push can judge whole spells."""
+    from possession import challenge, pff
+    model, games, rows = Decoder.load(params), [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        codes, gt, k0 = model.decode(h).codes, c.labels, h.id.kickoff
+        push = _team_push(c.geometry, k0)
+        edges = np.flatnonzero(np.diff(codes[k0:])) + 1 + k0
+        runs = [(int(a), int(b), int(codes[a])) for a, b in zip(np.r_[k0, edges], np.r_[edges, len(codes)])]
+        for i, (a, b, team) in enumerate(runs):
+            if team == D:
+                continue
+            toward = push[a:b] if team == HOME else -push[a:b]
+            other = 1 - team
+            rows.append({"length_s": (b - a) / FPS, "unseen": float((~seen[a:b]).mean()),
+                         "push": float(np.nanmean(toward)) if np.isfinite(toward).any() else np.nan,
+                         "sandwiched": i > 0 and i + 1 < len(runs) and runs[i - 1][2] == other == runs[i + 1][2],
+                         "right": float((gt[a:b] == team).mean()), "other": float((gt[a:b] == other).mean()),
+                         "frames": b - a})
+    t = pd.DataFrame(rows).dropna()
+    t["wrong"] = t.right < 0.5
+    t["push_bin"] = pd.cut(t.push, [-np.inf, -2, -1, 0, 1, 2, np.inf]).astype(str)
+    t["len_bin"] = pd.cut(t.length_s, [0, 2, 5, 10, np.inf], right=False).astype(str)
+    t["mostly_unseen"] = t.unseen >= 0.5
+    print(f"{len(t)} predicted possessions, {t.wrong.mean():.3f} mostly wrong")
+    for keys in (["push_bin"], ["mostly_unseen", "push_bin"], ["sandwiched", "push_bin"], ["len_bin", "push_bin"]):
+        g = t.groupby(keys)
+        print(pd.DataFrame({"spells": g.size(), "wrong": g.wrong.mean().round(3),
+                            "other_gt_right": (g.other.mean() - g.right.mean()).round(3),
+                            "frames": g.frames.sum()}).to_string(), "\n")
+
+
 def equiv(shipped, base, *changes):
     """Frames where SHIPPED decodes differently from BASE.replace(k=v, ...), the variant a grid selected: one
     world per dev source at dead_bias 2.6, seed 0, A games only for the native sources. 0 means the frozen file
@@ -694,7 +737,7 @@ def jitter(paths, rel=1e-6, seeds=(0, 1, 2), near=1e-5):
             def shake(a):
                 return (a * (1 + rel * rng.uniform(-1, 1, a.shape))).astype(np.float32)
             moved = [dataclasses.replace(h, geometry=BallGeometry(*(shake(getattr(h.geometry, n)) for n in names)),
-                                         pace_mps=shake(h.pace_mps)) for h in halves]
+                                         pace_mps=shake(h.pace_mps), push_mps=shake(h.push_mps)) for h in halves]
             changed.append(sum(int((model.decode(m).codes != b).sum()) for m, b in zip(moved, base)))
         print(f"{path}: frames changed under {rel:g} relative jitter, seeds {list(seeds)}: {changed} of "
               f"{sum(len(b) for b in base)}; frames within {near:g} of a threshold: {close}")
@@ -1149,6 +1192,11 @@ PACE_GRID = [{"dead_pace_live_mps": lv, "dead_pace_still_mps": sv} for lv in (0.
              for sv in (0.0, 0.5, 0.75)]
 LAG7_GRID = [{"handover_lag": lag} for lag in (10, 15, 20, 25)]
 HOLD_RADII, HOLD_LAGS = (1.0, 1.5, 2.0), (0, 10, 20)
+PUSH_GRID = [{}] + [{"spell_push_mps": t, "spell_push_frames": n} for t, n in ((2.0, 125), (2.0, 250), (1.5, 125),
+                                                                          (3.0, 250))] + \
+    [{"spell_push_mps": 2.0, "spell_push_frames": n, "spell_push_between": 1} for n in (125, 250)]
+PUSH_UNSEEN_GRID = [{}] + [{"spell_push_mps": t, "spell_push_frames": n, "spell_push_unseen": u}
+                          for u in (0.5, 0.8) for t, n in ((2.0, 125), (2.0, 250), (3.0, 250))]
 MERGE_GRID = [{}] + [{"spell_merge_frames": n} for n in (25, 50, 75, 100)] + \
     [{"spell_merge_frames": n, "spell_merge_tails": 1} for n in (25, 50)]
 COMBO_GRID = [{"handover_lag": lag, "dead_trim": trim, "dead_pace_still_mps": sv, "dead_still_frames": sf}
@@ -1164,7 +1212,8 @@ def rulegrid(params, out, rhos, items, grid):
     base, s50, rows = Decoder.load(params), bench.Smoother(50), []
     chain = base.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
                          dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0,
-                         spell_merge_frames=0, spell_merge_tails=0)
+                         spell_merge_frames=0, spell_merge_tails=0, spell_push_mps=0.0, spell_push_frames=0,
+                         spell_push_between=0, spell_push_unseen=0.0)
     rules = {" ".join(f"{k}={v}" for k, v in g.items()) or "base": dataclasses.replace(base.params, **g) for g in grid}
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
@@ -1441,7 +1490,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
@@ -1454,7 +1503,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

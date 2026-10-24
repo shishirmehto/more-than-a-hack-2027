@@ -574,6 +574,60 @@ def spell_merge_known_answer() -> None:
         assert Decoder.load(Path(tmp) / "merge.json") == model
 
 
+def spell_push_known_answer() -> None:
+    """decoder._push_flip: short runs push contradicts change team, judged on the input runs; length limit,
+    threshold, the between-only switch, D runs and NaN push left alone; mirroring, decode and save."""
+    code = {"H": H, "A": A, "D": D}
+    letter = {v: k for k, v in code.items()}
+
+    def flip(codes: str, push: list, mps: float, frames: int, between: int = 0, unseen: float = 0.0,
+             tok: list | None = None) -> str:
+        tok = np.full(len(codes), NO_TEAM, np.int8) if tok is None else np.array(tok, np.int8)
+        half = Half(HalfId("push", 1, 0), tok, push_mps=np.array(push, np.float32))
+        p = DecoderParams(spell_push_mps=mps, spell_push_frames=frames, spell_push_between=between,
+                          spell_push_unseen=unseen)
+        out = decoder._push_flip(np.array([code[c] for c in codes], np.int8), half, p)
+        return "".join(letter[int(c)] for c in out)
+
+    assert flip("HHHAAHHH", [0, 0, 0, 3, 3, 0, 0, 0], 2.0, 3) == "HHHHHHHH"
+    assert flip("HHHAAHHH", [0, 0, 0, 1, 1, 0, 0, 0], 2.0, 3) == "HHHAAHHH"
+    assert flip("HHHAAHHH", [0, 0, 0, 3, 3, 0, 0, 0], 2.0, 2) == "HHHAAHHH"
+    assert flip("AAAHHAAA", [0, 0, 0, -3, -3, 0, 0, 0], 2.0, 3) == "AAAAAAAA"
+    assert flip("DDDAAHHH", [0, 0, 0, 3, 3, 0, 0, 0], 2.0, 3) == "DDDHHHHH"
+    assert flip("DDDAAHHH", [0, 0, 0, 3, 3, 0, 0, 0], 2.0, 3, 1) == "DDDAAHHH"
+    assert flip("HHHDDHHH", [0, 0, 0, -9, -9, 0, 0, 0], 2.0, 3) == "HHHDDHHH"
+    assert flip("HHHAAHHH", [0, 0, 0, np.nan, np.nan, 0, 0, 0], 2.0, 3) == "HHHAAHHH"
+    assert flip("HAHAH", [-3, 3, -3, 3, -3], 2.0, 2) == "AHAHA"
+    seen_a = [NO_TEAM] * 3 + [AWAY, AWAY] + [NO_TEAM] * 3
+    half_a = [NO_TEAM] * 3 + [AWAY, NO_TEAM] + [NO_TEAM] * 3
+    assert flip("HHHAAHHH", [0, 0, 0, 3, 3, 0, 0, 0], 2.0, 3, unseen=0.5, tok=seen_a) == "HHHAAHHH"
+    assert flip("HHHAAHHH", [0, 0, 0, 3, 3, 0, 0, 0], 2.0, 3, unseen=0.5, tok=half_a) == "HHHHHHHH"
+    assert flip("HHHAAHHH", [0, 0, 0, 3, 3, 0, 0, 0], 2.0, 3, unseen=0.8, tok=half_a) == "HHHAAHHH"
+    swap = str.maketrans("HA", "AH")
+    pushes = [0, 0, 0, 3, 3, 0, 2.5, 0, 0]
+    assert flip("HHHAAHAHH".translate(swap), [-x for x in pushes], 2.0, 3) == flip("HHHAAHAHH", pushes, 2.0, 3).translate(swap)
+    tok = np.array([HOME] * 10 + [AWAY] * 2 + [HOME] * 10, np.int8)
+    push = np.array([0] * 10 + [4, 4] + [0] * 10, np.float32)
+    base = Decoder(Tier0Emission(q=0.99), DecoderParams(temper=1.0, poss_mean_s=0.2, stride=1))
+    flipped = base.replace(spell_push_mps=2.0, spell_push_frames=3).decode(Half(HalfId("push", 1, 0), tok, push_mps=push))
+    assert flipped.posterior is None and flipped.codes.tolist() == [H] * 22
+    assert base.replace(spell_push_mps=2.0, spell_push_frames=3).needs_geometry and not base.needs_geometry
+    for bad in ({"spell_push_mps": 2.0}, {"spell_push_frames": 3}, {"spell_push_between": 1},
+                {"spell_push_mps": 2.0, "spell_push_frames": 3, "spell_push_between": 2}, {"spell_push_unseen": 0.5},
+                {"spell_push_mps": 2.0, "spell_push_frames": 3, "spell_push_unseen": 1.5}):
+        try:
+            DecoderParams(**bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad} was accepted")
+    model = base.replace(spell_push_mps=2.0, spell_push_frames=125, spell_push_between=1)
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = json.loads(model.save(Path(tmp) / "push.json", {}).read_text())["params"]
+        assert (saved["spell_push_mps"], saved["spell_push_frames"], saved["spell_push_between"]) == (2.0, 125, 1)
+        assert "spell_push_mps" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(Path(tmp) / "push.json") == model
+
+
 def _expanded_hmm(p: DecoderParams):
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
@@ -1033,6 +1087,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     dead_run_rule_known_answer,
     handover_lag_known_answer,
     spell_merge_known_answer,
+    spell_push_known_answer,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     tags_and_rates_known_answer,

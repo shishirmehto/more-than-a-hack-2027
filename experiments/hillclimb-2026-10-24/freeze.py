@@ -1,7 +1,8 @@
 """Write the hillclimb's final params: tier0_v1's chain and emission plus the selected dead-ball rule.
 
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/freeze.py RUN TRIM CLOSE [--dead-outside-m M]
-        [--q-logit A B C] [--handover-lag L] [--dead-still MPS FRAMES] [--dead-pace-still MPS] [--spell-merge FRAMES] --out PATH
+        [--q-logit A B C] [--handover-lag L] [--dead-still MPS FRAMES] [--dead-pace-still MPS] [--spell-merge FRAMES]
+        [--spell-push MPS FRAMES UNSEEN] --out PATH
 
 Every value except the dead-ball fields (dead_still_* among them), handover_lag and the emission's q_logit terms
 is copied from
@@ -53,6 +54,16 @@ MERGE = ("spell_merge_frames comes from pre-registered experiment E22: after the
          "to 0.010. Under it the odd-game minimum over PFF m0, PFF m2 and StatsBomb-on-PFF m0, with the tie rule "
          "(fewer frames first, interior before tails), chose 50 frames, interior only; even-indexed games of both "
          "conventions and seeds 15-24 only confirm.")
+PUSH = ("spell_push_mps, spell_push_frames and spell_push_unseen come from pre-registered experiments E25 and E26: "
+        "after the dead-run rule and before the merge and the lag, a possession shorter than spell_push_frames whose "
+        "frames are at least spell_push_unseen without a token, and whose mean push toward its own team (median player "
+        "x velocity toward the goal it attacks, home minus away) is at most -spell_push_mps, goes to the other team "
+        "(decoder._push_flip). E25 judged every short possession and was vetoed on IDSSE m0. E26 added the no-token "
+        "gate, because push trails a turnover by seconds, over gates {0.5, 0.8} x (2 m/s, 125 frames), (2, 250), "
+        "(3, 250). Rule v2 (synthetic veto at tier0_v7 minus 0.003 in every group; the odd-game minimum over PFF m0 "
+        "and m2 ranks; ties within 0.003 to the base, then the fewest changed fields, then the higher minimum) chose "
+        "2 m/s over 250 frames at 0.5; even-indexed PFF games and seeds 15-24 only confirm. No StatsBomb data entered "
+        "this selection.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -72,6 +83,7 @@ def main(argv):
     ap.add_argument("--dead-still", type=float, nargs=2, default=(0.0, 0), metavar=("MPS", "FRAMES"))
     ap.add_argument("--dead-pace-still", type=float, default=0.0, metavar="MPS")
     ap.add_argument("--spell-merge", type=int, default=0, metavar="FRAMES")
+    ap.add_argument("--spell-push", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("MPS", "FRAMES", "UNSEEN"))
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     v1_doc = json.loads(V1.read_text())
@@ -80,7 +92,8 @@ def main(argv):
                                      q_logit_dist=a.q_logit[1], q_logit_margin=a.q_logit[2],
                                      handover_lag=a.handover_lag, dead_still_mps=a.dead_still[0],
                                      dead_still_frames=int(a.dead_still[1]), dead_pace_still_mps=a.dead_pace_still,
-                                     spell_merge_frames=a.spell_merge)
+                                     spell_merge_frames=a.spell_merge, spell_push_mps=a.spell_push[0],
+                                     spell_push_frames=int(a.spell_push[1]), spell_push_unseen=a.spell_push[2])
     logit = any(a.q_logit)
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
@@ -92,6 +105,8 @@ def main(argv):
         changed = changed.replace("dead_still_frames,", "dead_still_frames, dead_pace_still_mps,")
     if a.spell_merge:
         changed = changed.replace("handover_lag and", "handover_lag, spell_merge_frames and")
+    if a.spell_push[0]:
+        changed = changed.replace("handover_lag", "handover_lag, spell_push_mps, spell_push_frames, spell_push_unseen", 1)
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -99,20 +114,23 @@ def main(argv):
                 else f"{V1} (every emission and chain value)",
         "selection": SELECTION + (" " + GEOMETRY if a.dead_outside_m else "") + (" " + LOGIT if logit else "") +
                      (" " + LAG if a.handover_lag else "") + (" " + STILL if a.dead_still[0] else "") +
-                     (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else ""),
+                     (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else "") +
+                     (" " + PUSH if a.spell_push[0] else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
                     (", still-synth.csv and still-pff.csv" if a.dead_still[0] else "") +
                     (", pace-synth.csv and pace-pff.csv" if a.dead_pace_still else "") +
                     (", merge-synth.csv and merge-pff.csv" if a.spell_merge else "") +
+                    (", spellpush-v7b.out, pushflip-*.csv and pushunseen-*.csv" if a.spell_push[0] else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
         "public_window": f"The hillclimb changed only {changed}. It scored files on the public window as a "
                          "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
-                         "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Experiments E17 to E23, selection "
-                         "rules v3 and v4 and spell_merge_frames all came after the first read. Inherited from "
+                         "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Every experiment from E17 on, "
+                         "selection rules v3 and v4, spell_merge_frames and the spell_push fields came after the "
+                         "first read. Inherited from "
                          "tier0_v1: " + v1_doc["provenance"]["public_window"],
     })
     print(a.out.read_text())

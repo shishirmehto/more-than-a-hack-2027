@@ -165,6 +165,17 @@ class DecoderParams:
     spell_merge_tails:  1 also lets a short possession before a dead stretch or the half's end join the
                         possession before it, as metrica.rule.merge_short does to labels. Needs
                         spell_merge_frames.
+    spell_push_mps:     0 is off. Otherwise, after the dead-run rule and before the merge, a possession shorter
+                        than spell_push_frames whose mean Half.push_mps toward its own team is at most
+                        -spell_push_mps goes to the other team, every such possession judged on the codes as
+                        they stand before any flip. The team in possession pushes toward the goal it attacks;
+                        judging whole possessions keeps the push from flipping frames one by one.
+    spell_push_frames:  the length limit for spell_push_mps; set together with it.
+    spell_push_between: 1 flips only possessions whose two neighbours are possessions of the other team.
+                        Needs spell_push_mps.
+    spell_push_unseen:  0 is off. Otherwise only a possession whose share of frames with no token is at least
+                        this is judged: push trails a turnover by seconds, so where the ball was seen the token
+                        decides. Needs spell_push_mps.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -195,6 +206,10 @@ class DecoderParams:
     handover_lag: int = 0
     spell_merge_frames: int = 0
     spell_merge_tails: int = 0
+    spell_push_mps: float = 0.0
+    spell_push_frames: int = 0
+    spell_push_between: int = 0
+    spell_push_unseen: float = 0.0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -218,6 +233,14 @@ class DecoderParams:
         _number("spell_merge_tails", self.spell_merge_tails, 0, 1, integer=True, lo_open=False, hi_open=False)
         if self.spell_merge_tails and not self.spell_merge_frames:
             raise ValueError("spell_merge_tails acts only with spell_merge_frames > 0")
+        _number("spell_push_mps", self.spell_push_mps, 0, math.inf, lo_open=False)
+        _number("spell_push_frames", self.spell_push_frames, 0, math.inf, integer=True, lo_open=False)
+        _number("spell_push_between", self.spell_push_between, 0, 1, integer=True, lo_open=False, hi_open=False)
+        if bool(self.spell_push_mps) != bool(self.spell_push_frames):
+            raise ValueError("spell_push_mps and spell_push_frames are set together")
+        _number("spell_push_unseen", self.spell_push_unseen, 0, 1, lo_open=False, hi_open=False)
+        if (self.spell_push_between or self.spell_push_unseen) and not self.spell_push_mps:
+            raise ValueError("spell_push_between and spell_push_unseen act only with spell_push_mps > 0")
         if bool(self.dead_still_mps) != bool(self.dead_still_frames):
             raise ValueError("dead_still_mps and dead_still_frames are set together")
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
@@ -241,7 +264,8 @@ _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
 _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
                     "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0,
-                    "spell_merge_frames": 0, "spell_merge_tails": 0}
+                    "spell_merge_frames": 0, "spell_merge_tails": 0, "spell_push_mps": 0.0, "spell_push_frames": 0,
+                    "spell_push_between": 0, "spell_push_unseen": 0.0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -273,9 +297,10 @@ class Decoder:
              round(posterior, 9). The rounding makes exact symmetric ties (a flat block at the start of
              a half) resolve to the lower label on every machine instead of on 1-ulp noise.
           4. dead_min_run > 0 replaces the chain's D by the missing-run rule (see DecoderParams).
-          5. spell_merge_frames joins short possessions to their neighbours (see DecoderParams).
-          6. handover_lag moves the hand-overs between the teams later (see DecoderParams).
-          After 4, 5 or 6 the posterior is dropped, because it no longer describes the codes.
+          5. spell_push_mps gives short possessions that push contradicts to the other team.
+          6. spell_merge_frames joins short possessions to their neighbours (see DecoderParams).
+          7. handover_lag moves the hand-overs between the teams later (see DecoderParams).
+          After 4 to 7 the posterior is dropped, because it no longer describes the codes.
         """
         p, kickoff = self.params, half.id.kickoff
         ev = self.emission.loglik(half)[kickoff:].astype(np.float64)
@@ -289,15 +314,16 @@ class Decoder:
         post[:kickoff] = (0.0, 0.0, 1.0)
         post[kickoff:] = np.repeat(_forward_backward(E, _chain(p)), p.stride, axis=0)[:m]
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
-        if p.dead_min_run or p.handover_lag or p.spell_merge_frames:
+        if p.dead_min_run or p.handover_lag or p.spell_merge_frames or p.spell_push_mps:
             return Decoded(codes=_rules(codes, half, p), posterior=None)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
     @property
     def needs_geometry(self) -> bool:
-        """True when decoding reads Half.geometry or Half.pace_mps, which only challenge.observe supplies."""
+        """True when decoding reads Half.geometry, Half.pace_mps or Half.push_mps, which only challenge.observe
+        supplies."""
         p = self.params
-        return self.emission.needs_geometry or bool(p.dead_min_run and (
+        return self.emission.needs_geometry or bool(p.spell_push_mps) or bool(p.dead_min_run and (
             p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps))
 
     def replace(self, **flat: object) -> "Decoder":
@@ -357,8 +383,36 @@ def _strict(cls: type, values: Mapping[str, object]):
 
 
 def _rules(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
-    merged = _merge_spells(_missing_run_dead(codes, half, p), p.spell_merge_frames, p.spell_merge_tails)
+    flipped = _push_flip(_missing_run_dead(codes, half, p), half, p)
+    merged = _merge_spells(flipped, p.spell_merge_frames, p.spell_merge_tails)
     return _lag_handovers(merged, p.handover_lag)
+
+
+def _push_flip(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
+    """Each team run under spell_push_frames whose mean push toward its team is at most -spell_push_mps, judged
+    on the input runs, takes the other team; with spell_push_between only between two runs of that team, and
+    with spell_push_unseen only when that share of its frames has no token."""
+    if not p.spell_push_mps:
+        return codes
+    if half.push_mps is None:
+        raise ValueError(f"{half.id}: spell_push_mps reads Half.push_mps and the Half has none; observe it from a "
+                         "Geometry (challenge.halves('atd')), not from baseline_raw")
+    edges = np.flatnonzero(np.diff(codes)) + 1
+    starts, stops = np.r_[0, edges], np.r_[edges, len(codes)]
+    teams = codes[starts]
+    out = codes.copy()
+    for k, (a, b, team) in enumerate(zip(starts, stops, teams)):
+        if team == D or b - a >= p.spell_push_frames:
+            continue
+        if p.spell_push_between and not (0 < k < len(teams) - 1 and teams[k - 1] == teams[k + 1] == 1 - team):
+            continue
+        if p.spell_push_unseen and (half.nearest_team[a:b] == NO_TEAM).mean() < p.spell_push_unseen:
+            continue
+        push = half.push_mps[a:b]
+        push = push[np.isfinite(push)].astype(np.float64)
+        if len(push) and (push.mean() if team == H else -push.mean()) <= -p.spell_push_mps:
+            out[a:b] = 1 - team
+    return out
 
 
 def _merge_spells(codes: NDArray[np.int8], frames: int, tails: int) -> NDArray[np.int8]:
