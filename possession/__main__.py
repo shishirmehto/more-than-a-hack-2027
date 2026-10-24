@@ -58,6 +58,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     fit.add_argument("--map-temper", type=float, nargs="*", default=[0.1, 0.2, 0.5, 1.0],
                      help="temper axis of the decode_rule='map' sub-grid; give none to skip it")
     fit.add_argument("--map-min-poss-frames", type=int, nargs="+", default=[1, 50])
+    fit.add_argument("--reference-window", type=int, default=None, metavar="WINDOW",
+                     help="select by the worst group margin over baseline_smooth<WINDOW> (bench.SELECTION_MARGIN) "
+                          "instead of the worst raw world score")
 
     sweep = sub.add_parser("sweep", help="generator dead_bias x decoder belief surface on pooled dev")
     _world_flags(sweep, rule=("m0",), dead_bias="the bracket and the measured point, dropout.CALIBRATION.surface")
@@ -75,6 +78,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     scores.add_argument("--public", action="store_true")
     scores.add_argument("--mode", choices=("renewal", "transplant"), default="renewal")
     scores.add_argument("--bootstrap", type=int, default=0)
+    scores.add_argument("--objective", type=int, default=None, metavar="WINDOW",
+                        help="also print each model's seed-mean dev_pooled margin over baseline_smooth<WINDOW> per "
+                             "group (a world without its seed), with the min over groups first")
     scores.add_argument("--paired", action="store_true",
                         help="paired bootstrap spellF1 delta of each later model against the first --params, "
                              "on every dev_pooled and public case")
@@ -114,15 +120,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error(f"model names must be unique, got {names}")
         if args.paired and len(names) < 2:
             parser.error("--paired needs two or more models (--params and --baseline together)")
+        if args.objective is not None and (args.objective not in args.baseline or not args.dev):
+            parser.error("--objective WINDOW needs --dev and the same WINDOW in --baseline")
         return _score(args)
     raise AssertionError(args.command)
 
 
 def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: str) -> None:
     p.add_argument("--seed", type=int, nargs="+", default=[0], help="dropout seeds, one world each")
-    p.add_argument("--rule", nargs="+", default=list(rule), metavar="KEY",
+    p.add_argument("--rule", nargs="+", default=list(rule), metavar="[SOURCE:]KEY",
                    help='label rules by RuleV2.key: "m0" raw, "m2" merges spells under 2 s, '
-                        '"h3p3" controlled possession (3 s or 3 passes)')
+                        '"h3p3" controlled possession (3 s or 3 passes); "idsse:m0" takes that rule from '
+                        'another source than --source, so one run can mix sources')
     p.add_argument("--dead-bias", type=float, nargs="+", default=None,
                    help=f"generator dead_bias worlds (default: {dead_bias})")
     # bench.SOURCES spelled out: importing bench here would put pandas on make-submission's import path.
@@ -136,15 +145,15 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
 
     started = time.perf_counter()
     rhos = args.dead_bias or list(dropout.CALIBRATION.dead_bias_bracket)
-    worlds = bench.worlds([metrica.RuleV2.parse(key) for key in args.rule], rhos, seeds=args.seed,
-                          source=args.source)
+    worlds = bench.dev_worlds(args.rule, rhos, seeds=args.seed, source=args.source)
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "dead_bias": args.belief,
               "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
     if args.map_temper:
         grids.append({"decode_rule": ["map"], "temper": args.map_temper,
                       "min_poss_frames": args.map_min_poss_frames, **shared})
-    model, table = bench.fit_dev(worlds, grids, on_row=_print_row)
+    reference = None if args.reference_window is None else bench.Smoother(args.reference_window)
+    model, table = bench.fit_dev(worlds, grids, on_row=_print_row, reference=reference)
     seconds = time.perf_counter() - started
 
     grid_path = args.out.with_name(f"{args.out.stem}_grid.csv")
@@ -152,7 +161,7 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
     model.save(args.out, {
         "command": shlex.join(["python", "-m", "possession", *argv]),
         "sweep_worlds": list(worlds),
-        "selection": bench.SELECTION,
+        "selection": bench.SELECTION if reference is None else f"{bench.SELECTION_MARGIN} ({reference.name})",
         **bench.SOURCES[args.source].pin,
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         "grid_table": grid_path.name,
@@ -189,9 +198,8 @@ def _score(args: argparse.Namespace) -> int:
 
     models: dict[str, bench.Model] = {p.stem: Decoder.load(p) for p in args.params}
     models.update({s.name: s for s in map(bench.Smoother, dict.fromkeys(args.baseline))})
-    rules = [metrica.RuleV2.parse(key) for key in args.rule]
     rhos = args.dead_bias or [dropout.CALIBRATION.dead_bias]
-    worlds = bench.worlds(rules, rhos, seeds=args.seed, mode=args.mode, source=args.source) if args.dev else {}
+    worlds = bench.dev_worlds(args.rule, rhos, seeds=args.seed, mode=args.mode, source=args.source) if args.dev else {}
     if args.public:
         worlds["public"] = [bench.public_case()]
     table = pd.concat([bench.run(models, cases, bootstrap_n=args.bootstrap).assign(world=world)
@@ -202,6 +210,9 @@ def _score(args: argparse.Namespace) -> int:
     out = RUNS_DIR / f"{args.name or '+'.join(models)}.csv"
     table.to_csv(out, index=False, lineterminator="\n")
     print(out)
+    if args.objective is not None:
+        print(f"seed-mean dev_pooled spellF1 margin over {bench.Smoother(args.objective).name} per group")
+        print(bench.objective(table, bench.Smoother(args.objective).name).round(4).to_string())
     if args.paired:
         (first, reference), *others = models.items()
         rows = []

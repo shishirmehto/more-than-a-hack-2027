@@ -692,6 +692,9 @@ def worlds_seed_axis() -> None:
     assert all(np.array_equal(a.nearest_team, b.nearest_team) for a, b in zip(seed0.halves, direct.halves))
     assert not any(np.array_equal(a.nearest_team, b.nearest_team) for a, b in zip(seed0.halves, seed2.halves))
     assert np.array_equal(seed0.gt, seed2.gt)
+    assert [bench.group(w) for w in ("m2_r1", "m2_r1_s2", "idsse_m0_r2.6_s13")] == ["m2_r1", "m2_r1", "idsse_m0_r2.6"]
+    margins = bench.group_margins({"m2_r1": 0.3, "m2_r1_s2": 0.5, "h3p3_r1": 0.2}, {"m2_r1": 0.2, "m2_r1_s2": 0.2, "h3p3_r1": 0.3})
+    assert list(margins) == ["m2_r1", "h3p3_r1"] and np.allclose(list(margins.values()), [0.2, -0.1]), margins
 
 
 def public_case_predict_equals_submission() -> None:

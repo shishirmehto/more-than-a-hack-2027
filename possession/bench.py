@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, Mapping, Sequence
@@ -22,6 +23,9 @@ MAX_SWITCH_RATIO = 10
 
 SELECTION = ("max over candidates of the min pooled-dev spellF1 across worlds, ties by the mean; "
              "NaN (refused as flicker) in any world disqualifies")
+SELECTION_MARGIN = ("max over candidates of the min, over world groups (a world key without its seed), of the "
+                    "seed-mean pooled-dev spellF1 margin over the reference model; ties by the mean; NaN in any "
+                    "world disqualifies")
 
 Grid = Mapping[str, Sequence[object]]
 
@@ -193,6 +197,46 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
     return out
 
 
+def dev_worlds(items: Sequence[str], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
+               mode: Literal["renewal", "transplant"] = "renewal", source: str = "metrica") -> dict[str, list[Case]]:
+    """worlds() for "[source:]rule" items, so one call mixes sources ("m0", "h3p3", "idsse:m0"). An item
+    without a prefix uses `source`. Each source keeps its key prefix, so keys never collide."""
+    by_source: dict[str, list[RuleV2]] = {}
+    for item in items:
+        prefix, _, key = item.rpartition(":")
+        by_source.setdefault(prefix or source, []).append(RuleV2.parse(key))
+    out: dict[str, list[Case]] = {}
+    for name, rules in by_source.items():
+        out.update(worlds(rules, dead_bias, seeds=seeds, mode=mode, source=name))
+    return out
+
+
+def group(world: str) -> str:
+    """A world key without its seed suffix ("idsse_m0_r2.6_s3" -> "idsse_m0_r2.6"): one convention under
+    one generator, which a seed-mean averages over."""
+    return re.sub(r"_s\d+$", "", world)
+
+
+def group_margins(spell: Mapping[str, float], floor: Mapping[str, float]) -> dict[str, float]:
+    """Seed-mean of spell minus floor per group, both keyed by world."""
+    by_group: dict[str, list[float]] = {}
+    for world, value in spell.items():
+        by_group.setdefault(group(world), []).append(value - floor[world])
+    return {g: float(np.mean(v)) for g, v in by_group.items()}
+
+
+def objective(table: pd.DataFrame, reference: str) -> pd.DataFrame:
+    """One row per model of run()'s table (with a world column): the seed-mean dev_pooled spellF1 margin
+    over `reference` in each group, then min (the objective) and mean over groups."""
+    pooled_rows = table[table["case"] == "dev_pooled"]
+    spell = pooled_rows.pivot_table(index="world", columns="model", values="spell_f1")
+    rows = {}
+    for model in spell.columns:
+        margins = group_margins(spell[model].to_dict(), spell[reference].to_dict())
+        rows[model] = {**margins, "min": min(margins.values()), "mean": float(np.mean(list(margins.values())))}
+    return pd.DataFrame.from_dict(rows, orient="index").sort_values(["min", "mean"], ascending=False)
+
+
 def run(models: Mapping[str, Model], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
     """One row per (model, case): model, case, score.Scores.as_row() columns, then the case's
     dropout_stats.
@@ -271,9 +315,11 @@ def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequ
 
 def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
             base: Decoder = Decoder(Tier0Emission(), DecoderParams()),
-            on_row: Callable[[dict[str, object]], None] | None = None) -> tuple[Decoder, pd.DataFrame]:
+            on_row: Callable[[dict[str, object]], None] | None = None,
+            reference: Model | None = None) -> tuple[Decoder, pd.DataFrame]:
     """Every candidate of `grids` scored on every world's dev_pooled case; returns (best by max-min,
-    the whole grid table).
+    the whole grid table). With a reference model, min and mean are taken over group margins
+    (SELECTION_MARGIN) instead of raw world scores (SELECTION).
 
     grids:  a union of Cartesian products, one Mapping per sub-grid. Keys are Decoder.fields() names
             (dead_bias is the decoder's belief); an axis a sub-grid omits keeps `base`'s value.
@@ -283,6 +329,9 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
     which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies."""
     cases = {name: pooled(world) for name, world in worlds.items()}
     runs = {name: score.valid_runs(case.gt) for name, case in cases.items()}
+    floor = None if reference is None else {
+        name: score.spell_f1(case.layout, case.gt, _predict("reference", reference, case, {}), runs[name])[0]
+        for name, case in cases.items()}
     models, rows = [], []
     for model in _candidates(base, grids):
         memo: _Memo = {}
@@ -294,7 +343,7 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
                 spell[name], n_pred[name] = float("nan"), -1
                 continue
             spell[name], n_pred[name] = score.spell_f1(case.layout, case.gt, preds, runs[name])
-        values = np.array(list(spell.values()))
+        values = np.array(list(spell.values() if floor is None else group_margins(spell, floor).values()))
         row = {**model.fields(), **{f"spell_{k}": v for k, v in spell.items()},
                "min": float(values.min()), "mean": float(values.mean()),
                **{f"pred_{k}": v for k, v in n_pred.items()}}
