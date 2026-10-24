@@ -22,7 +22,7 @@ Nine new params files, each one confirmed on held-out data before the next was b
 | `params/tier0_v7.json` | `dead_pace_still_mps` 0.5: frames where players walk count as missing | the gated ATD | `554e4e5b06f3328b…` |
 | `params/tier0_v8.json` | `spell_merge_frames` 50: a possession under 2 s inside another team's spell joins its neighbours (rule v4) | the gated ATD | `abb0ed9c2b8c2921…` |
 | `params/tier0_v9.json` | to tier0_v7, not v8: `spell_push_*` 2.0 / 250 / 0.5: a possession under 10 s, at least half without a ball sighting, whose players push 2 m/s or more against its team goes to the other team | the gated ATD | `36d911031fcb7a0f…` |
-| `params/tier0_v10.json` | `switch_penalty` 1.0: the decode charges 1 nat per change of team, so a run of one team inside the other survives only with 2 nats of log-odds behind it | the gated ATD | `d137e9e61c7a9b3e…` |
+| `params/tier0_v10.json` | `switch_penalty` 1.0: the decode charges 1 nat per change of team, so an island of one team inside the other survives only when its summed block log-odds reach 2 nats | the gated ATD | `d137e9e61c7a9b3e…` |
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
 the held-out half is"). The numbers are spellF1 margins over `baseline_smooth50`; the PFF columns are the 32
@@ -56,8 +56,9 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 - The synthetic confirmation is weak. Its bar is every group above smooth50, which v6 onward clear by about
   0.10, so the binding test of each step was the paired PFF-B bound. That bound used the same 32 games eleven
   times in sequence (ten confirmations and E19's rejection), with 90% intervals and no correction for
-  repeated use. A crude ten-way widening still leaves v9's lower bounds above zero (about +0.001 on m0 and
-  +0.004 on m2, fable's review).
+  repeated use. A crude eleven-way widening (t about 2.8 instead of 1.69) still leaves the lower bounds above
+  zero: v9 over v7 about +0.001 on m0 and +0.004 on m2, v10 over v9 about +0.0009 and +0.0034 (the reviewers'
+  arithmetic from the printed intervals).
 - The synthetic column for v6 and v7 is inflated. Dev sources hold a lost ball at its last position, so a
   "ball at rest" rule partly restores the native gaps the generator hid. The PFF columns are the cleaner test.
 - On BAR-ATH the steps change few frames. Against the previous file, v3 changes 1,311 frames, v4 6,503, v5
@@ -79,15 +80,34 @@ a decode that charges each change of team (E27). Both steps were selected and co
 pre-registered rule v2 on the v7 line, with no StatsBomb data.
 
 - v10's held-out gain over v9 (PFF-B m0 +0.0037, m2 +0.0068) is about three quarters of its selection gain. It
-  changes 329 of 158,857 graded BAR-ATH frames and removes 23 of v9's 429 possessions.
-- Its cost is a small loss on the per-touch IDSSE m0 groups (0.0007 to 0.0016 on seeds 15-24), the trade every
-  short-possession cut in this run made. Of the cuts tried, v10's is the smallest, and the only one that
-  passed the veto.
-- The registered diagnostic says the penalty acts mostly as a cut of the shortest weak islands. Within a length
-  band, posterior confidence separates matched from unmatched short possessions by only 0.04 to 0.06
-  (`probes.py spellmass`), so the confidence story the design was built on is not what makes it work.
+  changes 329 of 158,857 graded BAR-ATH frames and cuts the H and A run count from 429 to 406: about a dozen
+  islands of some 27 frames, whose removal also joins their neighbours. That 5.4% drop is larger than PFF-A's
+  3.7% and close to the per-touch IDSSE m0 worlds' 4.9%, against the ranker's expectation that BAR-ATH's
+  better ball coverage would prune less.
+- Its cost is a small but consistent loss on the per-touch IDSSE m0 groups: negative in all six comparisons,
+  0.0007 to 0.0016 (seeds 0-4 and 15-24). It is not the only short-possession cut that passed the veto. E22's
+  25-frame merge on v7 passed and even gained on IDSSE m0, but missed the 0.003 band on PFF-A (+0.0022).
+- A control I ran after the review (D2, registered as not a candidate) puts E22's length merge on v9 at
+  matching doses. A 35-frame merge reaches a PFF-A minimum of 0.1360 at 7,513 predicted possessions, against
+  λ 1's 0.1365 at 7,451, and it gains 0.0003 to 0.0017 on IDSSE m0 where λ 1 loses 0.0009 to 0.0015. A 50-frame
+  merge reaches 0.1377 at 7,310, against λ 2's 0.1390 at 7,303, and loses 0.006 to 0.008 on IDSSE m0 against λ
+  2's 0.003 to 0.004 (`probes.py mergedose`). So per possession removed the penalty and a length cut do about
+  the same on PFF, and at v10's dose the length cut is the gentler one on per-touch labels. A 35-frame merge on
+  v9 was never a registered candidate, has no held-out result and is not a params file. Adopting it now would
+  be a choice made after seeing its numbers.
+- Under the fan-out ranker's own registration E27 ends in no change. Its kill gate K1 (posterior confidence must
+  separate matched from unmatched short possessions by 0.10 beyond length) fires at 0.04 and 0.06
+  (`probes.py spellmass`), and its grid had no penalty below 2, which misses the veto by 0.0010. I made both
+  departures before any result (logged 07:49Z, first result 07:51Z): I added λ 1 because temper 0.1 flattens
+  the posterior, against the ranker's note that λ of 2 or less sits close to E22's tied 25-frame merge, and I
+  demoted K1 and K2 to diagnostics. The winning arm is the one I added. That is pre-registration, not a fix
+  after the fact, but it is a candidate shaped with the veto's known behaviour in view, the pattern this report
+  also flags for E26. K2 (the matched share of the removals against E22 at 50 frames) was never computed.
+- So the confidence story the design was built on is not what makes v10 work: it acts as a cut of the
+  shortest weak islands. λ 1 removes 169 possessions on PFF-A, 5.3% of them matched.
 - The design came from a fan-out whose ranker saw dfa8e68's commit message, which holds v9's PFF-B figures,
-  while orienting. It said it used none, and E27's candidates and tie order were logged before any result.
+  while orienting. It said it used none.
+- v9 is a near-equivalent fallback, and the safer pick if BAR-ATH's ground truth credits every touch.
 
 The stakes are small at each step: v9's gain over v7 and v10's over v9 are each about a tenth of the ±0.04
 single-match noise. v9's held-out gain over v7 (PFF-B m0 +0.0050, m2 +0.0087) equals its gain on the
@@ -102,11 +122,15 @@ selection games (+0.0049, +0.0090). v10 keeps v9's push stage, so v9's three cav
   does not support the premise that a seen ball's token is right where push disagrees. Seen possessions with
   push of 2 m/s or more against their team are 68% mostly wrong (522 spells), against 74% for unseen ones
   (398). The gate acts as a dial on how many possessions the stage judges more than as a better test.
-- On BAR-ATH, push has the right sign in both halves (each team's kick-off side flips at half-time). Strong
-  negative push lowers the share of seen frames whose nearest player is home by about as much as on PFF
-  (0.10 below the half's mean on BAR-ATH, 0.11 on PFF-A). Strong positive push raises it less, and in half 1
-  not at all (0.552 at 3 m/s and over against a mean near 0.58). 148 of the 373 changed frames are half-1
-  flips from away to home, which rest on that weak tail (`probes.py barath-push`, `pff-push-tokens`, `subs`).
+- On BAR-ATH, push's orientation holds: each team's kick-off side flips at half-time (home mean x 41.2 then
+  65.2, away 54.2 then 46.7). Half 1's away mean is only 1.5 m from the centre line that sets its sign, and
+  `_team_push` sets each team's sign on its own, without using that the teams start on opposite sides. The
+  link to the nearest-player team is weak in half 1. Its bins are not monotone, and the (-3, -2] m/s bin
+  (0.622) sits above the half's mean of about 0.574, though the stage fires from 2 m/s; only the -3 m/s tail
+  (0.475, 0.10 below the mean, against PFF-A's 0.11) points the right way. Half 2 is monotone (0.462 to
+  0.601), with a positive tail 0.056 above its mean against PFF-A's 0.136. 148 of the 373 changed frames are
+  half-1 flips from away to home, which rest on half 1's weak positive tail (`probes.py barath-push`,
+  `pff-push-tokens`, `subs`).
 
 tier0_v9 is the fallback without the penalty, and tier0_v7 the fallback without the push stage. tier0_v8 is an option,
 not the default. Its rule was fitted to the result it admits, both reviewers flagged that, and more selection
@@ -266,7 +290,8 @@ overstates how independent the B columns are:
 | 48 | per-spell push probe, then `_push_flip` (E25): a possession under 5 or 10 s whose mean push runs 1.5 to 3 m/s against its team goes to the other team, judged once per spell on tier0_v7, rule v2 | per-frame push fragments; spells with push of 2 m/s or more against their team are mostly wrong (other-team share minus own +0.21, +0.48 under 2 s) | the largest PFF-A gains of the run (m0 +0.139 at 3 m/s over 10 s, m2 +0.177 at 2 m/s over 10 s, against +0.127 and +0.155) and h3p3 up 0.02 to 0.05, but every variant loses 0.0095 to 0.0293 on the IDSSE m0 groups | rejected by the veto; rule v4's allowance would not admit it either |
 | 49 | `_push_flip` judged only on possessions at least half without a token, `spell_push_unseen` {0.5, 0.8} (E26), rule v2 | inferred, never measured: push trails a turnover, so it should not overrule a seen ball; designed after E25 failed the veto | two of the three 0.5 arms lift every synthetic group (3 m/s over 250 frames loses 0.0002 on idsse_m0_r4); IDSSE m0 moves +0.0002 to +0.0013 because the gate rarely fires there (40 possessions removed against E25's 418); PFF-A m0 +0.132 and m2 +0.164 against +0.127 and +0.155; the tie rule picks 2 m/s over 250 frames, by 0.00004 over 3 m/s | **tier0_v9**: confirmed on PFF-B (m0 +0.0050 [+0.0026, +0.0074], 25 of 32 games; m2 +0.0087 [+0.0056, +0.0117], 27 of 32) and above v7 in all 15 synthetic groups of seeds 15-24 |
 | 50 | label-free check of the shipped push signal on BAR-ATH (`probes.py barath-push`), against the same statistic on PFF-A m0 (`pff-push-tokens`) | review flag: v9 was never checked on BAR-ATH itself | the sign is right in both halves; at push of -3 m/s or less the home-token share falls 0.10 below the half mean (PFF-A 0.11); at +3 m/s and over it rises less, and in half 1 not at all; 148 of v9's 373 changed frames are half-1 away-to-home flips | v9 kept; the weak tail is a disclosed limitation |
-| 51 | switch-penalized decode path (E27): the block posterior decoded by a Viterbi that charges `switch_penalty` per change of team, D blips free, then v9's rules; lambda {1, 2, 4, 8, 16, 32}, 8 and 16 also with no charge into dead frames; base tier0_v9, rule v2, PFF-A first | design fan-out 2's top design: fewer predicted possessions is the one lever that cleared the tie band (E22), and posterior mass might spare confident per-touch possessions | PFF-A minimum 0.1316 at base; lambda 2 0.1390, 8 no-charge 0.1378, 4 0.1377, 1 0.1365; only lambda 1 passes the veto (IDSSE m0 -0.0009 to -0.0015; lambda 2 misses by 0.0010); lambda 1 removes 169 possessions, 5.3% of them matched; confidence separates matched from unmatched short possessions by only 0.04 to 0.06 within a length band | **tier0_v10**: confirmed on PFF-B (m0 +0.0037 [+0.0020, +0.0054], 25 of 32 games; m2 +0.0068 [+0.0047, +0.0088], 29 of 32), above smooth50 in all 15 groups of seeds 15-24, above v9 in 12; equivpath 0 of 6,237,132 frames |
+| 51 | switch-penalized decode path (E27): the block posterior decoded by a Viterbi that charges `switch_penalty` per change of team, D blips free, then v9's rules; lambda {1, 2, 4, 8, 16, 32}, 8 and 16 also with no charge into dead frames; base tier0_v9, rule v2, PFF-A first | design fan-out 2's top design: fewer predicted possessions is the one lever that cleared the tie band (E22), and posterior mass might spare confident per-touch possessions | PFF-A minimum 0.1316 at base; lambda 2 0.1390, 8 no-charge 0.1378, 4 0.1377, 1 0.1365; only lambda 1 passes the veto (IDSSE m0 -0.0009 to -0.0015; lambda 2 misses by 0.0010); lambda 1 removes 169 possessions, 5.3% of them matched; confidence separates matched from unmatched short possessions by only 0.04 to 0.06 within a length band | **tier0_v10**: confirmed on PFF-B (m0 +0.0037 [+0.0020, +0.0054], 25 of 32 games; m2 +0.0068 [+0.0047, +0.0088], 29 of 32), above smooth50 in all 15 groups of seeds 15-24, above v9 in 12; equivpath 0 of 6,237,132 frames; under the fan-out ranker's own gates and grid the result would have been no change |
+| 52 | control D2, not a candidate: E22's length merge at 25, 35 and 50 frames on tier0_v9 | both v10 reviewers: λ 1 may be E22's lever at another dose | PFF-A minimum 0.1336, 0.1360 and 0.1377 at 7,629, 7,513 and 7,310 predicted possessions (λ 1 0.1365 at 7,451, λ 2 0.1390 at 7,303); IDSSE m0 +0.0012 to +0.0017, +0.0003 to +0.0012, and -0.0062 to -0.0081 (λ 1 -0.0009 to -0.0015) | the penalty buys nothing a length cut does not; at v10's dose a 35-frame merge is gentler on per-touch labels; not tested on held-out data |
 
 ## What did not work, and why
 
@@ -362,7 +387,8 @@ choosing on them. The ordering still matters. The first read came before E17 to 
 merge stage, and its figures, including the over-prediction of 25 possessions against 17, were in the log and
 report that the design fan-out read. One fan-out agent reasoned from that ratio while weighing spell-count
 ideas, though no proposal cited it. The merge stage that became tier0_v8 lowers the predicted count. Nobody
-can show that the read did not steer the search, which is one more reason tier0_v8 is not the default.
+can show that the read did not steer the search, which is one more reason tier0_v8 is not the default. E27's
+penalty lowers the predicted count too, and I had read that ratio when I added λ 1 and demoted K1.
 
 ## Limitations
 
@@ -376,15 +402,16 @@ can show that the read did not steer the search, which is one more reason tier0_
 - `Half.pace_mps` reads a slot across 24 frames. `half.Geometry` documents that nothing follows a slot in
   time. It holds for BAR-ATH's ATD track slots (per-slot step under 0.27 m per frame at p99) and for the dev
   sources' player slots, and the docstring says so.
-- Score runs peaked at 2.7 to 4.0 GB, above the 2 GB the laptop guideline asks for, after the user had asked
-  for lighter jobs.
+- Score runs peaked at 2.1 to 4.0 GB, above the 2 GB the laptop guideline asks for, after the user had asked
+  for lighter jobs. v10's synthetic confirmation, split off to stay under 2 GB, still peaked at 2.10 GB
+  resident (3.26 GB footprint).
 - Byte-for-byte reproduction was checked only on this laptop, with the numpy and Python in `.venv`, most
   recently from a fresh clone of commit dfa8e68 (`data/derived/verify/20261024-clean-dfa8e68/`, v7 and v9).
   After dfa8e68 changed `observe` and `Half`, v2 to v6 and v8 were rebuilt at db26d0e and match their pinned
   hashes (`data/derived/verify/20261024-1315-hashes/`). From v3 on,
   float32 geometry meets hard thresholds (`outside_m > 0.5`, the speed and pace cutoffs). `probes.py jitter`
-  moves every float decoder input by up to 1e-6, 1e-5 and 1e-4 relative: 0 of 158,857 BAR-ATH frames change
-  for v7, v8, v9 or v10 at any level (v9's and v10's runs also move push_mps), although up to 103 frames sit within 1e-3 of a
+  moves every float decoder input by up to 1e-6, 1e-5 and 1e-4 relative (v9 and v10 at 1e-6 and 1e-4 only,
+  their runs also moving push_mps): 0 of 158,857 BAR-ATH frames change for v7 to v10, although up to 103 frames sit within 1e-3 of a
   threshold, because the run rules need 50 frames to act. The test covers drift in the derived features, not a
   different ATD parse, and it does not test push's orientation, which `probes.py barath-push` checks.
 - The checks that v2 to v7 match their selecting probes frame for frame ran from a scratch folder and are not
@@ -392,10 +419,16 @@ can show that the read did not steer the search, which is one more reason tier0_
   `probes.py equivpath`, which checks the decoder's `_penalized_path` against the probe's own copy (0 of
   6,237,132 frames), and selfcheck's `switch_penalty_known_answer` tests it on hand-worked arrays. That probe
   calls the shipped `decoder._rules`, so it cannot catch a bug in `_merge_spells` or `_push_flip`; only
-  selfcheck's `spell_merge_known_answer` and `spell_push_known_answer` test them independently. Nothing tests
-  the production `challenge._team_push` against a known answer; `barath-push` checks its sign on BAR-ATH.
-- tier0_v9 is the only shipped candidate never scored on the public window. I skipped the read on purpose,
-  because the validator proves the format and a score next to the recommendation could look like selection.
+  selfcheck's `spell_merge_known_answer` and `spell_push_known_answer` test them independently. equivpath's
+  probe path is a near copy of the decoder's, so it cannot catch a bug both share; the hand-worked known
+  answers are the independent test. A check that the two copies agree on 200 random posteriors ran only in
+  the session. `team_push_known_answer` tests the production `challenge._team_push`.
+- At a large penalty an island goes to the chain's D, because a pass through D costs nothing, and the dead
+  stage then fills it with the previous team. That is right in v10, but `switch_penalty` without
+  `dead_min_run` would leave such D frames in the output.
+- tier0_v9 and tier0_v10 are the only shipped candidates never scored on the public window. I skipped the
+  reads on purpose, because the validator proves the format and a score next to the recommendation could look
+  like selection.
 - v1's chain carries public-window history from 2026-10-21 (its temper grid and its dead_bias belief). The
   hillclimb changed only the fields listed in each file's provenance, and `freeze.py` copies v1's disclosure
   word for word. Each file's `public_window` text now also lists the three reads above.

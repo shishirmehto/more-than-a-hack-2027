@@ -68,13 +68,16 @@ PUSH = ("spell_push_mps, spell_push_frames and spell_push_unseen come from pre-r
         "labels. No StatsBomb data entered this selection.")
 SWITCH = ("switch_penalty comes from pre-registered experiment E27 on tier0_v9: the chain's block posterior is "
           "decoded by the label path that maximises the summed log posterior minus switch_penalty per change of team "
-          "(decoder._penalized_path), so a run of one team inside the other survives only when its summed log-odds "
-          "reach twice the penalty. Candidates were 1, 2, 4, 8 and 16 with and without a waiver at dead frames, and "
-          "32, from a design fan-out. Rule v2 (synthetic veto at tier0_v9 minus 0.003 in every group; the odd-game "
-          "minimum over PFF m0 and m2 ranks; ties within 0.003 to the base, then the smaller penalty) chose 1, the "
-          "only candidate the IDSSE m0 groups did not veto; even-indexed PFF games and seeds 15-24 only confirm. On "
-          "PFF-A short possessions the posterior log-odds separate matched from unmatched little beyond length, so "
-          "it acts as a cut of the shortest weak islands. No StatsBomb data entered this selection.")
+          "(decoder._penalized_path), so an island of one team inside the other survives only when its summed block "
+          "log-odds reach twice the penalty. A design fan-out proposed 2, 4, 8, 16 and 32, with a waiver at dead "
+          "frames for 8 and 16; the registrant added 1 ahead of them before any result, because temper 0.1 flattens "
+          "the posterior. Rule v2 (synthetic veto at tier0_v9 minus 0.003 in every group; the odd-game minimum over "
+          "PFF m0 and m2 ranks; ties within 0.003 to the base, then the smaller penalty) chose 1, the only candidate "
+          "the IDSSE m0 groups did not veto (2 missed by 0.0010); even-indexed PFF games and seeds 15-24 only "
+          "confirm. The fan-out's own kill gate, that posterior confidence separate matched from unmatched short "
+          "possessions by 0.10 beyond length, was demoted to a diagnostic before any result and then failed (0.04 "
+          "and 0.06), so under the fan-out's registration the result would be no change, and the penalty acts as a "
+          "cut of the shortest weak islands. No StatsBomb data entered this selection.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "

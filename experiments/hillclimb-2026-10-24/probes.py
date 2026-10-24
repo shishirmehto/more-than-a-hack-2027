@@ -81,6 +81,9 @@ spellmass PARAMS --only V...
                      tercile on PFF-A m0, and the matched share of the possessions each variant removes
 equivpath SHIPPED BASE
                      frames where SHIPPED (BASE + switch_penalty) differs from switchpen's probe path on BASE
+mergedose PARAMS --out CSV
+                     diagnostic, not a candidate: E22's length merge at 25, 35 and 50 frames on PARAMS, to compare a
+                     length cut with E27's penalty at a similar dose
 subs CSV...          label-free: label shares, H, A and D runs and differing frames of our own submission CSVs
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -1295,6 +1298,7 @@ PUSH_GRID = [{}] + [{"spell_push_mps": t, "spell_push_frames": n} for t, n in ((
     [{"spell_push_mps": 2.0, "spell_push_frames": n, "spell_push_between": 1} for n in (125, 250)]
 PUSH_UNSEEN_GRID = [{}] + [{"spell_push_mps": t, "spell_push_frames": n, "spell_push_unseen": u}
                           for u in (0.5, 0.8) for t, n in ((2.0, 125), (2.0, 250), (3.0, 250))]
+DOSE_GRID = [{}] + [{"spell_merge_frames": n} for n in (25, 35, 50)]
 MERGE_GRID = [{}] + [{"spell_merge_frames": n} for n in (25, 50, 75, 100)] + \
     [{"spell_merge_frames": n, "spell_merge_tails": 1} for n in (25, 50)]
 COMBO_GRID = [{"handover_lag": lag, "dead_trim": trim, "dead_pace_still_mps": sv, "dead_still_frames": sf}
@@ -1755,7 +1759,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -1769,7 +1773,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
