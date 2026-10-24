@@ -538,7 +538,10 @@ penalty lowers the predicted count too, and I had read that ratio when I added Î
   StatsBomb data entered rule v3 and v4 rankings, so it shaped tier0_v8's selection and not tier0_v7's. This
   report already publishes analysis formed from StatsBomb data (experiments 38, 39, 41 and 42), so it needs
   that credit before the branch is pushed, whichever file ships. If v8 ships, the technical document needs it
-  too, and the team should decide whether a prize competition counts as commercial use.
+  too, and the team should decide whether a prize competition counts as commercial use. The team's call on
+  24 October: no credit for now, because the data is used only for the hackathon and the analysis is not
+  posted online. The repo must be public, so before any push the StatsBomb sections of this report come out,
+  unless the team decides to credit StatsBomb instead.
 - **PFF's terms.** No licence is on record (see "Rules this run kept"), and the fitted constants from PFF-A
   are in every params file from v4 on; v11 and v12 add the spell-flip weights.
 - **The cues.** Nearest-team token with a fitted reliability, a 15-frame hand-over lag, a dead-ball stage

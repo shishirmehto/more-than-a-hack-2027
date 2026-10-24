@@ -437,7 +437,7 @@ def geometry_emission_known_answer() -> None:
 
 def dead_run_rule_known_answer() -> None:
     """decoder._missing_run_dead on hand-built halves: run length, trim, half edges, dead_close, kickoff,
-    the team fill and H/A mirroring, each against a literal answer."""
+    the team fill, H/A mirroring and the lead cuts, each against a literal answer."""
     code = {"H": H, "A": A, "D": D}
     letter = {v: k for k, v in code.items()}
 
@@ -463,6 +463,29 @@ def dead_run_rule_known_answer() -> None:
     swap = str.maketrans("HA", "AH")
     assert (rule(mixed.translate(swap), gap, dead_min_run=5, dead_close=3)
             == rule(mixed, gap, dead_min_run=5, dead_close=3).translate(swap))
+    assert rule(h20, two_runs, dead_min_run=5, dead_trim=1, dead_lead_cut=1) == "HHHHHDDDDHHHHHHHHHHH"
+    assert rule(h20, [range(0, 7)], dead_min_run=5, dead_trim=2, dead_lead_cut=2) == "DDDDDHHHHHHHHHHHHHHH"
+    assert rule(h20, [range(5, 9)], dead_min_run=5, dead_trim=2, dead_lead_cut=2) == h20
+    _raises(ValueError, DecoderParams, dead_min_run=5, dead_trim=2, dead_lead_cut=3)
+    _raises(ValueError, DecoderParams, dead_min_run=5, dead_trim=2, dead_out_lead_cut=1)
+
+    tok = np.full(20, HOME, np.int8)
+    tok[6:14] = NO_TEAM
+    seen = np.where(tok == NO_TEAM, np.nan, 1.0).astype(np.float32)
+    inside = np.where(tok == NO_TEAM, np.nan, 0.0).astype(np.float32)
+    left = inside.copy()
+    left[5] = 3.0
+
+    def lead(outside: np.ndarray, **params: int) -> str:
+        half = Half(HalfId("lead", 1, 0), tok, BallGeometry(seen, seen, outside, seen))
+        p = DecoderParams(dead_min_run=5, dead_trim=2, dead_outside_m=1.0, **params)
+        return "".join(letter[int(c)] for c in decoder._missing_run_dead(np.full(20, H, np.int8), half, p))
+
+    assert lead(left) == "HHHHHHHDDDDDHHHHHHHH"
+    assert lead(left, dead_out_lead_cut=2) == "HHHHHDDDDDDDHHHHHHHH"
+    assert lead(left, dead_out_lead_cut=1) == "HHHHHHDDDDDDHHHHHHHH"
+    assert lead(inside, dead_out_lead_cut=2) == "HHHHHHHHDDDDHHHHHHHH"
+    assert lead(inside, dead_lead_cut=2) == "HHHHHHDDDDDDHHHHHHHH"
 
     tok = np.full(20, HOME, np.int8)
     tok[13:17] = NO_TEAM
