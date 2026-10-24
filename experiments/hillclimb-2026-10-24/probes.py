@@ -102,6 +102,8 @@ deadcensus PARAMS    label-reading: label-free statistics of the long stoppages 
 deadedges PARAMS     label-reading: insert_long split into missed, half and caught stoppages and the caught ones' edges
 outrungrid PARAMS --out CSV  E33: PARAMS with each OUTRUN_GRID minimum run for ball-out cue runs
 leadgrid PARAMS --out CSV  E32: PARAMS with each LEAD_GRID start-trim cut on the --rule worlds
+stepfeas PARAMS      E34 feasibility pass: pace-drop dating of no-out stoppage starts against labels, with the kill gate
+contest              label-reading: a contest gate's hit rate near labelled hand-overs against inside possessions
 slotcheck            label-free BAR-ATH slot check: keepers' teams, teams over 11 slots, fast nearest-slot jumps
 deadends PARAMS      label-reading: stoppage ends by restart kick, and short stoppages by ball-out evidence
 deadstarts PARAMS    label-reading: the dead rule's cue runs against labelled stoppage edges, by ball-out evidence
@@ -2353,6 +2355,238 @@ def slotcheck():
     print(pd.DataFrame(rows).to_string(index=False) if rows else "no keeper-like slots")
 
 
+def contest():
+    """Label-reading, never a candidate: on native PFF-A m0 and m2, the share of frames that a contest gate marks,
+    within 10 frames of a labelled change of team (H to A or A to H with no D between) against frames inside
+    labelled possessions at least 50 frames from any change; the gate is the other team's nearest player within R
+    metres of the ball (BallGeometry nearest_m + margin_m), optionally or the ball faster than 3 m/s."""
+    rows = []
+    for world, pooled_a, labs, _ in native_a():
+        near_change, inside = [], []
+        for h, lab in zip(pooled_a.halves, labs):
+            g = h.geometry
+            other = (g.nearest_m + g.margin_m).astype(np.float64)
+            speed = g.speed_mps.astype(np.float64)
+            team = np.isin(lab, (H, A))
+            idx = np.flatnonzero(team[:-1] & team[1:] & (lab[:-1] != lab[1:])) + 1
+            mark = np.zeros(h.n, bool)
+            far = np.ones(h.n, bool)
+            for i in idx:
+                mark[max(i - 10, 0):i + 10] = True
+                far[max(i - 50, 0):i + 50] = False
+            seen = h.nearest_team != NO_TEAM
+            near_change.append(np.column_stack([other[mark & seen], speed[mark & seen]]))
+            inside.append(np.column_stack([other[team & far & seen], speed[team & far & seen]]))
+        a, b = np.concatenate(near_change), np.concatenate(inside)
+        for r in (1.2, 1.6, 2.0, 2.5, 3.0):
+            for fast in (False, True):
+                ga = (a[:, 0] <= r) | (fast & (a[:, 1] > 3))
+                gb = (b[:, 0] <= r) | (fast & (b[:, 1] > 3))
+                rows.append({"world": world, "r_m": r, "or_fast": fast, "near_change": ga.mean(), "inside": gb.mean(),
+                             "ratio": ga.mean() / max(gb.mean(), 1e-9)})
+        print(world, len(a), len(b), flush=True)
+    print(pd.DataFrame(rows).round(3).to_string(index=False))
+
+
+STEP_BOX, STEP_MIN_FINITE, STEP_BACK, STEP_FWD, STEP_KEEP = 25, 13, 50, 200, 25
+STEP_MID, STEP_SAFE = (0.4, 30, 50), (0.7, 15, 0)
+
+
+def pace_drop(pace):
+    """E34's box drop: mean finite pace over the 25 frames before f minus over the 25 from f, from exact int64
+    sums of round(pace * 1e6), NaN unless both boxes hold 13+ finite values, rounded to 9 places."""
+    ok = np.isfinite(pace)
+    v = np.where(ok, np.round(np.where(ok, pace, 0.0).astype(np.float64) * 1e6), 0).astype(np.int64)
+    cs, cn = np.r_[0, np.cumsum(v)], np.r_[0, np.cumsum(ok.astype(np.int64))]
+    n, k = len(pace), STEP_BOX
+    out = np.full(n, np.nan)
+    f = np.arange(k, n - k + 1)
+    nb, na = cn[f] - cn[f - k], cn[f + k] - cn[f]
+    good = (nb >= STEP_MIN_FINITE) & (na >= STEP_MIN_FINITE)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        d = (cs[f] - cs[f - k]) / nb / 1e6 - (cs[f + k] - cs[f]) / na / 1e6
+    out[f[good]] = d[good]
+    return np.round(out, 9)
+
+
+def _step_runs(h, p):
+    """Per qualifying dead cue run of PARAMS on half H, as _missing_run_dead places it: start, stop, ball-out hit,
+    v13's lo and hi, whether v13 closed the live gap before it, prev_hi, t* and drop[t*] (t* None when the
+    window is empty or all NaN)."""
+    from possession.decoder import _OUT_AFTER, _OUT_BEFORE, _dead_cues
+    n, k0 = h.n, h.id.kickoff
+    cue = _dead_cues(h, p)
+    out = h.geometry.outside_m > p.dead_outside_m
+    drop = pace_drop(h.pace_mps)
+    runs, prev_hi = [], None
+    for start, stop in zip(*_runs(cue)):
+        hit = bool(out[max(start - _OUT_BEFORE, 0):start + _OUT_AFTER].any())
+        lead, need = p.dead_trim - p.dead_lead_cut, p.dead_min_run
+        if hit:
+            lead, need = max(lead - p.dead_out_lead_cut, 0), p.dead_out_min_run or need
+        lo = start + lead if start > 0 else -p.dead_min_run
+        hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
+        if not (hi - lo >= need - lead - p.dead_trim and min(hi, n) > max(lo, 0)):
+            continue
+        closable = prev_hi is not None and prev_hi > k0 and p.dead_close > 0
+        closed = closable and lo - prev_hi < p.dead_close
+        w0, w1 = max(start - STEP_BACK, k0 + STEP_BOX), min(start + STEP_FWD, stop, n - STEP_BOX)
+        t, dt = None, None
+        if w1 >= w0:
+            w = drop[w0:w1 + 1]
+            if np.isfinite(w).any():
+                t = w0 + int(np.argmax(np.where(np.isfinite(w), w, -np.inf)))
+                dt = float(drop[t])
+        runs.append({"start": int(start), "stop": int(stop), "hit": hit, "lo": int(lo), "hi": int(min(hi, n)),
+                     "closable": closable, "closed": closed, "prev_hi": prev_hi, "t": t, "drop": dt})
+        prev_hi = int(min(hi, n))
+    return runs
+
+
+def _step_start(r, arm, p, k0):
+    """The dated start of run R under ARM (mps, shift, back), or None when the rule does not fire."""
+    mps, shift, back = arm
+    if r["hit"] or r["start"] <= k0 or r["closed"] or r["t"] is None or r["drop"] < mps:
+        return None
+    floor = r["start"] - back
+    if r["closable"]:
+        floor = max(floor, r["prev_hi"] + p.dead_close)
+    s = max(r["t"] - shift, floor, k0)
+    return s if s <= r["hi"] - STEP_KEEP else None
+
+
+def stepfeas(params):
+    """E34 feasibility pass, label-reading, never a candidate: on native PFF-A m0, each caught (50%+ D) labelled
+    stoppage of 50+ frames after kickoff whose qualifying cue run has no ball-out evidence and an open preceding
+    gap; trigger class, signed lead, t* - a, drop[t*], e0 = v13 lo - a; the live null of max box drops; the
+    early-unfill oracle; and the registered kill-gate checks for the mid and conservative arms. Then the same
+    e0 / e1 table on IDSSE m0 synthetic worlds (dead_bias 2.6, seeds 0-4)."""
+    model = Decoder.load(params)
+    p = model.params
+    rows, null, unfill, closed_n = [], [], {}, [0, 0]
+    for world, pooled_a, labs, games_a in native_a():
+        variants = {"base": [], "unfill": []}
+        for h, lab in zip(pooled_a.halves, labs):
+            c, k0 = model.decode(h).codes, h.id.kickoff
+            runs = _step_runs(h, p)
+            starts = np.array([r["start"] for r in runs])
+            stops = np.array([r["stop"] for r in runs])
+            u = c.copy()
+            seen = h.nearest_team != NO_TEAM
+            slow = seen & (h.geometry.speed_mps < p.dead_still_mps)
+            still = np.zeros(h.n, bool)
+            for a0, b0 in zip(*_runs(slow)):
+                if b0 - a0 >= p.dead_still_frames:
+                    still[a0:b0] = True
+            for a, b in zip(*_runs(lab == D)):
+                if b - a < 50 or a <= k0 or (c[a:b] == D).mean() < 0.5:
+                    continue
+                i = np.searchsorted(stops, a, side="right")
+                if i >= len(runs) or starts[i] >= b:
+                    continue
+                r = runs[i]
+                if r["hit"] or r["start"] <= k0:
+                    continue
+                if "_m0_" in world:
+                    closed_n[0] += 1
+                    closed_n[1] += int(r["closed"])
+                if r["closed"]:
+                    continue
+                if r["lo"] < a:
+                    u[r["lo"]:a] = u[r["lo"] - 1] if r["lo"] > 0 else u[a]
+                if "_m0_" not in world:
+                    continue
+                st = r["start"]
+                cls = "U" if not seen[st] else "S" if still[st] else "P" if h.pace_mps[st] < p.dead_pace_still_mps else "?"
+                e1 = {}
+                for name, arm in (("mid", STEP_MID), ("safe", STEP_SAFE)):
+                    s = _step_start(r, arm, p, k0)
+                    e1[name] = (s - a) if s is not None else (r["lo"] - a)
+                rows.append({"cls": cls, "lead": a - st, "t_minus_a": None if r["t"] is None else r["t"] - a,
+                             "dmax": r["drop"], "e0": r["lo"] - a, "e1_mid": e1["mid"], "e1_safe": e1["safe"]})
+            if "_m0_" in world:
+                live = lab != D
+                drop = pace_drop(h.pace_mps)
+                for a, b in zip(*_runs(live)):
+                    a = max(a, k0)
+                    for w in range(a, b - 250 + 1, 250) if b - a >= 500 else ():
+                        seg = drop[w:w + 250]
+                        if np.isfinite(seg).any():
+                            null.append(float(np.nanmax(seg)))
+            variants["base"].append(c)
+            variants["unfill"].append(u)
+        runs_ = score.valid_runs(pooled_a.gt)
+        f0 = score.spell_f1(pooled_a.layout, pooled_a.gt, variants["base"], runs_)[0]
+        f1 = score.spell_f1(pooled_a.layout, pooled_a.gt, variants["unfill"], runs_)[0]
+        unfill[world] = f1 - f0
+        print(world, flush=True)
+    t = pd.DataFrame(rows)
+    nq = np.quantile(null, [0.5, 0.75, 0.9])
+    print(f"\npopulation (PFF-A m0): {len(t)} caught no-out stoppages; v13 closed the gap before {closed_n[1]} of "
+          f"{closed_n[0]} ({closed_n[1] / max(closed_n[0], 1):.3f}), skipped")
+    print("trigger class shares:", t.cls.value_counts(normalize=True).round(3).to_dict())
+    print(f"live null max box drop over {len(null)} windows: p50 {nq[0]:.3f}, p75 {nq[1]:.3f}, p90 {nq[2]:.3f}")
+    print("early-unfill oracle (v13 D before the labelled start set back to the preceding code):",
+          {k: round(v, 4) for k, v in unfill.items()})
+    t["tercile"] = pd.cut(t.lead, [-1e9, -0.5, 75, 1e9], labels=["lead<0", "0-75", ">75"])
+    q = [0.1, 0.25, 0.5, 0.75, 0.9]
+    print("\nquantiles by lead tercile (frames; drop in m/s)")
+    print(t.groupby("tercile", observed=True)[["t_minus_a", "dmax", "e0", "e1_mid", "e1_safe"]]
+          .quantile(q).round(2).unstack().T.to_string())
+    above = t[t.dmax > nq[1]]
+    m = float(above.t_minus_a.median())
+    shifts = [15, 30, 45]
+    if not 15 <= m <= 45:
+        shifts = [int(min(max(5 * round(x / 5), 0), 100)) for x in (m - 15, m, m + 15)]
+    mps = [0.7, 0.4]
+    if abs(nq[1] - 0.4) > 0.15 or abs(nq[2] - 0.7) > 0.15:
+        mps = [round(0.05 * round(nq[2] / 0.05), 2), round(0.05 * round(nq[1] / 0.05), 2)]
+    ps = float(t.cls.isin(["P", "S"]).mean())
+    backs = [0, 50] if ps >= 0.1 else [0]
+    print(f"\nrecentring: median t*-a over runs above the null p75 = {m:.1f} -> shifts {shifts}; thresholds {mps}; "
+          f"P+S share {ps:.3f} -> backs {backs}")
+    e0, e1 = t.e0.abs().median(), t.e1_mid.abs().median()
+    long_ = t[t.lead > 75]
+    checks = {
+        "a mid median|e1| <= 0.8 median|e0|": (e1, 0.8 * e0, e1 <= 0.8 * e0),
+        "b drop above null p75 on 60%+": (float((t.dmax > nq[1]).mean()), 0.6, float((t.dmax > nq[1]).mean()) >= 0.6),
+        "c long-lead median e1 25+ frames nearer 0": (abs(long_.e1_mid.median()), abs(long_.e0.median()) - 25,
+                                                      abs(long_.e1_mid.median()) <= abs(long_.e0.median()) - 25),
+        "d p90(e1) <= p90(e0) + 25": (t.e1_mid.quantile(0.9), t.e0.quantile(0.9) + 25,
+                                      t.e1_mid.quantile(0.9) <= t.e0.quantile(0.9) + 25),
+        "a safe median|e1| <= 0.8 median|e0|": (t.e1_safe.abs().median(), 0.8 * e0, t.e1_safe.abs().median() <= 0.8 * e0),
+    }
+    print("\nkill gate (the registered arms, before recentring)")
+    for name, (got, bar, ok) in checks.items():
+        print(f"  {'pass' if ok else 'FAIL'}  {name}: {got:.2f} against {bar:.2f}")
+    syn = []
+    for world, cases in bench.dev_worlds(["idsse:m0"], (2.6,), seeds=SEEDS).items():
+        case = bench.pooled(cases)
+        for h, lab in zip(case.halves, case.layout.cut(case.gt)):
+            c, k0 = model.decode(h).codes, h.id.kickoff
+            runs = _step_runs(h, p)
+            starts = np.array([r["start"] for r in runs])
+            stops = np.array([r["stop"] for r in runs])
+            for a, b in zip(*_runs(lab == D)):
+                if b - a < 50 or a <= k0 or (c[a:b] == D).mean() < 0.5:
+                    continue
+                i = np.searchsorted(stops, a, side="right")
+                if i >= len(runs) or starts[i] >= b:
+                    continue
+                r = runs[i]
+                s = _step_start(r, STEP_MID, p, k0)
+                if s is not None:
+                    syn.append({"e0": abs(r["lo"] - a), "e1": abs(s - a)})
+    s = pd.DataFrame(syn)
+    if len(s):
+        print(f"\nIDSSE m0 r2.6 seeds 0-4: the mid arm fires on {len(s)} caught stoppages; median|e0| "
+              f"{s.e0.median():.1f}, median|e1| {s.e1.median():.1f} -> "
+              f"{'FAIL' if s.e1.median() > s.e0.median() + 12 else 'pass'}"
+              f"{'; under 50 fire, so the veto cannot judge this rule' if len(s) < 50 else ''}")
+    else:
+        print("\nIDSSE m0 r2.6 seeds 0-4: the mid arm never fires; the veto cannot judge this rule")
+
+
 def spellveto(params, weights, out, rhos, items):
     """E29 veto rows: PARAMS with spell_flip at each SPELL_ARMS entry and the all-A WEIGHTS (spellflip's JSON),
     applied by decoder._spell_flip on top of PARAMS's codes before its lag; the first two halves of each world are
@@ -2637,7 +2871,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -2653,7 +2887,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
