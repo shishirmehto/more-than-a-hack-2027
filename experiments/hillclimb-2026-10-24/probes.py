@@ -10,6 +10,8 @@ deadrule PARAMS --out CSV
                      every (dead_min_run, dead_trim, close gap) on PARAMS's chain, decoded once per world;
                      native PFF worlds split into odd (A, selection) and even (B, held-out) games
 chain PARAMS         a grid of chain constants on top of PARAMS, each decoded once, under a few dead rules
+edges PARAMS --out CSV
+                     like deadrule, with separate start and end trims on each dead run
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -263,6 +265,53 @@ def confirm(path):
             print(f"  {world} {a} - {b}: " + "; ".join(cells))
 
 
+EDGE_RUNS = (101, 126)
+EDGE_START = (0, 25, 50)
+EDGE_END = (0, 25, 50, 75, 100)
+EDGE_GAPS = (150, 200)
+
+
+def edge_dead(codes, half, run, start_trim, end_trim):
+    """decoder._missing_run_dead with dead_trim split into a start and an end trim (dead_close applied after)."""
+    kickoff, n = half.id.kickoff, half.n
+    team = codes.copy()
+    called = np.flatnonzero(team != D)
+    if len(called):
+        last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
+        team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
+    missing = np.concatenate(([False], half.nearest_team == -1, [False]))
+    edges = np.flatnonzero(np.diff(missing.view(np.int8)))
+    dead = np.zeros(n + 1, dtype=np.int32)
+    for start, stop in zip(edges[::2], edges[1::2]):
+        lo = start + start_trim if start > 0 else -run
+        hi = stop - end_trim if stop < n else n + run
+        if hi - lo >= run - start_trim - end_trim and min(hi, n) > max(lo, 0):
+            dead[max(lo, 0)] += 1
+            dead[min(hi, n)] -= 1
+    out = np.where(np.cumsum(dead[:n]) > 0, D, team).astype(np.int8)
+    out[:kickoff] = D
+    return out
+
+
+def edges_grid(params, out, rhos, items):
+    chain = Decoder.load(params).replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0)
+    s50, rows = bench.Smoother(50), []
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        runs = score.valid_runs(case.gt)
+        codes = [chain.decode(h).codes for h in case.halves]
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for run, a, b in itertools.product(EDGE_RUNS, EDGE_START, EDGE_END):
+            dead = [edge_dead(c, h, run, a, b) for c, h in zip(codes, case.halves)]
+            for gap in EDGE_GAPS:
+                preds = [close_dead(c, gap, h.id.kickoff) for c, h in zip(dead, case.halves)]
+                f1, n = score.spell_f1(case.layout, case.gt, preds, runs)
+                rows.append({"group": group, "world": world, "run": run, "trim": f"{a}/{b}", "gap": gap,
+                             "spell_f1": f1, "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
 INCUMBENT = (101, 50, 0)
 VETO_SLACK = 0.003
 
@@ -296,7 +345,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -305,4 +354,5 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one), "geometry": geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one), "select": lambda: select(a.params)}[a.probe]()
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one), "select": lambda: select(a.params),
+     "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
