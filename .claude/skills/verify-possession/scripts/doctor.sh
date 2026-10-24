@@ -48,6 +48,18 @@ if [ "$idsse" = "14/14" ]; then
 else
 	echo "skip  IDSSE data $idsse files: --source idsse and idsse_reproduces_feed_counts need them under <data dir>/external/idsse"
 fi
+pff=$("$py" - <<'EOF' 2>/dev/null
+import json
+from possession import pff
+files = json.load(open("possession/pff/manifest.json"))["files"]
+print(f"{sum((pff.root() / name).is_file() for name in files)}/{len(files)}")
+EOF
+) || pff="?"
+if [ "$pff" = "192/192" ]; then
+	echo "ok    PFF data $pff files (--source pff and --mode native available)"
+else
+	echo "skip  PFF data $pff files: --source pff and pff_reproduces_feed_counts need them under <data dir>/external/pff"
+fi
 tactical=$("$py" - <<'EOF' 2>/dev/null
 import os
 import games

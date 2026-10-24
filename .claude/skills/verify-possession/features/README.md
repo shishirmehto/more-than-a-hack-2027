@@ -10,13 +10,14 @@ This folder is the maintained source for verifying what a user of the `possessio
 - The dev features (`score --dev`, `fit-dev`, `sweep`, `python -m possession.metrica`) need the doctor to report `Metrica sample data 9/9 files`.
 - `measure` and the full `selfcheck` also need the doctor to report `tactical ATD and Smart Tagging 3/3 files`.
 - `--source idsse` and the full `selfcheck` need the doctor to report `IDSSE data 14/14 files`.
+- `--source pff`, `--mode native` and the full `selfcheck` need the doctor to report `PFF data 192/192 files`.
 
 ## Driving conventions
 
 - Treat every command as literal. Keep flags and file names unchanged.
 - Write outputs into `data/derived/verify/$RUN_ID/` (or under `$MTAH_DATA_DIR/derived/verify/$RUN_ID/`). Call that folder `$EV` below.
 - Never write into `evaluation/results/`, and never run `run_evaluation.py` without `--results` and `--out`.
-- Expected numbers below were measured at commit `4832bf7`, except `measure.md`, `selfcheck.md`, `fit-dev.md` and the dev numbers in `score.md`, which were measured at `c47c308`. The IDSSE step in `score.md` was measured at the commit that adds `possession/idsse`. If a later commit changes a number on purpose, the change belongs in `possession/DESIGN.md` and in this map in the same commit.
+- Expected numbers below were measured at commit `4832bf7`, except `measure.md`, `selfcheck.md`, `fit-dev.md` and the dev numbers in `score.md`, which were measured at `c47c308`. The IDSSE step in `score.md` was measured at the commit that adds `possession/idsse`, and the PFF step at the commit that adds `--mode native`. If a later commit changes a number on purpose, the change belongs in `possession/DESIGN.md` and in this map in the same commit.
 
 ## Proof and skip reporting
 
