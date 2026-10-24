@@ -458,6 +458,33 @@ def dead_run_rule_known_answer() -> None:
         assert Decoder.load(path) == model
 
 
+def handover_lag_known_answer() -> None:
+    """decoder._lag_handovers inside runs of team calls, H/A mirroring, the decode path and the save."""
+    code = {"H": H, "A": A, "D": D}
+    letter = {v: k for k, v in code.items()}
+
+    def lag(codes: str, n: int) -> str:
+        return "".join(letter[int(c)] for c in decoder._lag_handovers(np.array([code[c] for c in codes], np.int8), n))
+
+    assert lag("DHHHAAAAAHHH", 2) == "DHHHHHAAAAAH"
+    assert lag("HHAADAAHHDHA", 3) == "HHHHDAAAADHH"
+    assert lag("HHAADAAHHDHA", 0) == "HHAADAAHHDHA"
+    swap = str.maketrans("HA", "AH")
+    assert lag("HAHHAAADHAAH".translate(swap), 2) == lag("HAHHAAADHAAH", 2).translate(swap)
+    tok = np.array([HOME] * 5 + [AWAY] * 15, np.int8)
+    half = Half(HalfId("lag", 1, 0), tok)
+    base = Decoder(Tier0Emission(), DecoderParams(temper=1.0))
+    plain = base.decode(half)
+    lagged = base.replace(handover_lag=4).decode(half)
+    assert lagged.posterior is None and plain.posterior is not None
+    assert plain.codes.tolist() == [H] * 5 + [A] * 15 and lagged.codes.tolist() == [H] * 9 + [A] * 11
+    model = base.replace(handover_lag=15)
+    with tempfile.TemporaryDirectory() as tmp:
+        assert json.loads(model.save(Path(tmp) / "lag.json", {}).read_text())["params"]["handover_lag"] == 15
+        assert "handover_lag" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(Path(tmp) / "lag.json") == model
+
+
 def _expanded_hmm(p: DecoderParams):
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
@@ -915,6 +942,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     params_load_guards,
     geometry_emission_known_answer,
     dead_run_rule_known_answer,
+    handover_lag_known_answer,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     tags_and_rates_known_answer,

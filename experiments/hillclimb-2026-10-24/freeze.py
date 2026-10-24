@@ -1,10 +1,10 @@
 """Write the hillclimb's final params: tier0_v1's chain and emission plus the selected dead-ball rule.
 
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/freeze.py RUN TRIM CLOSE [--dead-outside-m M]
-        [--q-logit A B C] --out PATH
+        [--q-logit A B C] [--handover-lag L] --out PATH
 
-Every value except the dead-ball fields and the emission's q_logit terms is copied from params/tier0_v1.json, so
-v1's public-window history is inherited and restated in the provenance word for word.
+Every value except the dead-ball fields, handover_lag and the emission's q_logit terms is copied from
+params/tier0_v1.json, so v1's public-window history is inherited and restated in the provenance word for word.
 """
 import argparse
 import dataclasses
@@ -32,6 +32,12 @@ LOGIT = ("The q_logit terms come from pre-registered experiment E5: logit(q) = a
          "replaced the constant q at v1's temper after passing the synthetic veto (at least tier0_v3's margin "
          "minus 0.003 in every group) and ranking first on the odd-game PFF minimum among tempers "
          "{0.03, 0.05, 0.1, 0.2}; even-indexed PFF games and seeds 15-24 only confirm.")
+LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
+       "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
+       "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
+       "a snap to the receiver's first frame within {0.5, 1, 1.5, 2, 3} m; the synthetic veto (at least "
+       "tier0_v4's margin minus 0.003 in every group) and the odd-game PFF minimum chose lag 15, the smallest "
+       "change within 0.003 of the best; even-indexed PFF games and seeds 15-24 only confirm.")
 
 
 def main(argv):
@@ -41,23 +47,29 @@ def main(argv):
     ap.add_argument("close", type=int)
     ap.add_argument("--dead-outside-m", type=float, default=0.0)
     ap.add_argument("--q-logit", type=float, nargs=3, default=(0.0, 0.0, 0.0), metavar=("A", "B", "C"))
+    ap.add_argument("--handover-lag", type=int, default=0)
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     v1_doc = json.loads(V1.read_text())
     model = Decoder.load(V1).replace(dead_min_run=a.run, dead_trim=a.trim, dead_close=a.close,
                                      dead_outside_m=a.dead_outside_m, q_logit_a=a.q_logit[0],
-                                     q_logit_dist=a.q_logit[1], q_logit_margin=a.q_logit[2])
+                                     q_logit_dist=a.q_logit[1], q_logit_margin=a.q_logit[2],
+                                     handover_lag=a.handover_lag)
     logit = any(a.q_logit)
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
+    if a.handover_lag:
+        changed = changed.replace("dead_outside_m and", "dead_outside_m, handover_lag and")
     pins = {k: v for source in bench.SOURCES.values() for k, v in source.pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
         "base": f"{V1} (every chain value and the rest of the emission)" if logit
                 else f"{V1} (every emission and chain value)",
-        "selection": SELECTION + (" " + GEOMETRY if a.dead_outside_m else "") + (" " + LOGIT if logit else ""),
+        "selection": SELECTION + (" " + GEOMETRY if a.dead_outside_m else "") + (" " + LOGIT if logit else "") +
+                     (" " + LAG if a.handover_lag else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
+                    (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,

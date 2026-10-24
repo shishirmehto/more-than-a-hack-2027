@@ -24,6 +24,9 @@ spells PARAMS        where PARAMS loses possessions: GT and predicted counts, pr
 lag PARAMS --out CSV
                      PARAMS's codes with every team-to-team hand-over moved L frames later (E6); held-out B games
                      are not decoded
+snap PARAMS --out CSV
+                     E7: each team-to-team hand-over moved to the receiving team's first close frame (snap radius),
+                     then lagged; held-out B games are not decoded
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -565,6 +568,47 @@ def lag_handovers(codes, lag):
     return out
 
 
+SNAPS = (None, 0.5, 1.0, 1.5, 2.0, 3.0)
+
+
+def snap_handovers(codes, tok, near, radius):
+    """Each hand-over between the teams moves to the first frame of the new team's segment where the token is
+    that team at nearest_m < radius; the old team keeps the frames before it. No such frame: no move."""
+    live = (codes == H) | (codes == 1 - H)
+    with np.errstate(invalid="ignore"):
+        close = (tok >= 0) & (near < radius)
+    out = codes.copy()
+    turns = np.flatnonzero(live[1:] & live[:-1] & (codes[1:] != codes[:-1])) + 1
+    ends = np.r_[turns[1:], len(codes)]
+    for t, e in zip(turns, ends):
+        y = codes[t]
+        stop = t + np.argmax(codes[t:e] != y) if (codes[t:e] != y).any() else e
+        hit = np.flatnonzero(close[t:stop] & (tok[t:stop] == y))
+        if hit.size and hit[0] > 0:
+            out[t:t + hit[0]] = out[t - 1]
+    return out
+
+
+def snap_grid(params, out, rhos, items):
+    model, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        codes = [model.decode(h).codes for h in case.halves]
+        for radius in SNAPS:
+            snapped = codes if radius is None else [
+                snap_handovers(c, h.nearest_team, h.geometry.nearest_m, radius) for c, h in zip(codes, case.halves)]
+            for lag in LAGS:
+                f1, n = score.spell_f1(case.layout, case.gt, [lag_handovers(c, lag) for c in snapped], runs)
+                rows.append({"group": group, "world": world, "snap": radius if radius else 0.0, "lag": lag,
+                             "spell_f1": f1, "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
 def lag_grid(params, out, rhos, items):
     model, s50, rows = Decoder.load(params), bench.Smoother(50), []
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
@@ -615,7 +659,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -628,4 +672,5 @@ if __name__ == "__main__":
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
-     "lag": lambda: lag_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
+     "lag": lambda: lag_grid(one, a.out, a.dead_bias, a.rule),
+     "snap": lambda: snap_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
