@@ -54,6 +54,12 @@ lag7 PARAMS --out CSV
 deadlogit PARAMS --out CSV
                      E18: a logistic P(dead) per frame fitted on PFF-A replaces the dead-run finder's flags; B games
                      are not decoded
+pick SYNTH PFF BASE --prefer V...
+                     the selection every experiment from E8 on registers: synthetic groups veto (each margin at least
+                     BASE's minus VETO_SLACK), the PFF-A minimum ranks, and a tie within VETO_SLACK goes to BASE, then
+                     to the variants in --prefer order (the registered tie order), then to the higher PFF-A minimum
+combo PARAMS --out CSV
+                     E19: the near-miss settings of E11, E12, E13 and E17 crossed on PARAMS, as stillgrid does
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -774,6 +780,8 @@ STILL_GRID = [{}] + [{"dead_still_mps": v, "dead_still_frames": f} for v in (0.5
 PACE_GRID = [{"dead_pace_live_mps": lv, "dead_pace_still_mps": sv} for lv in (0.0, 1.5, 2.0, 2.5, 3.0)
              for sv in (0.0, 0.5, 0.75)]
 LAG7_GRID = [{"handover_lag": lag} for lag in (10, 15, 20, 25)]
+COMBO_GRID = [{"handover_lag": lag, "dead_trim": trim, "dead_pace_still_mps": sv, "dead_still_frames": sf}
+              for lag in (15, 20) for trim in (50, 37) for sv in (0.5, 0.75) for sf in (50, 25)]
 DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
               for r in (101, 126) for t in (12, 25, 37, 50) for c in (100, 150, 200)]
 
@@ -1036,10 +1044,28 @@ def select(paths):
     print("\nSELECTED", tied.index[0])
 
 
+def pick(synth_csv, pff_csv, base, prefer):
+    sm = pd.read_csv(synth_csv).groupby(["group", "variant"]).margin.mean().unstack("group")
+    pm = pd.read_csv(pff_csv).groupby(["group", "variant"]).margin.mean().unstack("group")
+    slack = sm.sub(sm.loc[base] - VETO_SLACK, axis=1)
+    t = pd.DataFrame({"synth_min": sm.min(axis=1), "pff_a_min": pm.min(axis=1), "pff_m0_A": pm.iloc[:, 0],
+                      "pff_m2_A": pm.iloc[:, 1], "worst_group": slack.idxmin(axis=1), "veto_slack": slack.min(axis=1)})
+    t["passes"] = t.veto_slack >= 0
+    print(t.sort_values("pff_a_min", ascending=False).round(4).to_string())
+    ok = t[t.passes]
+    tied = ok[ok.pff_a_min >= ok.pff_a_min.max() - VETO_SLACK]
+    order = [base] + [v for v in prefer if v != base]
+    rank = {v: i for i, v in enumerate(order)}
+    chosen = sorted(tied.index, key=lambda v: (rank.get(v, len(order)), -tied.pff_a_min[v]))[0]
+    print(f"\n{int(t.passes.sum())} of {len(t)} pass the veto; tied within {VETO_SLACK}: {sorted(tied.index)}")
+    print("SELECTED", chosen)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo"))
     ap.add_argument("params", nargs="*")
+    ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
     ap.add_argument("--rule", nargs="+", default=SEARCH + NATIVE, help="deadrule: [source:]rule[:mode] items")
@@ -1060,4 +1086,6 @@ if __name__ == "__main__":
      "dead6": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DEAD6_GRID), "motion": motion_probe,
      "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID), "push": push_probe,
      "lag7": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LAG7_GRID),
-     "deadlogit": lambda: deadlogit_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
+     "deadlogit": lambda: deadlogit_grid(one, a.out, a.dead_bias, a.rule),
+     "pick": lambda: pick(*a.params, a.prefer),
+     "combo": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, COMBO_GRID)}[a.probe]()
