@@ -8,8 +8,8 @@ The probes behind the numbers are in `probes.py` in this folder, and the final p
 reviewers on other models (claude-sonnet-5-5 and claude-fable-5-1) read both. This report was corrected from
 their findings; the log's last rows list each one.
 
-**Data credit.** Experiments 38, 39, 41 and 42, and the rule v3 and v4 rankings behind tier0_v8 and tier0_v9,
-use StatsBomb's free World Cup 2022 event data. Data source: StatsBomb
+**Data credit.** Experiments 38, 39, 41 and 42, and the rule v3 and v4 ranking behind tier0_v8, use
+StatsBomb's free World Cup 2022 event data. Data source: StatsBomb
 ([hudl/open-data](https://github.com/hudl/open-data) at `4b73468`). No StatsBomb file is in this repo.
 
 <img src="https://raw.githubusercontent.com/hudl/open-data/4b73468fc5b0f1950f9f66fada70ad3a4f9327cb/img/SB%20-%20Icon%20Lockup%20-%20Colour%20positive.png" alt="StatsBomb" width="240">
@@ -64,7 +64,7 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   about half again on top of v2's margin. tier0_v8's margin is +0.049 and +0.060 above v2's (a difference of
   the two margins, not a paired run).
 - Every step from v3 to v7 beat its predecessor on the held-out PFF games with a 90% lower bound above zero,
-  and on all 17 synthetic groups of seeds 15-24. tier0_v8 beat v7 on PFF-B but fell below it on all three
+  and on all 15 synthetic groups of seeds 15-24. tier0_v8 beat v7 on PFF-B but fell below it on all three
   IDSSE m0 groups (0.0993 against 0.1063, 0.1022 against 0.1108, 0.1031 against 0.1109). It is the first
   step where the worst synthetic group went down. tier0_v9 beat v7 on PFF-B and sat above it in all 15
   synthetic groups. Its IDSSE m0 gains (+0.0003 to +0.0006) are close to zero because its no-token gate
@@ -331,7 +331,8 @@ change has its own row in the decision log.
    mechanically derived ground truth. Third, the same allowance would also have admitted E21's poss_mean_s 9
    (+0.1310 against +0.1268), which was not re-picked; E23 later found it ties on v8, so nothing was lost.
    The held-out confirmation cannot settle the question the rule raises, because PFF-B and StatsBomb-B are
-   both coarse conventions on the same 32 games. That is why tier0_v7 is the default recommendation.
+   both coarse conventions on the same 32 games. That is why tier0_v8 stayed an option and tier0_v7 stayed the
+   default over it. Every later file builds from tier0_v7, not tier0_v8.
 
 Why synthetic worlds only veto: the renewal generator draws one mask for live frames and one for dead frames
 and switches between them exactly at each label boundary (`possession/dropout.py:227`). Gap edges therefore
@@ -357,7 +358,8 @@ overstates how independent the B columns are:
 - The probes' B-game skip never fired until commit 2364fb9. Until then the oracles (experiment 1, the rerun
   on v5 that motivated E9, and the headroom table below), the census and the oracle split pooled all 64
   games. Only the census was rerun on A games.
-- B served as the pass/fail test for ten sequential confirmations and E19's rejection.
+- B served as the pass/fail test for about fifteen sequential confirmations (through tier0_v14) and E19's
+  rejection.
 - The push cue has had 16 non-base candidates on the same A games: E24's four weights, E25's six arms and
   E26's six. E26's (speed, length) points were E25's top three on PFF-A, and E26's tie between 2 and 3 m/s
   over 250 frames went to 2 m/s on the higher PFF-A minimum, by 0.00004.
