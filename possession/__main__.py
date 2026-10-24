@@ -58,6 +58,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     fit.add_argument("--map-temper", type=float, nargs="*", default=[0.1, 0.2, 0.5, 1.0],
                      help="temper axis of the decode_rule='map' sub-grid; give none to skip it")
     fit.add_argument("--map-min-poss-frames", type=int, nargs="+", default=[1, 50])
+    fit.add_argument("--dead-min-run", type=int, nargs="+", default=[0],
+                     help="missing-run dead-ball rule, frames (0 keeps the chain's D); see DecoderParams")
+    fit.add_argument("--dead-trim", type=int, nargs="+", default=[0])
     fit.add_argument("--reference-window", type=int, default=None, metavar="WINDOW",
                      help="select by the worst group margin over baseline_smooth<WINDOW> (bench.SELECTION_MARGIN) "
                           "instead of the worst raw world score")
@@ -147,7 +150,8 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
     rhos = args.dead_bias or list(dropout.CALIBRATION.dead_bias_bracket)
     worlds = bench.dev_worlds(args.rule, rhos, seeds=args.seed, source=args.source)
     shared = {"poss_mean_s": args.poss_mean_s, "dead_mean_s": args.dead_mean_s, "dead_bias": args.belief,
-              "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead}
+              "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead,
+              "dead_min_run": args.dead_min_run, "dead_trim": args.dead_trim}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
     if args.map_temper:
         grids.append({"decode_rule": ["map"], "temper": args.map_temper,

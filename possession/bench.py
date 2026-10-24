@@ -359,11 +359,18 @@ def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
 
 
 def _candidates(base: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
-    out = []
+    """Every combination DecoderParams accepts; a grid point it rejects (a map mean at or below its
+    minimum, a dead_trim that eats its run) is skipped, and a grid with no valid point raises."""
+    out, rejected = [], []
     for grid in grids:
         keys = list(grid)
         for values in itertools.product(*(grid[k] for k in keys)):
-            out.append(base.replace(**dict(zip(keys, values))))
+            try:
+                out.append(base.replace(**dict(zip(keys, values))))
+            except ValueError as error:
+                rejected.append(error)
+    if not out:
+        raise ValueError(f"no valid grid point; first rejection: {rejected[0]}")
     return out
 
 

@@ -86,6 +86,12 @@ class DecoderParams:
     decode_rule:        "marginal" | "map".
     min_poss_frames:    hard minimum H/A segment length in frames; "map" only, 1 = none.
     min_dead_frames:    hard minimum D segment length in frames; "map" only, 1 = none.
+    dead_min_run:       0 keeps the chain's own D. Otherwise D is exactly the ball-missing runs of at
+                        least this many frames, each shrunk by dead_trim frames at both ends, and every
+                        other frame takes the chain's team (its D filled from the previous team call).
+                        A run touching a half's first or last frame counts as unbounded on that side.
+                        101 with dead_trim 50 is starter/baseline.py's "no ball within 50 frames".
+    dead_trim:          frames cut from each end of a dead run; ignored when dead_min_run is 0.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -105,6 +111,8 @@ class DecoderParams:
     decode_rule: Literal["marginal", "map"] = "marginal"
     min_poss_frames: int = 1
     min_dead_frames: int = 1
+    dead_min_run: int = 0
+    dead_trim: int = 0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -115,6 +123,10 @@ class DecoderParams:
         _number("stride", self.stride, 1, math.inf, integer=True, lo_open=False)
         _number("min_poss_frames", self.min_poss_frames, 1, math.inf, integer=True, lo_open=False)
         _number("min_dead_frames", self.min_dead_frames, 1, math.inf, integer=True, lo_open=False)
+        _number("dead_min_run", self.dead_min_run, 0, math.inf, integer=True, lo_open=False)
+        _number("dead_trim", self.dead_trim, 0, math.inf, integer=True, lo_open=False)
+        if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
+            raise ValueError("dead_trim must leave part of a dead_min_run run: 2 * dead_trim < dead_min_run")
         if self.decode_rule == "marginal":
             if (self.min_poss_frames, self.min_dead_frames) != (1, 1):
                 raise ValueError("decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")
@@ -129,6 +141,7 @@ class DecoderParams:
 
 
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
+_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -159,6 +172,8 @@ class Decoder:
           3. "map": codes are the labels of the MAP path. "marginal": codes = argmax over
              round(posterior, 9). The rounding makes exact symmetric ties (a flat block at the start of
              a half) resolve to the lower label on every machine instead of on 1-ulp noise.
+          4. dead_min_run > 0 replaces the chain's D by the missing-run rule (see DecoderParams), and
+             the posterior is dropped because it no longer describes the codes.
         """
         p, kickoff = self.params, half.id.kickoff
         ev = self.emission.loglik(half)[kickoff:].astype(np.float64)
@@ -167,11 +182,13 @@ class Decoder:
         if p.decode_rule == "map":
             codes = np.full(half.n, D, dtype=np.int8)
             codes[kickoff:] = np.repeat(_map(E, p), p.stride)[:m]
-            return Decoded(codes=codes, posterior=None)
+            return Decoded(codes=_missing_run_dead(codes, half, p), posterior=None)
         post = np.empty((half.n, 3), dtype=np.float64)
         post[:kickoff] = (0.0, 0.0, 1.0)
         post[kickoff:] = np.repeat(_forward_backward(E, _chain(p)), p.stride, axis=0)[:m]
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
+        if p.dead_min_run:
+            return Decoded(codes=_missing_run_dead(codes, half, p), posterior=None)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
     def replace(self, **flat: object) -> "Decoder":
@@ -188,9 +205,12 @@ class Decoder:
     def save(self, path: str | Path, provenance: Mapping[str, object]) -> Path:
         """{"emission": {"kind": "tier0", ...}, "params": {...}, "provenance": {...}} with sorted keys
         and fixed float formatting, so the committed file and the submission it produces are both
-        byte-stable."""
+        byte-stable. An optional param at its off value is left out, so files written before it
+        existed round-trip unchanged."""
+        params = {k: v for k, v in dataclasses.asdict(self.params).items()
+                  if k not in _OPTIONAL_PARAMS or v != _OPTIONAL_PARAMS[k]}
         doc = {"emission": {"kind": "tier0", **dataclasses.asdict(self.emission)},
-               "params": dataclasses.asdict(self.params),
+               "params": params,
                "provenance": dict(provenance)}
         path = Path(path)
         path.write_bytes((json.dumps(doc, sort_keys=True, indent=2) + "\n").encode("ascii"))
@@ -213,10 +233,35 @@ class Decoder:
 
 def _strict(cls: type, values: Mapping[str, object]):
     names = {f.name for f in dataclasses.fields(cls)}
+    if cls is DecoderParams:
+        values = {**_OPTIONAL_PARAMS, **values}
     if set(values) != names:
         raise ValueError(f"{cls.__name__} keys differ: missing {sorted(names - set(values))}, "
                          f"unknown {sorted(set(values) - names)}")
     return cls(**values)
+
+
+def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
+    if not p.dead_min_run:
+        return codes
+    kickoff, n = half.id.kickoff, half.n
+    team = codes.copy()
+    called = np.flatnonzero(team != D)
+    if len(called):
+        last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
+        team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
+    missing = np.concatenate(([False], half.nearest_team == NO_TEAM, [False]))
+    edges = np.flatnonzero(np.diff(missing.view(np.int8)))
+    dead = np.zeros(n + 1, dtype=np.int32)
+    for start, stop in zip(edges[::2], edges[1::2]):
+        lo = start + p.dead_trim if start > 0 else -p.dead_min_run
+        hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
+        if hi - lo >= p.dead_min_run - 2 * p.dead_trim and min(hi, n) > max(lo, 0):
+            dead[max(lo, 0)] += 1
+            dead[min(hi, n)] -= 1
+    out = np.where(np.cumsum(dead[:n]) > 0, D, team).astype(np.int8)
+    out[:kickoff] = D
+    return out
 
 
 def _number(name: str, value: object, lo: float, hi: float, *, integer: bool = False,
