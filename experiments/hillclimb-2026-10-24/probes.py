@@ -1843,10 +1843,15 @@ def auc(score_, y):
     return (r[pos].sum() - pos.sum() * (pos.sum() + 1) / 2) / (pos.sum() * (~pos).sum())
 
 
-def _spell_weights(x, y):
-    """ridge_newton on X and Y, rounded to 4 places, as the spell_logit mapping decode reads."""
+def _spell_weights(x, y, drop=()):
+    """ridge_newton on X and Y without the DROP features, rounded to 4 places, as the spell_logit mapping decode
+    reads; a dropped feature's weight is 0.0."""
     from possession.decoder import SPELL_FEATURES
-    return dict(zip(("a",) + SPELL_FEATURES, (round(float(v), 4) for v in ridge_newton(x, y))))
+    names = ("a",) + SPELL_FEATURES
+    keep = [i for i, n in enumerate(names) if n not in drop]
+    w = dict.fromkeys(names, 0.0)
+    w.update(zip((names[i] for i in keep), (round(float(v), 4) for v in ridge_newton(x[:, keep], y))))
+    return w
 
 
 def _flipped(pre, rows, w, pop, cut):
@@ -1860,11 +1865,11 @@ def _flipped(pre, rows, w, pop, cut):
     return out, n
 
 
-def spellflip(params, out):
-    """E29 first gate, PFF-A only: a ridge logistic on decoder._spell_runs features predicts whether giving a short
-    possession to the other team alone raises the half's matched-minus-F/2 value on the m0 labels; 2-fold
-    game-OOF weights at SPELL_ARMS flip runs together on m0 and m2, the decoder's own rule; writes OUT-pff.csv
-    (OOF margins over smooth50, for pick) and OUT-weights.json (the all-A fit per population)."""
+def spellflip(params, out, drop=()):
+    """E29 first gate, PFF-A only: a ridge logistic on decoder._spell_runs features (without DROP, E30) predicts
+    whether giving a short possession to the other team alone raises the half's matched-minus-F/2 value on the m0
+    labels; 2-fold game-OOF weights at SPELL_ARMS flip runs together on m0 and m2, the decoder's own rule; writes
+    OUT-pff.csv (OOF margins over smooth50, for pick) and OUT-weights.json (the all-A fit per population)."""
     from possession.decoder import SPELL_FEATURES, _lag_handovers, _spell_runs
     model, s50 = Decoder.load(params), bench.Smoother(50)
     p, chain = model.params, _rules_off(model)
@@ -1903,9 +1908,9 @@ def spellflip(params, out):
           f"{(t.seen >= 0.5).mean():.3f}")
     print("univariate AUC: " + ", ".join(f"{f} {auc(t[f].to_numpy(), y_all):.3f}" for f in SPELL_FEATURES))
     masks = {pop: (t.seen >= SPELL_SEEN[pop]).to_numpy() for pop in SPELL_SEEN}
-    folds = {pop: [_spell_weights(x_all[m & (t.fold != f).to_numpy()], y_all[m & (t.fold != f).to_numpy()])
+    folds = {pop: [_spell_weights(x_all[m & (t.fold != f).to_numpy()], y_all[m & (t.fold != f).to_numpy()], drop)
                    for f in (0, 1)] for pop, m in masks.items()}
-    full = {pop: _spell_weights(x_all[m], y_all[m]) for pop, m in masks.items()}
+    full = {pop: _spell_weights(x_all[m], y_all[m], drop) for pop, m in masks.items()}
     for pop, w in full.items():
         print(f"{pop}: all-A weights " + ", ".join(f"{k} {v:+.4f}" for k, v in w.items()))
     fold_of = {(k, a): f for k, a, f in zip(t.key, t.a, t.fold)}
@@ -1951,8 +1956,9 @@ def spellflip(params, out):
 def barath_spell(params):
     """E29's registered stop, label-free: the SPELL_FEATURES medians over BAR-ATH's candidate runs (short team runs
     of PARAMS's codes before its spell flip and lag, ATD inputs only) against the 10th-90th percentile range of
-    the same features over PFF-A m0's candidate runs; prints STOP for any median outside it, and the runs PARAMS's
-    spell flip gives away on BAR-ATH. Never rescales or refits."""
+    the same features over PFF-A m0's candidate runs; prints STOP for any median outside it (E30: only features
+    whose spell_logit weight is not 0), and the frames PARAMS's spell flip changes on BAR-ATH. Never rescales or
+    refits."""
     from possession.decoder import SPELL_FEATURES, _spell_flip, _spell_runs
     model = Decoder.load(params)
     p, chain = model.params, _rules_off(model)
@@ -1977,6 +1983,9 @@ def barath_spell(params):
     bar = pd.DataFrame(rows, columns=list(SPELL_FEATURES))
     t = pd.DataFrame({"pff_a_p10": ref.quantile(0.1), "pff_a_p90": ref.quantile(0.9), "barath_median": bar.median()})
     t["stop"] = (t.barath_median < t.pff_a_p10) | (t.barath_median > t.pff_a_p90)
+    if p.spell_logit:
+        t["weight"] = pd.Series(p.spell_logit)
+        t["stop"] &= t.weight != 0
     print(f"{len(ref)} PFF-A m0 candidate runs, {n_runs} BAR-ATH candidate runs")
     print(t.round(4).to_string())
     print("STOP" if t.stop.any() else "no feature median outside the PFF-A 10th-90th range")
@@ -2292,6 +2301,7 @@ if __name__ == "__main__":
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
+    ap.add_argument("--drop", nargs="+", default=[], help="spellflip: SPELL_FEATURES left out of the fit (E30: seen)")
     ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--halves", nargs="+", default=["all", "A", "B"], choices=("all", "A", "B"),
@@ -2302,7 +2312,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

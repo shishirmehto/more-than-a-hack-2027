@@ -92,6 +92,13 @@ SPELL = ("spell_flip_p and spell_logit come from pre-registered experiment E29 o
          "odd-game OOF minimum over PFF m0 and m2 ranks; ties within 0.003 to the base, then the tie order) chose "
          "token share 0.5+ at P 0.8; the 0.65 and 0.5 cuts failed the IDSSE m0 groups. Even-indexed PFF games and "
          "seeds 15-24 only confirm. The weights are PFF-derived numbers. No StatsBomb data entered this selection.")
+NO_SEEN = ("E30 refitted the same model with the token-share feature left out (its weight 0) after tier0_v11, the E29 "
+           "winner, passed PFF-B and seeds 15-24 and was then stopped by its registered BAR-ATH check: the median "
+           "token share of BAR-ATH's short runs (1.000) sat above PFF-A's 90th percentile (0.946). That design used a "
+           "label-free match-wide BAR-ATH statistic, under the team's unconfirmed reading of RULES.md; the weights "
+           "are still fitted only on PFF-A labels. Same arms, tie order and rule v2 chose token share 0.5+ at P 0.8 "
+           "again, and the BAR-ATH check, over the features with a non-zero weight, passed before this file was "
+           "frozen.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -130,6 +137,7 @@ def main(argv):
                                      spell_flip_frames=int(a.spell_flip[1]), spell_flip_seen=a.spell_flip[2],
                                      spell_logit=dict(zip(("a",) + SPELL_FEATURES, a.spell_logit or ())))
     logit = any(a.q_logit)
+    no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
     if a.handover_lag:
@@ -156,7 +164,7 @@ def main(argv):
                      (" " + LAG if a.handover_lag else "") + (" " + STILL if a.dead_still[0] else "") +
                      (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else "") +
                      (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
-                     (" " + SPELL if a.spell_flip[0] else ""),
+                     (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -168,6 +176,8 @@ def main(argv):
                      if a.switch_penalty else "") +
                     (", flipruns-v10.out, spellflip-v10.out, e29-spellflip.out, e29-pff.csv, e29-synth.csv and "
                      "select-e29.out" if a.spell_flip[0] else "") +
+                    (", barath-spell-v11.out, spellseen-v11.out, e30-spellflip.out, e30-pff.csv, e30-synth.csv, "
+                     "select-e30.out and barath-spell-e30.out" if no_seen else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
