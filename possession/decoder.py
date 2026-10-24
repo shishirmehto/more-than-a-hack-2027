@@ -32,7 +32,8 @@ _M_FLOOR, _M_CAP = 1e-6, 0.98
 
 @dataclass(frozen=True, slots=True)
 class Tier0Emission:
-    """Evidence from `Half.nearest_team` alone: token in {HOME, AWAY, none}.
+    """Evidence from `Half.nearest_team`: token in {HOME, AWAY, none}, optionally sharpened by the
+    Half's BallGeometry.
 
     Model, per frame with label k in {H, A, D}:
         P(none | k)         = m_k
@@ -45,16 +46,44 @@ class Tier0Emission:
 
     q:           P(token == label's team | alive, ball seen).
     alive_share: a0, prior over the alive share of the half.
-    Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1.
+
+    Geometry terms, each off at its default (and then left out of a saved file). Any of them on makes
+    the emission need Half.geometry (`needs_geometry`), which only challenge.observe supplies:
+    margin_scale_m: lambda > 0 replaces the constant q on seen frames by
+                    q(m) = 0.5 + (q_max - 0.5) * (1 - exp(-m / lambda)), m = BallGeometry.margin_m.
+                    0 keeps the constant q.
+    q_max:          the asymptote of q(m); ignored when margin_scale_m is 0.
+    outside_bonus:  log-evidence added to D on frames whose ball lies more than outside_min_m metres
+                    outside the pitch.
+    far_bonus:      log-evidence added to D on frames whose nearest player is more than far_min_m metres
+                    from the ball.
+    Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, margin_scale_m >= 0,
+    0.5 < q_max < 1, finite bonuses, outside_min_m >= 0, far_min_m > 0.
     """
     q: float = 0.78
     dead_bias: float = 1.0
     alive_share: float = 0.6
+    margin_scale_m: float = 0.0
+    q_max: float = 0.95
+    outside_bonus: float = 0.0
+    outside_min_m: float = 1.0
+    far_bonus: float = 0.0
+    far_min_m: float = 10.0
 
     def __post_init__(self) -> None:
         _number("q", self.q, 0, 1)
         _number("dead_bias", self.dead_bias, 0, math.inf)
         _number("alive_share", self.alive_share, 0, 1, hi_open=False)
+        _number("margin_scale_m", self.margin_scale_m, 0, math.inf, lo_open=False)
+        _number("q_max", self.q_max, 0.5, 1)
+        _number("outside_bonus", self.outside_bonus, -math.inf, math.inf)
+        _number("outside_min_m", self.outside_min_m, 0, math.inf, lo_open=False)
+        _number("far_bonus", self.far_bonus, -math.inf, math.inf)
+        _number("far_min_m", self.far_min_m, 0, math.inf)
+
+    @property
+    def needs_geometry(self) -> bool:
+        return self.margin_scale_m > 0 or self.outside_bonus != 0 or self.far_bonus != 0
 
     def loglik(self, half: Half) -> NDArray[np.float32]:
         tok = half.nearest_team
@@ -71,7 +100,28 @@ class Tier0Emission:
         out = np.empty((half.n, 3), dtype=np.float64)
         for token, row in row_by_token.items():
             out[tok == token] = row
+        if self.needs_geometry:
+            self._add_geometry(out, half, seen)
         return out.astype(np.float32)
+
+    def _add_geometry(self, out: NDArray[np.float64], half: Half, seen: NDArray[np.float64]) -> None:
+        g = half.geometry
+        if g is None:
+            raise ValueError(f"{half.id}: this emission reads ball geometry (margin_scale_m, outside_bonus or "
+                             "far_bonus) and the Half has none; observe it from a Geometry "
+                             "(challenge.halves('atd')), not from baseline_raw")
+        if self.margin_scale_m > 0:
+            where = half.nearest_team != NO_TEAM
+            margin = g.margin_m[where].astype(np.float64)
+            qm = 0.5 + (self.q_max - 0.5) * -np.expm1(-margin / self.margin_scale_m)
+            home = half.nearest_team[where] == HOME
+            hit, miss = np.log(qm), np.log1p(-qm)
+            out[where, 0] = np.where(home, hit, miss) + seen[0]
+            out[where, 1] = np.where(home, miss, hit) + seen[1]
+        if self.outside_bonus:
+            out[g.outside_m > self.outside_min_m, 2] += self.outside_bonus
+        if self.far_bonus:
+            out[g.nearest_m > self.far_min_m, 2] += self.far_bonus
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +145,9 @@ class DecoderParams:
     dead_close:         a stretch of team calls shorter than this many frames with dead runs on both
                         sides becomes D too, so brief ball sightings inside one stoppage do not split it
                         into spurious possessions; 0 = off, ignored when dead_min_run is 0.
+    dead_outside_m:     0 is off. Otherwise a frame whose ball is seen more than this many metres outside
+                        the pitch (Half.geometry.outside_m) counts as missing when the dead_min_run rule
+                        finds its runs; needs Half.geometry. Ignored when dead_min_run is 0.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -117,6 +170,7 @@ class DecoderParams:
     dead_min_run: int = 0
     dead_trim: int = 0
     dead_close: int = 0
+    dead_outside_m: float = 0.0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -130,6 +184,7 @@ class DecoderParams:
         _number("dead_min_run", self.dead_min_run, 0, math.inf, integer=True, lo_open=False)
         _number("dead_trim", self.dead_trim, 0, math.inf, integer=True, lo_open=False)
         _number("dead_close", self.dead_close, 0, math.inf, integer=True, lo_open=False)
+        _number("dead_outside_m", self.dead_outside_m, 0, math.inf, lo_open=False)
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
             raise ValueError("dead_trim must leave part of a dead_min_run run: 2 * dead_trim < dead_min_run")
         if self.decode_rule == "marginal":
@@ -146,7 +201,10 @@ class DecoderParams:
 
 
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
-_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0}
+_OPTIONAL_EMISSION = {f.name: f.default for f in dataclasses.fields(Tier0Emission)
+                      if f.name in ("margin_scale_m", "q_max", "outside_bonus", "outside_min_m", "far_bonus",
+                                    "far_min_m")}
+_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -196,6 +254,11 @@ class Decoder:
             return Decoded(codes=_missing_run_dead(codes, half, p), posterior=None)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
+    @property
+    def needs_geometry(self) -> bool:
+        """True when decoding reads Half.geometry, which only challenge.observe supplies."""
+        return self.emission.needs_geometry or bool(self.params.dead_min_run and self.params.dead_outside_m)
+
     def replace(self, **flat: object) -> "Decoder":
         """A copy with fields changed by flat name. Each key goes to the emission or the params,
         whichever declares it; an unknown name raises TypeError."""
@@ -211,11 +274,9 @@ class Decoder:
         """{"emission": {"kind": "tier0", ...}, "params": {...}, "provenance": {...}} with sorted keys
         and fixed float formatting, so the committed file and the submission it produces are both
         byte-stable. An optional param at its off value is left out, so files written before it
-        existed round-trip unchanged."""
-        params = {k: v for k, v in dataclasses.asdict(self.params).items()
-                  if k not in _OPTIONAL_PARAMS or v != _OPTIONAL_PARAMS[k]}
-        doc = {"emission": {"kind": "tier0", **dataclasses.asdict(self.emission)},
-               "params": params,
+        existed round-trip unchanged. The same holds for the emission's geometry terms."""
+        doc = {"emission": {"kind": "tier0", **_without_off(self.emission)},
+               "params": _without_off(self.params),
                "provenance": dict(provenance)}
         path = Path(path)
         path.write_bytes((json.dumps(doc, sort_keys=True, indent=2) + "\n").encode("ascii"))
@@ -236,10 +297,18 @@ class Decoder:
             raise ValueError(f"{path}: {error}") from None
 
 
+def _optional(cls: type) -> Mapping[str, object]:
+    return {Tier0Emission: _OPTIONAL_EMISSION, DecoderParams: _OPTIONAL_PARAMS}[cls]
+
+
+def _without_off(obj: Tier0Emission | DecoderParams) -> dict[str, object]:
+    off = _optional(type(obj))
+    return {k: v for k, v in dataclasses.asdict(obj).items() if k not in off or v != off[k]}
+
+
 def _strict(cls: type, values: Mapping[str, object]):
     names = {f.name for f in dataclasses.fields(cls)}
-    if cls is DecoderParams:
-        values = {**_OPTIONAL_PARAMS, **values}
+    values = {**_optional(cls), **values}
     if set(values) != names:
         raise ValueError(f"{cls.__name__} keys differ: missing {sorted(names - set(values))}, "
                          f"unknown {sorted(set(values) - names)}")
@@ -255,7 +324,13 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
     if len(called):
         last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
         team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
-    missing = np.concatenate(([False], half.nearest_team == NO_TEAM, [False]))
+    unseen = half.nearest_team == NO_TEAM
+    if p.dead_outside_m:
+        if half.geometry is None:
+            raise ValueError(f"{half.id}: dead_outside_m reads ball geometry and the Half has none; observe it "
+                             "from a Geometry (challenge.halves('atd')), not from baseline_raw")
+        unseen = unseen | (half.geometry.outside_m > p.dead_outside_m)
+    missing = np.concatenate(([False], unseen, [False]))
     edges = np.flatnonzero(np.diff(missing.view(np.int8)))
     dead = np.zeros(n + 1, dtype=np.int32)
     for start, stop in zip(edges[::2], edges[1::2]):
