@@ -119,8 +119,11 @@ ADJ = ("spell_flip_adjacent and spell_flip_p 0.75 come from pre-registered exper
        "group; the odd-game minimum over PFF m0 and m2 ranks; ties within 0.003 of the best to the base, then the "
        "registered order: higher cut first) chose this file's values: cut 0.7 passed the veto by 0.0004 and led "
        "the odd-game minimum, which put tier0_v13 outside the tie band, and cut 0.75, inside that band and earlier "
-       "in the order, was chosen; on its own it is +0.0024 over tier0_v13 there. Even-indexed PFF games and seeds "
-       "15-24 only confirm. No BAR-ATH statistic was read. No StatsBomb data entered this selection.")
+       "in the order, was chosen by pick() as it ran then; on its own it is +0.0024 over tier0_v13 there. After the "
+       "cross-model review, E32's registered clause (no change unless an arm clears the base by more than 0.003) "
+       "was written into pick(), under which this file is a near-tie and not the recommendation; the adjacency "
+       "rule is nearly inert at 0.75. Even-indexed PFF games and seeds 15-24 only confirm. No BAR-ATH statistic "
+       "was read. No StatsBomb data entered this selection.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "

@@ -740,6 +740,8 @@ def spell_flip_known_answer() -> None:
     assert flip("HHHHHAAAHHAAAAA", 0.5, len_w=-1.0) == "HHHHHHHHAAAAAAA"
     assert flip("HHHHHAAAHHAAAAA", 0.5, len_w=-1.0, adjacent=True) == "HHHHHAAAAAAAAAA"
     assert flip("HHHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHH"
+    assert flip("HHHHHAAAHHHAAAHHHHH", 0.5) == "HHHHHHHHAAAHHHHHHHH"
+    assert flip("HHHHHAAAHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHHHHHHHH"
     assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 1.7
     assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), {"a": 0.5, "len": 1.0}) == 1.5
     kick = half("HHHHHAAAHHHHH", near=1.0)
