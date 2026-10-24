@@ -47,6 +47,8 @@ motion               P(dead) by the median player speed on the PFF A games, over
                      run length, and the same speed on BAR-ATH (no labels)
 pacegrid PARAMS --out CSV
                      E13: the median-player-speed knobs of the dead-run stage on PARAMS, as stillgrid does
+pacerun PARAMS --out CSV
+                     E15: dead_pace_run_max on PARAMS, as stillgrid does
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -766,6 +768,7 @@ def still_probe():
 STILL_GRID = [{}] + [{"dead_still_mps": v, "dead_still_frames": f} for v in (0.5, 1.0) for f in (25, 50, 100)]
 PACE_GRID = [{"dead_pace_live_mps": lv, "dead_pace_still_mps": sv} for lv in (0.0, 1.5, 2.0, 2.5, 3.0)
              for sv in (0.0, 0.5, 0.75)]
+PACERUN_GRID = [{"dead_pace_run_max": v} for v in (0.0, 1.25, 1.5, 2.0)]
 DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
               for r in (101, 126) for t in (12, 25, 37, 50) for c in (100, 150, 200)]
 
@@ -776,7 +779,8 @@ def rulegrid(params, out, rhos, items, grid):
     from possession.decoder import _lag_handovers
     base, s50, rows = Decoder.load(params), bench.Smoother(50), []
     chain = base.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
-                         dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0)
+                         dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, dead_pace_run_max=0.0,
+                         handover_lag=0)
     rules = {" ".join(f"{k}={v}" for k, v in g.items()) or "base": dataclasses.replace(base.params, **g) for g in grid}
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
@@ -907,7 +911,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "pacerun"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -927,4 +931,5 @@ if __name__ == "__main__":
      "masked": lambda: masked_grid(one, a.out, a.dead_bias, a.rule), "still": still_probe,
      "stillgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, STILL_GRID),
      "dead6": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DEAD6_GRID), "motion": motion_probe,
-     "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID)}[a.probe]()
+     "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID),
+     "pacerun": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACERUN_GRID)}[a.probe]()

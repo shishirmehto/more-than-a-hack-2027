@@ -31,7 +31,7 @@ _M_FLOOR, _M_CAP = 1e-6, 0.98
 _MARGIN_CAP_M = 30.0
 _SPEED_CAP_MPS = 40.0
 _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mps", "dead_pace_still_mps",
-                     "dead_pace_live_mps")
+                     "dead_pace_live_mps", "dead_pace_run_max")
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
 
 
@@ -152,6 +152,9 @@ class DecoderParams:
     dead_pace_still_mps: 0 is off. Otherwise a frame whose median player speed (Half.pace_mps) is below this
                         counts as missing when the dead_min_run rule finds its runs: players walk during
                         stoppages. Needs dead_min_run.
+    dead_pace_run_max:  0 is off. Otherwise a run the dead_min_run rule finds stays dead only if the median
+                        Half.pace_mps over it is at most this many m/s; a run whose players keep moving is live
+                        play the tracker lost. Needs dead_min_run.
     dead_pace_live_mps: 0 is off. Otherwise a frame whose median player speed is above this never counts as
                         missing, whatever the other dead_* rules say: the tracker lost the ball but play goes
                         on. Needs dead_min_run.
@@ -185,6 +188,7 @@ class DecoderParams:
     dead_still_frames: int = 0
     dead_pace_still_mps: float = 0.0
     dead_pace_live_mps: float = 0.0
+    dead_pace_run_max: float = 0.0
     handover_lag: int = 0
 
     def __post_init__(self) -> None:
@@ -204,6 +208,7 @@ class DecoderParams:
         _number("dead_still_frames", self.dead_still_frames, 0, math.inf, integer=True, lo_open=False)
         _number("dead_pace_still_mps", self.dead_pace_still_mps, 0, math.inf, lo_open=False)
         _number("dead_pace_live_mps", self.dead_pace_live_mps, 0, math.inf, lo_open=False)
+        _number("dead_pace_run_max", self.dead_pace_run_max, 0, math.inf, lo_open=False)
         _number("handover_lag", self.handover_lag, 0, math.inf, integer=True, lo_open=False)
         if bool(self.dead_still_mps) != bool(self.dead_still_frames):
             raise ValueError("dead_still_mps and dead_still_frames are set together")
@@ -227,7 +232,8 @@ class DecoderParams:
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
 _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
-                    "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0}
+                    "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0,
+                    "dead_pace_run_max": 0.0, "handover_lag": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -283,7 +289,7 @@ class Decoder:
         """True when decoding reads Half.geometry or Half.pace_mps, which only challenge.observe supplies."""
         p = self.params
         return self.emission.needs_geometry or bool(p.dead_min_run and (
-            p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps))
+            p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps or p.dead_pace_run_max))
 
     def replace(self, **flat: object) -> "Decoder":
         """A copy with fields changed by flat name. Each key goes to the emission or the params,
@@ -376,7 +382,7 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         for start, stop in zip(edges[::2], edges[1::2]):
             if stop - start >= p.dead_still_frames:
                 unseen[start:stop] = True
-    if (p.dead_pace_still_mps or p.dead_pace_live_mps) and half.pace_mps is None:
+    if (p.dead_pace_still_mps or p.dead_pace_live_mps or p.dead_pace_run_max) and half.pace_mps is None:
         raise ValueError(f"{half.id}: dead_pace_* read Half.pace_mps and the Half has none; observe it from a "
                          "Geometry (challenge.halves('atd')), not from baseline_raw")
     if p.dead_pace_still_mps:
@@ -391,6 +397,8 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
     for start, stop in zip(edges[::2], edges[1::2]):
         lo = start + p.dead_trim if start > 0 else -p.dead_min_run
         hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
+        if p.dead_pace_run_max and _median(half.pace_mps[start:stop]) > p.dead_pace_run_max:
+            continue
         if hi - lo >= p.dead_min_run - 2 * p.dead_trim and min(hi, n) > max(lo, 0):
             dead[max(lo, 0)] += 1
             dead[min(hi, n)] -= 1
@@ -403,6 +411,12 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
             if start > kickoff and stop < n and stop - start < p.dead_close:
                 out[start:stop] = D
     return out
+
+
+def _median(a: NDArray[np.float32]) -> float:
+    """nanmedian, NaN for an all-NaN slice without the warning."""
+    a = a[np.isfinite(a)]
+    return float(np.median(a)) if a.size else math.nan
 
 
 def _number(name: str, value: object, lo: float, hi: float, *, integer: bool = False,
