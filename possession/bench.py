@@ -17,6 +17,7 @@ from .decoder import Decoded, Decoder, DecoderParams, Tier0Emission
 from .half import AWAY, HOME, A, D, H, NO_TEAM, X, CleanHalf, Half, Layout, check_codes
 from .dropout import DropoutParams
 from .metrica import RuleV2
+from .pff import statsbomb
 
 PUBLIC_GT = Path(__file__).resolve().parents[1] / "evaluation" / "gt" / f"{challenge.GAME}_possession_gt_public.csv"
 
@@ -179,6 +180,8 @@ SOURCES: Mapping[str, DevSource] = {
     "metrica": DevSource(metrica.load, "", {"sample_data_commit": metrica.COMMIT}),
     "idsse": DevSource(idsse.load, "idsse_", {"idsse_revision": idsse.REVISION}),
     "pff": DevSource(pff.load, "pff_", {"pff_manifest_sha256": pff.MANIFEST_SHA256}, pff.native_seen),
+    "pffsb": DevSource(statsbomb.load, "pffsb_", {"pff_manifest_sha256": pff.MANIFEST_SHA256,
+                                                   "statsbomb_commit": statsbomb.COMMIT}, pff.native_seen),
 }
 
 

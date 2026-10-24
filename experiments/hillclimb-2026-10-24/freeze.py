@@ -79,7 +79,7 @@ def main(argv):
         changed = changed.replace("dead_outside_m,", "dead_outside_m, dead_still_mps, dead_still_frames,")
     if a.dead_pace_still:
         changed = changed.replace("dead_still_frames,", "dead_still_frames, dead_pace_still_mps,")
-    pins = {k: v for source in bench.SOURCES.values() for k, v in source.pin.items()}
+    pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
         "base": f"{V1} (every chain value and the rest of the emission)" if logit

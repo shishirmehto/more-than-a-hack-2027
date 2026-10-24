@@ -66,6 +66,7 @@ hold                 token accuracy on PFF-A: nearest team against the last team
 holdgrid PARAMS --out CSV
                      E20: the held-team token (HoldEmission, q fitted on PFF-A by fit_hold) crossed with lag
 deadcues PARAMS      false and missed D frames under PARAMS by dead cue and by distance to a labelled stoppage
+versions PARAMS...   margin over smooth50 of each params file on --rule worlds, held-out B games skipped
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -76,6 +77,7 @@ label or the public window.
 import argparse
 import dataclasses
 import itertools
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -102,10 +104,9 @@ def ffill_team(codes, fallback):
 def oracle(params, rhos=(2.6,), items=SEARCH):
     model, s50 = Decoder.load(params), bench.Smoother(50)
     rows = []
-    for world, cases in bench.dev_worlds(items, rhos, seeds=SEEDS).items():
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
             continue
-        case = bench.pooled(cases)
         runs = score.valid_runs(case.gt)
         per = {}
         for half, gt in zip(case.halves, case.layout.cut(case.gt)):
@@ -122,7 +123,7 @@ def oracle(params, rhos=(2.6,), items=SEARCH):
                 per.setdefault(name, []).append(codes.astype(np.int8))
         for name, preds in per.items():
             f1, n = score.spell_f1(case.layout, case.gt, preds, runs)
-            rows.append({"group": bench.group(world), "variant": name, "spell_f1": f1, "n_pred": n})
+            rows.append({"group": group, "variant": name, "spell_f1": f1, "n_pred": n})
     t = pd.DataFrame(rows)
     print(t.pivot_table(index="variant", columns="group", values="spell_f1").round(4).to_string())
 
@@ -133,10 +134,9 @@ def census(params, rhos=(2.6,), items=SEARCH):
     overlong (one spell covers it but runs on into its neighbours); by labelled length. Held-out B games are skipped."""
     model, rows = Decoder.load(params), []
     bins = [0, 2, 5, 10, 20, np.inf]
-    for world, cases in bench.dev_worlds(items, rhos, seeds=SEEDS).items():
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
             continue
-        case = bench.pooled(cases)
         runs = score.valid_runs(case.gt)
         pred = score._assemble_checked(case.layout, case.gt, [model.decode(h).codes for h in case.halves])
         spells = score.possession_spells(pred, runs)
@@ -152,7 +152,7 @@ def census(params, rhos=(2.6,), items=SEARCH):
                 kind = "dead" if (seg == D).sum() >= ((seg != c) & (seg != D)).sum() else "wrong_team"
             else:
                 kind = "fragmented" if len(same) > 1 else "overlong"
-            rows.append({"group": bench.group(world), "kind": kind,
+            rows.append({"group": group, "kind": kind,
                          "length": pd.cut([(b - a) / FPS], bins, right=False).astype(str)[0]})
         print(world, "labelled", len(rows), "predicted spells", len(spells), flush=True)
     t = pd.DataFrame(rows)
@@ -182,7 +182,7 @@ def hold():
             last = np.maximum.accumulate(np.where(ctrl, idx, -1))
             row[f"hold{r:g}"] = np.where(last >= 0, tok[np.maximum(last, 0)], NO_TEAM) == c.labels
         rows.append(pd.DataFrame({k: v[live] for k, v in row.items()}))
-    t = pd.concat(rows)
+    t = pd.concat(rows, ignore_index=True)
     t["bin"] = np.where(t.seen, pd.cut(t.d, [0, 1, 2, 3, 5, 10, np.inf], right=False).astype(str), "unseen")
     out = t.groupby("bin").mean(numeric_only=True).drop(columns=["seen", "d"])
     out.insert(0, "share", t.groupby("bin").size() / len(t))
@@ -286,10 +286,9 @@ def deadcues(params, rhos=(2.6,), items=SEARCH):
     off the pitch, none) and by distance to the nearest labelled stoppage. Held-out B games are skipped."""
     model, rows = Decoder.load(params), []
     p = model.params
-    for world, cases in bench.dev_worlds(items, rhos, seeds=SEEDS).items():
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
             continue
-        case = bench.pooled(cases)
         for half, gt in zip(case.halves, case.layout.cut(case.gt)):
             codes, g, n = model.decode(half).codes, half.geometry, half.n
             idx = np.arange(n)
@@ -305,18 +304,36 @@ def deadcues(params, rhos=(2.6,), items=SEARCH):
                 continue
             pos = np.clip(np.searchsorted(dead_gt, idx), 1, len(dead_gt) - 1)
             gap = np.minimum(np.abs(idx - dead_gt[pos - 1]), np.abs(dead_gt[pos] - idx)) / FPS
-            near = pd.cut(gap, [-1, 0, 2, 5, 10, np.inf]).astype(str)
+            near = np.asarray(pd.cut(gap, [-1, 0, 2, 5, 10, np.inf]).astype(str), dtype=object)
             keep = (idx >= half.id.kickoff) & (gt != X)
             kind = np.where((gt != D) & (codes == D), "false_D", np.where((gt == D) & (codes != D), "missed_D", ""))
             m = keep & (kind != "")
-            rows.append(pd.DataFrame({"group": bench.group(world), "kind": kind[m], "cue": cue[m], "near_s": near[m]}))
-            rows.append(pd.DataFrame({"group": bench.group(world), "kind": np.where(gt[keep] == D, "all_D", "all_live"),
+            rows.append(pd.DataFrame({"group": group, "kind": kind[m], "cue": cue[m], "near_s": near[m]}))
+            rows.append(pd.DataFrame({"group": group, "kind": np.where(gt[keep] == D, "all_D", "all_live"),
                                       "cue": cue[keep], "near_s": near[keep]}))
         print(world, flush=True)
-    t = pd.concat(rows)
+    t = pd.concat(rows, ignore_index=True)
     print(t.groupby(["group", "kind"]).size().unstack("kind").to_string())
     print(pd.crosstab([t.group, t.kind], t.cue, normalize="index").round(3).to_string())
     print(pd.crosstab([t.group, t.kind], t.near_s, normalize="index").round(3).to_string())
+
+
+def versions(paths, items):
+    """Margin over smooth50 of each params file in PATHS on ITEMS's worlds; held-out B games are skipped."""
+    models, s50, rows = {Path(q).stem: Decoder.load(q) for q in paths}, bench.Smoother(50), []
+    for group, world, case in scored_cases(bench.dev_worlds(items, (2.6,), seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for name, model in models.items():
+            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
+            rows.append({"group": group, "params": name, "spell_f1": f1, "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    t = pd.DataFrame(rows)
+    print(t.pivot_table(index="params", columns="group", values="margin").round(4).to_string())
+    print(t.pivot_table(index="params", columns="group", values="spell_f1").round(4).to_string())
+    print(t.groupby("group").floor.first().round(4).to_string())
 
 
 def features(g):
@@ -1270,7 +1287,7 @@ def pick(synth_csv, pff_csv, base, prefer):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
@@ -1298,4 +1315,5 @@ if __name__ == "__main__":
      "combo": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, COMBO_GRID),
      "census": lambda: census(one, a.dead_bias, a.rule), "hold": hold,
      "holdgrid": lambda: holdgrid(one, a.out, a.dead_bias, a.rule),
-     "deadcues": lambda: deadcues(one, a.dead_bias, a.rule)}[a.probe]()
+     "deadcues": lambda: deadcues(one, a.dead_bias, a.rule),
+     "versions": lambda: versions(a.params, a.rule)}[a.probe]()

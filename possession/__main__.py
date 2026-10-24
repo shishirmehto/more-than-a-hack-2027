@@ -151,10 +151,11 @@ def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: 
     p.add_argument("--dead-bias", type=float, nargs="+", default=None,
                    help=f"generator dead_bias worlds (default: {dead_bias})")
     # bench.SOURCES spelled out: importing bench here would put pandas on make-submission's import path.
-    p.add_argument("--source", choices=("metrica", "idsse", "pff"), default="metrica",
+    p.add_argument("--source", choices=("metrica", "idsse", "pff", "pffsb"), default="metrica",
                    help="dev games: the three Metrica samples, the seven IDSSE matches with the DFL feed's own "
-                        "labels, or the 64 PFF FC World Cup 2022 games with labels from PFF's game events (IDSSE "
-                        "and PFF take merge rules only; files under <data dir>/external/idsse and /pff)")
+                        "labels, the 64 PFF FC World Cup 2022 games with labels from PFF's game events, or the same "
+                        "games with StatsBomb's possession teams (IDSSE and PFF take merge rules only; files under "
+                        "<data dir>/external/idsse, /pff and /statsbomb_wc2022)")
 
 
 def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
