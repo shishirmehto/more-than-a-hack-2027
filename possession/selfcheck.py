@@ -404,7 +404,8 @@ def geometry_emission_known_answer() -> None:
     out[5:8] = (2.0, 0.5, 3.0)
     geo = BallGeometry(np.ones(14, np.float32), np.ones(14, np.float32), out)
     rule = Decoder(Tier0Emission(), DecoderParams(dead_min_run=3, dead_trim=0, dead_outside_m=1.0))
-    assert rule.needs_geometry and not rule.replace(dead_min_run=0).needs_geometry
+    assert rule.needs_geometry and not rule.replace(dead_min_run=0, dead_outside_m=0.0).needs_geometry
+    _raises(ValueError, rule.replace, dead_min_run=0)
     _raises(ValueError, rule.decode, Half(HalfId("dead", 1, 0), tok))
     codes = rule.decode(Half(HalfId("dead", 1, 0), tok, geo)).codes
     assert (codes[5:8] != D).all(), codes
