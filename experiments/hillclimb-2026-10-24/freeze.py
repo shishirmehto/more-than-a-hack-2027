@@ -124,6 +124,20 @@ ADJ = ("spell_flip_adjacent and spell_flip_p 0.75 come from pre-registered exper
        "was written into pick(), under which this file is a near-tie and not the recommendation; the adjacency "
        "rule is nearly inert at 0.75. Even-indexed PFF games and seeds 15-24 only confirm. No BAR-ATH statistic "
        "was read. No StatsBomb data entered this selection.")
+LINE = ("dead_line_m, dead_line_min_run and dead_line_lead_cut come from pre-registered experiment E42c on "
+        "tier0_v13. A label-reading check on PFF-A (scratch probe F3 from the community scan) found ball-missing gaps "
+        "that start with the ball seen near a line are dead 48-60% of the time against 5-10% elsewhere. E42 (a "
+        "shorter dead length alone, probes.py LINE_GRID) and E42b (plus a 25-frame lead cut, LINE_LEAD_GRID) tied "
+        "the base under E32's clause, because dead_trim swallows short runs. E42c's candidates, registered before "
+        "any result: dead_line_m {1, 2} x dead_line_min_run {75, 50} with the whole 50-frame start trim removed "
+        "(LINE_FULL_GRID). Rule v2 with E32's clause (synthetic veto at tier0_v13 minus 0.003 in every group; the "
+        "odd-game minimum over PFF m0 and m2 ranks; ties within 0.003 of the best to the registered order, m 1 "
+        "before 2 and run 75 before 50; no change unless the pick clears the base by more than 0.003) chose this "
+        "file's values: +0.0038 on the odd-game minimum. Confirmation, never used to choose: even-indexed PFF "
+        "games m0 +0.0035 [+0.0026, +0.0044] 28 of 32 won, m2 +0.0038 [+0.0028, +0.0047] 29 of 32; seeds 15-24 "
+        "above tier0_v13 in all 15 groups (+0.0008 to +0.0171, largest on IDSSE) and the worst-group margin over "
+        "baseline_smooth50 0.1211 against 0.1110. No BAR-ATH statistic was read. No StatsBomb data entered this "
+        "selection.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -148,6 +162,7 @@ def main(argv):
     ap.add_argument("--spell-flip", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("P", "FRAMES", "SEEN"))
     ap.add_argument("--dead-lead-cut", type=int, nargs=2, default=(0, 0), metavar=("ALL", "OUT"))
     ap.add_argument("--spell-flip-adjacent", action="store_true")
+    ap.add_argument("--dead-line", type=float, nargs=3, default=(0.0, 0, 0), metavar=("M", "RUN", "CUT"))
     ap.add_argument("--spell-logit", type=float, nargs="+", default=None, metavar="W",
                     help="the intercept, then one weight per decoder.SPELL_FEATURES name in order; trailing "
                          "features left out weigh 0 and are not written")
@@ -167,7 +182,8 @@ def main(argv):
                                      spell_flip_frames=int(a.spell_flip[1]), spell_flip_seen=a.spell_flip[2],
                                      spell_logit=dict(zip(("a",) + SPELL_FEATURES, a.spell_logit or ())),
                                      dead_lead_cut=a.dead_lead_cut[0], dead_out_lead_cut=a.dead_lead_cut[1],
-                                     spell_flip_adjacent=a.spell_flip_adjacent)
+                                     spell_flip_adjacent=a.spell_flip_adjacent, dead_line_m=a.dead_line[0],
+                                     dead_line_min_run=int(a.dead_line[1]), dead_line_lead_cut=int(a.dead_line[2]))
     lead = any(a.dead_lead_cut)
     logit = any(a.q_logit)
     no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
@@ -190,6 +206,8 @@ def main(argv):
                                   "spell_logit", 1)
     if lead:
         changed = changed.replace("dead_close,", "dead_close, dead_lead_cut, dead_out_lead_cut,", 1)
+    if a.dead_line[0]:
+        changed = changed.replace("dead_close,", "dead_close, dead_line_m, dead_line_min_run, dead_line_lead_cut,", 1)
     if a.spell_flip_adjacent:
         changed = changed.replace("spell_logit", "spell_logit, spell_flip_adjacent", 1)
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
@@ -202,7 +220,8 @@ def main(argv):
                      (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else "") +
                      (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
                      (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else "") +
-                     (" " + LEAD if lead else "") + (" " + ADJ if a.spell_flip_adjacent else ""),
+                     (" " + LEAD if lead else "") + (" " + ADJ if a.spell_flip_adjacent else "") +
+                     (" " + LINE if a.dead_line[0] else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -220,14 +239,17 @@ def main(argv):
                      "e32-synth.csv and select-e32.out" if lead else "") +
                     (", flipindep-v13.out, flippairs-v13.out, e40-pff.csv, e40-synth.csv and select-e40.out"
                      if a.spell_flip_adjacent else "") +
+                    (", e42-*.csv, e42b-*.csv, e42c-*.csv, hc-confirm-e42c-pff.csv and hc-confirm-e42c-synth.csv"
+                     if a.dead_line[0] else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
         "public_window": f"The hillclimb changed only {changed}. It scored files on the public window as a "
                          "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
                          "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Every experiment from E17 on, "
-                         "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and "
-                         "the spell_flip and dead_lead fields came after the "
+                         "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and " +
+                         ("the spell_flip, dead_lead and dead_line fields came after the " if a.dead_line[0] else
+                          "the spell_flip and dead_lead fields came after the ") +
                          "first read. Inherited from "
                          "tier0_v1: " + v1_doc["provenance"]["public_window"],
     })

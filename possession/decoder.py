@@ -33,7 +33,7 @@ _SPEED_CAP_MPS = 40.0
 _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mps", "dead_pace_still_mps",
                      "dead_pace_live_mps", "dead_lead_cut", "dead_out_lead_cut", "dead_out_min_run")
 _OUT_BEFORE, _OUT_AFTER = 25, 75
-_LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
+_LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed", "q_logit_rel")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
                   "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other")
 _TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
@@ -64,6 +64,8 @@ class Tier0Emission:
                     d = BallGeometry.nearest_m, m = BallGeometry.margin_m (inf when a team has no slot)
                     and v = min(BallGeometry.speed_mps, 40). A fitted q can fall below 0.5, where a token
                     points away from its own team.
+    q_logit_rel:    adds g ln(1 + min(r, 40)) to z, r = BallGeometry.rel_mps, the ball's speed relative to the
+                    nearest player: a ball moving with its player makes the token more reliable.
     Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, finite q_logit terms.
     """
     q: float = 0.78
@@ -74,6 +76,7 @@ class Tier0Emission:
     q_logit_margin: float = 0.0
     q_logit_speed: float = 0.0
     q_logit_dist_speed: float = 0.0
+    q_logit_rel: float = 0.0
 
     def __post_init__(self) -> None:
         _number("q", self.q, 0, 1)
@@ -116,6 +119,10 @@ class Tier0Emission:
         speed = np.log1p(np.minimum(g.speed_mps[where].astype(np.float64), _SPEED_CAP_MPS))
         z = (self.q_logit_a + self.q_logit_dist * np.log1p(nearest) + self.q_logit_margin * np.log1p(margin)
              + (self.q_logit_speed + self.q_logit_dist_speed * np.log1p(nearest)) * speed)
+        if self.q_logit_rel:
+            if g.rel_mps is None:
+                raise ValueError(f"{half.id}: q_logit_rel reads BallGeometry.rel_mps and this Half has none")
+            z = z + self.q_logit_rel * np.log1p(np.minimum(g.rel_mps[where].astype(np.float64), _SPEED_CAP_MPS))
         hit, miss = -np.logaddexp(0.0, -z), -np.logaddexp(0.0, z)
         home = half.nearest_team[where] == HOME
         out[where, 0] = np.where(home, hit, miss) + seen[0]
@@ -150,6 +157,12 @@ class DecoderParams:
                         dead_outside_m.
     dead_out_min_run:   0 is off. Otherwise a run with that same ball-out evidence counts as dead from this
                         many frames instead of dead_min_run. Needs dead_outside_m.
+    dead_line_m, dead_line_min_run: 0 is off; set both or neither. A run without ball-out evidence whose
+                        ball is seen within dead_line_m metres of a touchline or goal line (BallGeometry.line_m,
+                        outside counts) in the 25 frames before its start counts as dead from dead_line_min_run
+                        frames instead of dead_min_run: a ball lost next to a line is often out of play.
+    dead_line_lead_cut: 0 is off. Otherwise that near-line run's start trim is cut by this many frames more,
+                        as dead_out_lead_cut does for ball-out runs. Needs dead_line_m.
     dead_close:         a stretch of team calls shorter than this many frames with dead runs on both
                         sides becomes D too, so brief ball sightings inside one stoppage do not split it
                         into spurious possessions; 0 = off, ignored when dead_min_run is 0.
@@ -251,6 +264,9 @@ class DecoderParams:
     dead_out_lead_cut: int = 0
     dead_out_min_run: int = 0
     spell_flip_adjacent: bool = False
+    dead_line_m: float = 0.0
+    dead_line_min_run: int = 0
+    dead_line_lead_cut: int = 0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -269,6 +285,15 @@ class DecoderParams:
                 hi_open=False)
         _number("dead_out_min_run", self.dead_out_min_run, 0, self.dead_min_run, integer=True, lo_open=False,
                 hi_open=False)
+        _number("dead_line_m", self.dead_line_m, 0, math.inf, lo_open=False)
+        _number("dead_line_min_run", self.dead_line_min_run, 0, self.dead_min_run, integer=True, lo_open=False,
+                hi_open=False)
+        if bool(self.dead_line_m) != bool(self.dead_line_min_run):
+            raise ValueError("dead_line_m and dead_line_min_run act together: set both or neither")
+        _number("dead_line_lead_cut", self.dead_line_lead_cut, 0, self.dead_trim, integer=True, lo_open=False,
+                hi_open=False)
+        if self.dead_line_lead_cut and not self.dead_line_m:
+            raise ValueError("dead_line_lead_cut reads dead_line_m and acts only with it > 0")
         if (self.dead_out_lead_cut or self.dead_out_min_run) and not self.dead_outside_m:
             raise ValueError("dead_out_lead_cut and dead_out_min_run read dead_outside_m and act only with it > 0")
         _number("dead_outside_m", self.dead_outside_m, 0, math.inf, lo_open=False)
@@ -336,7 +361,8 @@ _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_ou
                     "spell_merge_frames": 0, "spell_merge_tails": 0, "spell_push_mps": 0.0, "spell_push_frames": 0,
                     "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0, "spell_flip_p": 0.0,
                     "spell_flip_frames": 0, "spell_flip_seen": 0.0, "spell_logit": {}, "dead_lead_cut": 0,
-                    "dead_out_lead_cut": 0, "dead_out_min_run": 0, "spell_flip_adjacent": False}
+                    "dead_out_lead_cut": 0, "dead_out_min_run": 0, "spell_flip_adjacent": False,
+                    "dead_line_m": 0.0, "dead_line_min_run": 0, "dead_line_lead_cut": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -673,6 +699,11 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
     unseen = _dead_cues(half, p)
     out = half.geometry.outside_m > p.dead_outside_m if p.dead_out_lead_cut or p.dead_out_min_run else None
+    near = None
+    if p.dead_line_m:
+        if half.geometry is None or half.geometry.line_m is None:
+            raise ValueError(f"{half.id}: dead_line_m reads BallGeometry.line_m and this Half has none")
+        near = half.geometry.line_m <= p.dead_line_m
     missing = np.concatenate(([False], unseen, [False]))
     edges = np.flatnonzero(np.diff(missing.view(np.int8)))
     dead = np.zeros(n + 1, dtype=np.int32)
@@ -680,6 +711,8 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         lead, need = p.dead_trim - p.dead_lead_cut, p.dead_min_run
         if out is not None and out[max(start - _OUT_BEFORE, 0):start + _OUT_AFTER].any():
             lead, need = max(lead - p.dead_out_lead_cut, 0), p.dead_out_min_run or need
+        elif near is not None and near[max(start - _OUT_BEFORE, 0):start].any():
+            lead, need = max(lead - p.dead_line_lead_cut, 0), p.dead_line_min_run
         lo = start + lead if start > 0 else -p.dead_min_run
         hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
         if hi - lo >= need - lead - p.dead_trim and min(hi, n) > max(lo, 0):

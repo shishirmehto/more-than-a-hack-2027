@@ -95,11 +95,17 @@ class BallGeometry:
     outside_m: distance from the ball to the pitch rectangle, 0 on or inside the lines.
     speed_mps: ball speed in m/s from its displacement between frames t-2 and t+2, else between t and
                whichever of them has a ball; 0 when neither does.
+    line_m:    distance from the ball to the nearest touchline or goal line, positive inside the pitch and
+               negative outside. None when the source did not compute it.
+    rel_mps:   speed in m/s of the ball relative to the nearest player, both velocities from frames t-2 and
+               t+2; speed_mps where either lacks a position at both ends. None when not computed.
     """
     margin_m: NDArray[np.float32]
     nearest_m: NDArray[np.float32]
     outside_m: NDArray[np.float32]
     speed_mps: NDArray[np.float32]
+    line_m: NDArray[np.float32] | None = None
+    rel_mps: NDArray[np.float32] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +147,10 @@ class Half:
         _freeze(tok)
         if self.geometry is not None:
             unseen = tok == NO_TEAM
-            for name in ("margin_m", "nearest_m", "outside_m", "speed_mps"):
+            for name in ("margin_m", "nearest_m", "outside_m", "speed_mps", "line_m", "rel_mps"):
                 a = getattr(self.geometry, name)
+                if a is None and name in ("line_m", "rel_mps"):
+                    continue
                 if not isinstance(a, np.ndarray) or a.dtype != np.float32 or a.shape != tok.shape:
                     raise ValueError(f"geometry.{name} must be float32 [{self.n}], got "
                                      f"{getattr(a, 'dtype', None)} {getattr(a, 'shape', None)}")

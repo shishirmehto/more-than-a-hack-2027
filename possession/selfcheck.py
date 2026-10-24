@@ -498,6 +498,32 @@ def dead_run_rule_known_answer() -> None:
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_out_min_run=8)
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_outside_m=1.0, dead_out_min_run=13)
 
+    lines = np.where(tok == NO_TEAM, np.nan, 20.0).astype(np.float32)
+    lines[5] = 1.5
+
+    def line(**params: float) -> str:
+        half = Half(HalfId("line", 1, 0), tok, BallGeometry(seen, seen, inside, seen, lines))
+        p = DecoderParams(dead_min_run=12, dead_trim=2, **params)
+        return "".join(letter[int(c)] for c in decoder._missing_run_dead(np.full(20, H, np.int8), half, p))
+
+    assert line() == h20 and line(dead_line_m=1.0, dead_line_min_run=8) == h20
+    assert line(dead_line_m=2.0, dead_line_min_run=8) == "HHHHHHHHDDDDHHHHHHHH"
+    assert line(dead_line_m=2.0, dead_line_min_run=8, dead_line_lead_cut=2) == "HHHHHHDDDDDDHHHHHHHH"
+    _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_lead_cut=2)
+    _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_m=2.0)
+    _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_m=2.0, dead_line_min_run=13)
+    no_line = Half(HalfId("line", 1, 0), tok, BallGeometry(seen, seen, inside, seen))
+    _raises(ValueError, decoder._missing_run_dead, np.full(20, H, np.int8), no_line,
+            DecoderParams(dead_min_run=12, dead_trim=2, dead_line_m=2.0, dead_line_min_run=8))
+
+    zero = np.zeros(2, np.float32)
+    rel = np.array([0.0, math.e - 1], np.float32)
+    two = Half(HalfId("rel", 1, 0), np.array([HOME, HOME], np.int8), BallGeometry(zero, zero, zero, zero, zero, rel))
+    ll = Tier0Emission(q_logit_a=1.0, q_logit_rel=-1.0).loglik(two).astype(np.float64)
+    assert abs((ll[0, 0] - ll[1, 0]) - (-math.log1p(math.exp(-1.0)) - math.log(0.5))) < 1e-5
+    _raises(ValueError, Tier0Emission(q_logit_a=1.0, q_logit_rel=-1.0).loglik,
+            Half(HalfId("rel", 1, 0), np.array([HOME, HOME], np.int8), BallGeometry(zero, zero, zero, zero)))
+
     tok = np.full(20, HOME, np.int8)
     tok[13:17] = NO_TEAM
     speed = np.full(20, 5.0, np.float32)

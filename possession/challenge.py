@@ -93,6 +93,7 @@ def _nearest(g: Geometry) -> tuple[NDArray[np.int8], BallGeometry]:
     """nearest_team and the BallGeometry built from the same squared distances."""
     out = np.full(g.n, NO_TEAM, dtype=np.int8)
     d_team = np.full((g.n, 2), np.inf)
+    nearest_slot = np.zeros(g.n, dtype=np.intp)
     home = g.slot_team == HOME
     for lo in range(0, g.n, _CHUNK):
         ball = g.ball_xy[lo:lo + _CHUNK].astype(np.float64)
@@ -102,6 +103,7 @@ def _nearest(g: Geometry) -> tuple[NDArray[np.int8], BallGeometry]:
         j = d.argmin(1)
         ok = ~np.isnan(ball[:, 0]) & np.isfinite(d[np.arange(len(j)), j])
         out[lo:lo + _CHUNK] = np.where(ok, g.slot_team[j], NO_TEAM)
+        nearest_slot[lo:lo + _CHUNK] = j
         d_team[lo:lo + _CHUNK, HOME] = np.where(home, d, np.inf).min(1)
         d_team[lo:lo + _CHUNK, AWAY] = np.where(home, np.inf, d).min(1)
     unseen = out == NO_TEAM
@@ -113,9 +115,26 @@ def _nearest(g: Geometry) -> tuple[NDArray[np.int8], BallGeometry]:
     x, y = g.ball_xy[:, 0].astype(np.float64), g.ball_xy[:, 1].astype(np.float64)
     outside = np.hypot(np.maximum.reduce([np.zeros(g.n), -x, x - length]),
                        np.maximum.reduce([np.zeros(g.n), -y, y - width]))
+    line = np.minimum.reduce([x, length - x, y, width - y])
+    speed = _ball_speed(g.ball_xy.astype(np.float64))
     arrays = [np.where(unseen, np.nan, a).astype(np.float32)
-              for a in (margin, dist.min(1), outside, _ball_speed(g.ball_xy.astype(np.float64)))]
+              for a in (margin, dist.min(1), outside, speed, line, _relative_speed(g, nearest_slot, speed))]
     return out, BallGeometry(*arrays)
+
+
+def _relative_speed(g: Geometry, slot: NDArray[np.intp], speed: NDArray[np.float64]) -> NDArray[np.float64]:
+    """|ball velocity - velocity of the frame's nearest slot| from frames t-2 and t+2; speed where either
+    the ball or that slot lacks a position at both ends."""
+    k, n = _SPEED_STEP, g.n
+    t = np.arange(k, n - k)
+    ball = g.ball_xy.astype(np.float64)
+    who = slot[t]
+    vb = (ball[t + k] - ball[t - k]) * FPS / (2 * k)
+    vp = (g.players_xy[t + k, who].astype(np.float64) - g.players_xy[t - k, who].astype(np.float64)) * FPS / (2 * k)
+    rel = speed.copy()
+    both = np.isfinite(vb).all(1) & np.isfinite(vp).all(1)
+    rel[t[both]] = np.hypot(*(vb[both] - vp[both]).T)
+    return rel
 
 
 def _player_pace(g: Geometry) -> NDArray[np.float32]:

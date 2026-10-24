@@ -16,10 +16,12 @@ StatsBomb's free World Cup 2022 event data. Data source: StatsBomb
 
 ## Result
 
-Thirteen new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed
+Fourteen new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed
 every held-out test and was then stopped by its registered BAR-ATH transfer check; tier0_v12 is its refit without
 the feature that tripped the check. tier0_v13 is v12 with a stoppage start dated by a ball seen leaving the pitch.
-It is the recommendation. tier0_v14, v13 with a spell flip that never flips both sides of a boundary and a cut
+tier0_v15 (25 October) is v13 plus a shorter, untrimmed dead run where the ball vanishes next to a line. It
+cleared the selection rule and its held-out confirmation, so the rule makes it the recommendation; the user has
+not yet reviewed that switch, and tier0_v13 stays the fallback. tier0_v14, v13 with a spell flip that never flips both sides of a boundary and a cut
 of 0.75, confirmed on the held-out games but is a near-tie that the selection rule, applied as registered for
 E32, does not ship (experiment 79):
 
@@ -37,6 +39,7 @@ E32, does not ship (experiment 79):
 | `params/tier0_v11.json` (stopped) | `spell_flip_*`: a logistic over 14 label-free spell features, fitted on PFF-A labels, gives a short possession with a token on half its frames to the other team at P 0.8 or more | the gated ATD | `119e1f080f3470e2…` |
 | `params/tier0_v12.json` | to tier0_v10: v11's spell flip refitted without the token-share feature (its weight 0) | the gated ATD | `002da6a32d63f03c…` |
 | `params/tier0_v13.json` | `dead_out_lead_cut` 25: a dead run whose ball is seen leaving the pitch near its start loses 25 frames there instead of 50 | the gated ATD | `8d980307e73c50e4…` |
+| `params/tier0_v15.json` | to tier0_v13: `dead_line_m` 1, `dead_line_min_run` 75, `dead_line_lead_cut` 50: a ball-missing run that starts within 1 m of a touchline or goal line counts as dead from 75 frames and loses no frames at its start | the gated ATD | `64fdd81649720ae8…` |
 | `params/tier0_v14.json` (near-tie) | `spell_flip_adjacent` and `spell_flip_p` 0.75: of short possessions that pass the flip and share a boundary, only the highest-scoring one flips, at a cut of 0.75 instead of 0.8 | the gated ATD | `0463708e9a525e3d…` |
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
@@ -58,6 +61,7 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 | tier0_v11 (stopped) | +0.151 [+0.142, +0.160] | +0.190 [+0.180, +0.199] | over v10: +0.008 [+0.005, +0.011] 29/32 / +0.011 [+0.008, +0.014] 32/32 | +0.106 (IDSSE m0) |
 | tier0_v12 | +0.151 [+0.142, +0.160] | +0.189 [+0.179, +0.199] | over v10: +0.008 [+0.006, +0.010] 30/32 / +0.010 [+0.008, +0.013] 30/32 | +0.107 (IDSSE m0) |
 | **tier0_v13** | +0.154 [+0.145, +0.163] | +0.192 [+0.182, +0.202] | over v12: +0.0031 [+0.0022, +0.0041] 29/32 / +0.0033 [+0.0023, +0.0044] 27/32 | +0.111 (IDSSE m0) |
+| **tier0_v15** | +0.157 [+0.148, +0.167] | +0.196 [+0.186, +0.206] | over v13: +0.0035 [+0.0026, +0.0044] 28/32 / +0.0038 [+0.0028, +0.0047] 29/32 | +0.121 (IDSSE m0) |
 | tier0_v14 (near-tie) | +0.157 [+0.148, +0.166] | +0.196 [+0.187, +0.206] | over v13: +0.0028 [+0.0009, +0.0047] 26/32 / +0.0042 [+0.0024, +0.0061] 29/32 | +0.110 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
@@ -109,7 +113,13 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   a lower bound of +0.002 on 23 of 32 games. Under StatsBomb's convention on the held-out PFF games its margin
   is +0.171 against v7's +0.154.
 
-My recommendation is tier0_v13, which the user kept on 24 October after deciding that a design shaped by a
+The selection rule now recommends tier0_v15: tier0_v13 plus E42c's near-line dead run (experiment 83). It
+reads no BAR-ATH statistic and no StatsBomb data, builds from the same gated inputs, and changes 828 BAR-ATH
+frames against v13, 808 of them from a team to D. It came from the third registered variant of one idea on
+PFF-A (experiments 81 to 83), which is a mild selection risk the held-out games did not show: its PFF-B gain
+matches its PFF-A gain. The user has not yet reviewed the switch; until then tier0_v13 is the fallback.
+
+Before v15, my recommendation was tier0_v13, which the user kept on 24 October after deciding that a design shaped by a
 match-wide BAR-ATH statistic is allowed (v12's redesign read one; the organisers have not ruled on it). It needs
 the gated ATD files on disk to build and carries 13 weights fitted on PFF labels; if either is a problem, use tier0_v10, or tier0_v2, the best file that builds from committed inputs alone. tier0_v13 is
 tier0_v12 plus E32's ball-out stoppage start. Every step from v7 was selected and confirmed under the
@@ -471,6 +481,10 @@ overstates how independent the B columns are:
 | 77 | adjacent co-flips (`probes.py flippairs`), two parts on v13's pre-flip codes on PFF-A: label-free, the share of the decoder's own flips next to another flip; label-reading, never a candidate, experiment 69's independent set with adjacent members resolved to the higher single-run gain | experiment 69's greedy flips (781) are almost all inside the independent set (936), so about 155 runs that help alone hurt together; fan-out 5's critic named adjacent co-flips; bars set before the run: 10%+ paired at either cut, and the resolved set at least halfway from independent to greedy on m0 | label-free 6.8% paired at cut 0.8 and 10.2% at 0.75; 419 of 936 helpful runs sit next to another; resolved (728 kept) lifts m0 seen to +0.0457 over no flip against independent +0.0351 and greedy +0.0433 (paired resolved minus independent +0.0104 [+0.0069, +0.0139], 31 of 32); m2 +0.0610 against +0.0462 | both bars pass; decoder field `spell_flip_adjacent` built (selfcheck known answers; v13's CSV unchanged) |
 | 78 | E40: tier0_v13 plus `spell_flip_adjacent` at cut 0.8, 0.75, 0.7, 0.65, weights unchanged (`probes.py adjgrid`); rule v2, ties to v13, then higher cut first; confirmation on PFF-B (its fourth read) and seeds 15-24 | experiment 77; in E38 the plain 0.75 cut passed the veto but tied v13, and 0.7 and 0.65 failed it on IDSSE m0 | veto: 0.7 passes by 0.0004, 0.75 by 0.0023, 0.8 by 0.0029, 0.65 fails by 0.0017; PFF-A minimum 0.7 0.1547, 0.75 0.1528, v13 0.1504, 0.8 0.1502; v13 falls outside the band and the order picks 0.75; PFF-B over v13 m0 +0.0028 [+0.0009, +0.0047], m2 +0.0042 [+0.0024, +0.0061]; seeds 15-24 above smooth50 in all 15 groups (min 0.1105), above v13 on 132 of 150 worlds (IDSSE m0 flat); 681 BAR-ATH frames change | first recorded as **tier0_v14**; superseded by experiment 79 |
 | 79 | cross-model review (sonnet) of experiments 68 to 78 and the correction it led to | show-me-your-work requires a different-model review before handing back | v14's pick followed `pick()` but not E32's registered clause (no change unless an arm clears the base by more than 0.003); adjacency is inert at 0.75, so v14 is v13 with cut 0.75, which E38 ruled a tie; PFF-B about 15 reads; smaller slips in experiments 68, 71 and 74 to 76, and a 3.05 GB peak the shared machine does not explain | `pick()` now encodes the clause and selects base on E40 (E30 and E32 keep their picks); **tier0_v13 is the recommendation again**; tier0_v14 stays frozen as a near-tie |
+| 80 | E41: tier0_v13 with `q_logit` refitted on PFF-A with a fourth term, ln(1 + ball speed relative to the nearest player) (`probes.py e41grid`); arms base and refit; rule v2 with E32's clause | community-scan probe F1: relative speed separates the possessing team well on PFF-A seen live frames | refit weight -0.41; fails the veto by 0.0001 (Metrica h1p3) and loses on the PFF-A minimum, 0.1493 against 0.1504 | **no change**: distance and margin already carry the signal |
+| 81 | E42: missing runs whose ball was seen within `dead_line_m` {1, 2} m of a line in the 25 frames before count as dead from `dead_line_min_run` {25, 50, 75} (`probes.py linegrid`) | community-scan probe F3: on PFF-A such gaps are dead 48-60% of the time against 5-10% | all pass the veto; best PFF-A minimum +0.0009; the three lengths score the same because `dead_trim` 50 at both ends leaves no D on a run under about 100 frames | **no change** |
+| 82 | E42b: E42 with `dead_line_lead_cut` 25 and lengths {100, 75} (`probes.py linelead`) | experiment 81's trim finding | all pass the veto; synthetic minimum +0.0044 to +0.0049, PFF-A minimum +0.0019 to +0.0030; the tie goes to m 1 run 100 at +0.0019 | **no change** under E32's clause |
+| 83 | E42c: E42 with the whole 50-frame start trim removed, `dead_line_m` {1, 2} x `dead_line_min_run` {75, 50} (`probes.py linefull`), registered as the last near-line variant; confirmation on PFF-B and seeds 15-24 | experiment 82 moved every group the same way, leaving the size of the cut as the one lever | all pass the veto; PFF-A minimum 0.1542 for m 1 run 75 against 0.1504 (+0.0038), synthetic minimum 0.1203 against 0.1099; PFF-B over v13 m0 +0.0035 [+0.0026, +0.0044] 28 of 32, m2 +0.0038 [+0.0028, +0.0047] 29 of 32; seeds 15-24 above v13 in all 15 groups and on 147 of 150 worlds (Metrica +0.0008 to +0.0032, IDSSE +0.010 to +0.017); 828 BAR-ATH frames change | **tier0_v15**, recommended by the rule |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames (overlapping slots, or officials in a team's slots) are untraced |
 
 ## What did not work, and why
@@ -695,6 +709,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-
 python -m possession make-submission --params params/tier0_v13.json --out tier0_v13.csv
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.75 250 0.5 --spell-logit $S2 --dead-lead-cut 0 25 --spell-flip-adjacent --out params/tier0_v14.json
 python -m possession make-submission --params params/tier0_v14.json --out tier0_v14.csv
+python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.8 250 0.5 --spell-logit $S2 --dead-lead-cut 0 25 --dead-line 1.0 75 50 --out params/tier0_v15.json
+python -m possession make-submission --params params/tier0_v15.json --out tier0_v15.csv
 python experiments/hillclimb-2026-10-24/pfffree.py --out params/tier0_v13_pfffree.json
 python -m possession make-submission --params params/tier0_v13_pfffree.json --out tier0_v13_pfffree.csv
 ```
