@@ -102,6 +102,9 @@ deadcensus PARAMS    label-reading: label-free statistics of the long stoppages 
 deadedges PARAMS     label-reading: insert_long split into missed, half and caught stoppages and the caught ones' edges
 outrungrid PARAMS --out CSV  E33: PARAMS with each OUTRUN_GRID minimum run for ball-out cue runs
 leadgrid PARAMS --out CSV  E32: PARAMS with each LEAD_GRID start-trim cut on the --rule worlds
+insertruns PARAMS    label-reading ceiling of making short dead cue runs D, by ball-out evidence
+insertfit PARAMS --out PREFIX
+                     E35 first gate: OOF run logistic on PFF-A choosing short cue runs to make D
 stepfeas PARAMS      E34 feasibility pass: pace-drop dating of no-out stoppage starts against labels, with the kill gate
 contest              label-reading: a contest gate's hit rate near labelled hand-overs against inside possessions
 slotcheck            label-free BAR-ATH slot check: keepers' teams, teams over 11 slots, fast nearest-slot jumps
@@ -2388,6 +2391,207 @@ def contest():
     print(pd.DataFrame(rows).round(3).to_string(index=False))
 
 
+INSERT_POPS = {"no-out 50+": lambda n, hit: n >= 50 and not hit, "out 50+": lambda n, hit: n >= 50 and hit,
+               "all 25+": lambda n, hit: n >= 25}
+
+
+def insertruns(params):
+    """Label-reading ceiling of any rule that makes short dead cue runs D, never a candidate: on native PFF-A m0
+    and m2, PARAMS's final codes; left to right, each cue run (decoder._dead_cues) shorter than dead_min_run,
+    after kickoff and holding no D, of an INSERT_POPS population (length, ball-out evidence near its start) is made
+    D over its whole span when that raises the half's mean matched count minus F/2 per predicted spell."""
+    from possession.decoder import _OUT_AFTER, _OUT_BEFORE, _dead_cues
+    model, rows, per_game = Decoder.load(params), [], []
+    p = model.params
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        base = [model.decode(h).codes for h in halves]
+        f_base, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, base, score.valid_runs(pooled_a.gt))
+
+        def value(lab, codes):
+            s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+            return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f_base / 2 * s["n_pred"]
+
+        variants, counts = {"base": base}, {}
+        cands = []
+        for h, c in zip(halves, base):
+            out = h.geometry.outside_m > p.dead_outside_m
+            cands.append([(a, b, bool(out[max(a - _OUT_BEFORE, 0):a + _OUT_AFTER].any()))
+                          for a, b in zip(*_runs(_dead_cues(h, p)))
+                          if a > h.id.kickoff and b - a < p.dead_min_run and not (c[a:b] == D).any()])
+        for name, keep in INSERT_POPS.items():
+            got, k = [], 0
+            for c, lab, cs in zip(base, labs, cands):
+                cur, best = c.copy(), value(lab, c)
+                for a, b, hit in cs:
+                    if not keep(b - a, hit):
+                        continue
+                    trial = cur.copy()
+                    trial[a:b] = D
+                    v = value(lab, trial)
+                    if v > best:
+                        cur, best, k = trial, v, k + 1
+                got.append(cur)
+            variants[name], counts[name] = got, k
+        n_c = {name: sum(keep(b - a, hit) for cs in cands for a, b, hit in cs) for name, keep in INSERT_POPS.items()}
+        runs_ = score.valid_runs(pooled_a.gt)
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs_)
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f_base, "n_pred": n,
+                         "inserted": counts.get(name, 0), "candidates": n_c.get(name, 0)})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    paired_delta(per_game, INSERT_POPS)
+
+
+INSERT_FEATURES = ("len", "unseen", "still", "pace", "pace_pre", "pace_post", "dead_post", "turn", "switches",
+                   "speed_in", "outside", "gap_d")
+INSERT_FIT_POPS = {"no-out 50+": lambda n, hit: n >= 50 and not hit, "50+": lambda n, hit: n >= 50,
+                   "25+": lambda n, hit: n >= 25}
+INSERT_ARMS = [(pop, cut) for pop in INSERT_FIT_POPS for cut in (0.8, 0.65, 0.5)]
+INSERT_PRE, INSERT_STILL_MPS = 50, 1.0
+
+
+def _med(x):
+    x = x[np.isfinite(x)]
+    return float(np.median(x)) if len(x) else 0.0
+
+
+def _insert_rows(codes, h, p, pdead):
+    """(start, stop, n, out hit, INSERT_FEATURES) for each decoder._dead_cues run of 25 to dead_min_run - 1 frames
+    after kickoff holding no D in CODES. len ln(frames / FPS); unseen, still: share of ball-unseen frames, of seen
+    frames under 1 m/s; pace, pace_pre, pace_post: ln(1 + median player pace) inside, over the 50 frames before,
+    the 50 after; dead_post: mean chain P(D); turn: 1 when the last team code before differs from the first after;
+    switches: ln(1 + team changes inside); speed_in: ln(1 + max ball speed over the 25 frames before, capped at
+    40 m/s); outside: max outside_m over [start - 25, start + 75), capped at 5 m; gap_d: ln(1 + frames to the
+    nearest D)."""
+    from possession.decoder import _OUT_AFTER, _OUT_BEFORE, _dead_cues
+    g, n_ = h.geometry, h.n
+    dpos = np.flatnonzero(codes == D)
+    rows = []
+    for a, b in zip(*_runs(_dead_cues(h, p))):
+        a, b, n = int(a), int(b), int(b - a)
+        if a <= h.id.kickoff or n < 25 or n >= p.dead_min_run or (codes[a:b] == D).any():
+            continue
+        out = g.outside_m[max(a - _OUT_BEFORE, 0):a + _OUT_AFTER]
+        out = out[np.isfinite(out)]
+        hit = bool((out > p.dead_outside_m).any())
+        seen = h.nearest_team[a:b] != NO_TEAM
+        sp = g.speed_mps[a:b][seen]
+        pre = g.speed_mps[max(a - 25, 0):a][h.nearest_team[max(a - 25, 0):a] != NO_TEAM]
+        pre = pre[np.isfinite(pre)]
+        left, right = codes[:a][codes[:a] != D], codes[b:][codes[b:] != D]
+        k = np.searchsorted(dpos, a)
+        gap = min(a - dpos[k - 1] if k else n_, dpos[k] - b if k < len(dpos) else n_ - b)
+        x = (np.log(n / FPS), 1 - seen.mean(), float((sp < INSERT_STILL_MPS).mean()) if len(sp) else 0.0,
+             np.log1p(_med(h.pace_mps[a:b])), np.log1p(_med(h.pace_mps[max(a - INSERT_PRE, 0):a])),
+             np.log1p(_med(h.pace_mps[b:b + INSERT_PRE])), float(pdead[a:b].mean()),
+             float(len(left) and len(right) and left[-1] != right[0]),
+             np.log1p(int((np.diff(codes[a:b]) != 0).sum())),
+             np.log1p(min(float(pre.max()), 40.0)) if len(pre) else 0.0,
+             min(float(out.max()), 5.0) if len(out) else 0.0, np.log1p(gap))
+        rows.append((a, b, n, hit, tuple(round(float(v), 9) for v in x)))
+    return rows
+
+
+def insertfit(params, out):
+    """E35 first gate, PFF-A only: a ridge logistic on _insert_rows features predicts whether making one short cue
+    run D alone raises the half's matched-minus-F/2 value on the m0 labels; 2-fold game-OOF weights at INSERT_ARMS
+    make runs D together on the final codes, on m0 and m2; writes OUT-pff.csv (OOF margins over smooth50) and
+    OUT-weights.json (the all-A fit per population)."""
+    model, s50 = Decoder.load(params), bench.Smoother(50)
+    p = model.params
+    by_world, table = {}, []
+    for world, pooled_a, labs, games_a in native_a():
+        halves, bases, rows_ = pooled_a.halves, [], []
+        games = list(dict.fromkeys(h.id.match for h in halves))
+        runs = score.valid_runs(pooled_a.gt)
+        for h in halves:
+            bases.append(model.decode(h).codes)
+        f_base, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, bases, runs)
+        floor, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [s50.decode(h).codes for h in halves], runs)
+        for h, lab, c in zip(halves, labs, bases):
+            gpost, m = _block_posterior(model, h)
+            pdead = np.ones(h.n)
+            pdead[h.id.kickoff:] = np.repeat(gpost[:, 2], p.stride)[:m]
+            rows = _insert_rows(c, h, p, pdead)
+            rows_.append(rows)
+            if "_m0_" not in world:
+                continue
+
+            def value(codes):
+                s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+                return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f_base / 2 * s["n_pred"]
+
+            v0 = value(c)
+            for a, b, n, hit, x in rows:
+                trial = c.copy()
+                trial[a:b] = D
+                table.append({"key": (h.id.match, h.id.half), "fold": games.index(h.id.match) % 2, "a": a, "n": n,
+                              "hit": hit, "y": float(value(trial) > v0), **dict(zip(INSERT_FEATURES, x))})
+        by_world[world] = (pooled_a, bases, rows_, games_a, floor)
+        print(world, flush=True)
+    t = pd.DataFrame(table)
+    x_all = np.column_stack([np.ones(len(t)), t[list(INSERT_FEATURES)].to_numpy(np.float64)])
+    y_all = t.y.to_numpy()
+    print(f"\n{len(t)} candidate runs on PFF-A m0, D helps on {t.y.mean():.3f}")
+    print("univariate AUC: " + ", ".join(f"{f} {auc(t[f].to_numpy(), y_all):.3f}" for f in INSERT_FEATURES))
+    masks = {pop: np.array([keep(n, hit) for n, hit in zip(t.n, t.hit)]) for pop, keep in INSERT_FIT_POPS.items()}
+    names = ("a",) + INSERT_FEATURES
+    fit = lambda m: dict(zip(names, (round(float(v), 4) for v in ridge_newton(x_all[m], y_all[m]))))
+    folds = {pop: [fit(m & (t.fold != f).to_numpy()) for f in (0, 1)] for pop, m in masks.items()}
+    full = {pop: fit(m) for pop, m in masks.items()}
+    for pop, m in masks.items():
+        z = np.zeros(len(t))
+        for f in (0, 1):
+            w, sel = folds[pop][f], (t.fold == f).to_numpy()
+            z[sel] = x_all[sel] @ np.array([w[k] for k in names])
+        print(f"{pop}: {m.sum()} runs, D helps on {y_all[m].mean():.3f}, OOF AUC {auc(z[m], y_all[m]):.3f}; all-A "
+              "weights " + ", ".join(f"{k} {v:+.4f}" for k, v in full[pop].items()))
+    fold_of = {(k, a): f for k, a, f in zip(t.key, t.a, t.fold)}
+    rows, per_game = [], []
+    for world, (pooled_a, bases, rows_, games_a, floor) in by_world.items():
+        runs = score.valid_runs(pooled_a.gt)
+        variants, made = {"base": bases}, {}
+        for pop, cut in INSERT_ARMS:
+            name, k, codes, zc = f"{pop}>={cut}", 0, [], np.log(cut / (1 - cut))
+            for h, c, rr in zip(pooled_a.halves, bases, rows_):
+                key, new = (h.id.match, h.id.half), c.copy()
+                for a, b, n, hit, x in rr:
+                    w = folds[pop][fold_of[(key, a)]]
+                    if INSERT_FIT_POPS[pop](n, hit) and w["a"] + sum(w[f] * v for f, v in zip(INSERT_FEATURES, x)) >= zc:
+                        new[a:b] = D
+                        k += 1
+                codes.append(new)
+            variants[name], made[name] = codes, k
+        f0 = None
+        for name, codes in variants.items():
+            f1, npred = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
+            f0 = f1 if name == "base" else f0
+            rows.append({"group": world + "_A", "world": world + "_A", "variant": name, "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "delta": f1 - f0, "n_pred": npred,
+                         "inserted": made.get(name, 0)})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(pooled_a.halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+    r = pd.DataFrame(rows)
+    print("\nOOF insertions on PFF-A (oracle ceilings from insertruns: m0 no-out 50+ +0.0282, all 25+ +0.0395)")
+    print(r.drop(columns=["group"]).round(4).to_string(index=False))
+    paired_delta(per_game, [n for n in r.variant.unique() if n != "base"])
+    r.drop(columns=["delta", "inserted"]).to_csv(f"{out}-pff.csv", index=False, float_format="%.6f")
+    Path(f"{out}-weights.json").write_text(json.dumps(full, indent=2, sort_keys=True) + "\n")
+    print(f"{out}-pff.csv {out}-weights.json")
+
+
 STEP_BOX, STEP_MIN_FINITE, STEP_BACK, STEP_FWD, STEP_KEEP = 25, 13, 50, 200, 25
 STEP_MID, STEP_SAFE = (0.4, 30, 50), (0.7, 15, 0)
 
@@ -2871,7 +3075,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -2887,7 +3091,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
