@@ -141,6 +141,12 @@ class DecoderParams:
     dead_outside_m:     0 is off. Otherwise a frame whose ball is seen more than this many metres outside
                         the pitch (Half.geometry.outside_m) counts as missing when the dead_min_run rule
                         finds its runs; needs Half.geometry. Ignored when dead_min_run is 0.
+    dead_still_mps:     0 is off. Otherwise a frame whose ball is seen moving slower than this many m/s
+                        (Half.geometry.speed_mps), inside a run of at least dead_still_frames such frames,
+                        counts as missing when the dead_min_run rule finds its runs: a ball at rest for
+                        seconds is usually being placed for a restart. Needs Half.geometry and dead_min_run.
+    dead_still_frames:  the shortest run of slow frames that dead_still_mps counts; set exactly when
+                        dead_still_mps is.
     handover_lag:       inside each run of team calls, every hand-over between the teams moves this many
                         frames later; the run's edges stay put. 0 is off. The nearest-team token flips
                         while a pass is in the air, before the receiver's touch that labels mark.
@@ -167,6 +173,8 @@ class DecoderParams:
     dead_trim: int = 0
     dead_close: int = 0
     dead_outside_m: float = 0.0
+    dead_still_mps: float = 0.0
+    dead_still_frames: int = 0
     handover_lag: int = 0
 
     def __post_init__(self) -> None:
@@ -182,11 +190,15 @@ class DecoderParams:
         _number("dead_trim", self.dead_trim, 0, math.inf, integer=True, lo_open=False)
         _number("dead_close", self.dead_close, 0, math.inf, integer=True, lo_open=False)
         _number("dead_outside_m", self.dead_outside_m, 0, math.inf, lo_open=False)
+        _number("dead_still_mps", self.dead_still_mps, 0, math.inf, lo_open=False)
+        _number("dead_still_frames", self.dead_still_frames, 0, math.inf, integer=True, lo_open=False)
         _number("handover_lag", self.handover_lag, 0, math.inf, integer=True, lo_open=False)
+        if bool(self.dead_still_mps) != bool(self.dead_still_frames):
+            raise ValueError("dead_still_mps and dead_still_frames are set together")
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
             raise ValueError("dead_trim must leave part of a dead_min_run run: 2 * dead_trim < dead_min_run")
-        if not self.dead_min_run and (self.dead_trim or self.dead_close or self.dead_outside_m):
-            raise ValueError("dead_trim, dead_close and dead_outside_m act only with dead_min_run > 0")
+        if not self.dead_min_run and (self.dead_trim or self.dead_close or self.dead_outside_m or self.dead_still_mps):
+            raise ValueError("dead_trim, dead_close, dead_outside_m and dead_still_mps act only with dead_min_run > 0")
         if self.decode_rule == "marginal":
             if (self.min_poss_frames, self.min_dead_frames) != (1, 1):
                 raise ValueError("decode_rule 'marginal' needs min_poss_frames == min_dead_frames == 1")
@@ -202,7 +214,8 @@ class DecoderParams:
 
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
 _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
-_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "handover_lag": 0}
+_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
+                    "dead_still_frames": 0, "handover_lag": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -256,7 +269,8 @@ class Decoder:
     @property
     def needs_geometry(self) -> bool:
         """True when decoding reads Half.geometry, which only challenge.observe supplies."""
-        return self.emission.needs_geometry or bool(self.params.dead_min_run and self.params.dead_outside_m)
+        p = self.params
+        return self.emission.needs_geometry or bool(p.dead_min_run and (p.dead_outside_m or p.dead_still_mps))
 
     def replace(self, **flat: object) -> "Decoder":
         """A copy with fields changed by flat name. Each key goes to the emission or the params,
@@ -340,10 +354,16 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
         team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
     unseen = half.nearest_team == NO_TEAM
+    if (p.dead_outside_m or p.dead_still_mps) and half.geometry is None:
+        raise ValueError(f"{half.id}: dead_outside_m and dead_still_mps read ball geometry and the Half has none; "
+                         "observe it from a Geometry (challenge.halves('atd')), not from baseline_raw")
+    if p.dead_still_mps:
+        slow = np.concatenate(([0], (half.geometry.speed_mps < p.dead_still_mps).view(np.int8), [0]))
+        edges = np.flatnonzero(np.diff(slow))
+        for start, stop in zip(edges[::2], edges[1::2]):
+            if stop - start >= p.dead_still_frames:
+                unseen[start:stop] = True
     if p.dead_outside_m:
-        if half.geometry is None:
-            raise ValueError(f"{half.id}: dead_outside_m reads ball geometry and the Half has none; observe it "
-                             "from a Geometry (challenge.halves('atd')), not from baseline_raw")
         unseen = unseen | (half.geometry.outside_m > p.dead_outside_m)
     missing = np.concatenate(([False], unseen, [False]))
     edges = np.flatnonzero(np.diff(missing.view(np.int8)))

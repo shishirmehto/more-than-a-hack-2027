@@ -27,6 +27,20 @@ lag PARAMS --out CSV
 snap PARAMS --out CSV
                      E7: each team-to-team hand-over moved to the receiving team's first close frame (snap radius),
                      then lagged; held-out B games are not decoded
+chain5 PARAMS --out CSV
+                     E8: temper x poss_mean_s and stride variants of PARAMS, each decoded in full; held-out B games
+                     are not decoded
+speedlogit PARAMS --out CSV
+                     E9: refit the logistic emission with ball speed terms on PFF-A, then grid it against PARAMS's
+                     emission across hand-over lags; held-out B games are not decoded
+masked PARAMS --out CSV
+                     E10: the chain decoded with the final dead-run mask as hard evidence, across p_flip_after_dead
+                     and hand-over lags; held-out B games are not decoded
+still                P(dead) by ball speed on frames PFF's tracker saw in the A games, inside runs of slow frames,
+                     and the slow-run lengths on BAR-ATH (no labels)
+stillgrid PARAMS --out CSV
+                     E11: PARAMS with slow-ball runs counted as missing by the dead-run stage; held-out B games are
+                     not decoded
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -356,9 +370,10 @@ def _logit_features(nearest_m, margin_m):
     return np.stack([np.ones_like(nearest_m), np.log1p(nearest_m), np.log1p(np.minimum(margin_m, MARGIN_CAP_M))], 1)
 
 
-def fit_logit():
+def fit_logit(speed=False):
     """Logistic fit of P(token == labelled team) on native PFF seen alive frames of the A games (games[0::2]
-    in pff.load order, the same split as scored_cases)."""
+    in pff.load order, the same split as scored_cases). speed adds ln(1+v) and ln(1+d)ln(1+v), v the decoder's
+    BallGeometry.speed_mps capped at 40."""
     from possession import challenge, pff
     games, xs, ys = [], [], []
     for c in pff.load(metrica.RuleV2.parse("m0")):
@@ -370,15 +385,17 @@ def fit_logit():
         ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
         h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
         keep = (h.nearest_team != -1) & (c.labels != D) & (np.arange(h.n) >= h.id.kickoff)
-        xs.append(_logit_features(h.geometry.nearest_m[keep].astype(np.float64), h.geometry.margin_m[keep].astype(np.float64)))
+        x = _logit_features(h.geometry.nearest_m[keep].astype(np.float64), h.geometry.margin_m[keep].astype(np.float64))
+        if speed:
+            lv = np.log1p(np.minimum(h.geometry.speed_mps[keep].astype(np.float64), 40.0))
+            x = np.column_stack([x, lv, x[:, 1] * lv])
+        xs.append(x)
         ys.append((h.nearest_team[keep] == c.labels[keep]).astype(np.float64))
     x, y = np.concatenate(xs), np.concatenate(ys)
-    w = np.zeros(3)
-    for _ in range(25):
-        p = 1 / (1 + np.exp(-x @ w))
-        w = w + np.linalg.solve((x * (p * (1 - p))[:, None]).T @ x, x.T @ (y - p))
-    print(f"fit on {len(y)} frames of {len(games[0::2])} A games: a {w[0]:+.4f} b {w[1]:+.4f} c {w[2]:+.4f}, "
-          f"mean q {y.mean():.3f}")
+    w = _newton(x, y)
+    p = np.clip(1 / (1 + np.exp(-x @ w)), 1e-9, 1 - 1e-9)
+    print(f"fit on {len(y)} frames of {len(games[0::2])} A games: weights {w.tolist()}, mean q {y.mean():.3f}, "
+          f"log loss {-np.mean(y * np.log(p) + (1 - y) * np.log1p(-p)):.5f}")
     return w
 
 
@@ -609,6 +626,163 @@ def snap_grid(params, out, rhos, items):
     print(out)
 
 
+CHAIN5 = [{"temper": t, "poss_mean_s": m} for t in (0.07, 0.1, 0.14) for m in (4.5, 6.0, 9.0)] + \
+    [{"stride": 1}, {"stride": 2}]
+
+
+def chain5_grid(params, out, rhos, items):
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    variants = {tuple(sorted(v.items())): base.replace(**v) for v in CHAIN5}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for key, model in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
+            rows.append({"group": group, "world": world, "variant": " ".join(f"{k}={v}" for k, v in key),
+                         "spell_f1": f1, "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
+def speedlogit_grid(params, out, rhos, items):
+    a, b, c, e, f = fit_logit(speed=True)
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    fast = base.replace(q_logit_a=a, q_logit_dist=b, q_logit_margin=c, q_logit_speed=e, q_logit_dist_speed=f)
+    variants = {(kind, lag): m.replace(handover_lag=lag) for kind, m in (("base", base), ("speed", fast))
+                for lag in (10, 15, 20)}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for (kind, lag), model in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
+            rows.append({"group": group, "world": world, "variant": f"{kind} lag={lag}", "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out, "speed weights", [a, b, c, e, f])
+
+
+MASK_PENALTY = 50.0
+
+
+def dead_mask(half, p):
+    return _missing_run_dead(np.full(half.n, H, np.int8), half, p) == D
+
+
+@dataclasses.dataclass(frozen=True)
+class MaskedEmission:
+    """Probe-only: base emission plus a large penalty on H and A inside the dead mask and on D outside it."""
+    base: object
+    rule: object
+
+    def loglik(self, half):
+        out = self.base.loglik(half).astype(np.float64)
+        dead = dead_mask(half, self.rule)
+        out[dead, :2] -= MASK_PENALTY
+        out[~dead, 2] -= MASK_PENALTY
+        return out.astype(np.float32)
+
+
+def masked_codes(base, half, p_flip, lag):
+    from possession.decoder import Decoder as Dec, _lag_handovers
+    chain = dataclasses.replace(base.params, dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0,
+                                handover_lag=0, p_flip_after_dead=p_flip)
+    post = Dec(MaskedEmission(base.emission, base.params), chain).decode(half).posterior
+    team = np.where(np.round(post[:, 1], 9) > np.round(post[:, 0], 9), 1 - H, H)
+    return _lag_handovers(np.where(dead_mask(half, base.params), D, team).astype(np.int8), lag)
+
+
+def masked_grid(params, out, rhos, items):
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        variants = {"base lag=15": [base.decode(h).codes for h in case.halves]}
+        for p_flip in (0.5, 0.73, 0.85):
+            for lag in (10, 15, 20):
+                variants[f"masked p_flip={p_flip} lag={lag}"] = [masked_codes(base, h, p_flip, lag) for h in case.halves]
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, codes, runs)
+            rows.append({"group": group, "world": world, "variant": name, "spell_f1": f1, "floor": floor,
+                         "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
+STILL_BINS = [0, 0.25, 0.5, 1, 1.5, 2, 3, 5, 1e9]
+
+
+def _runs(flag):
+    edges = np.flatnonzero(np.diff(np.r_[0, flag.astype(np.int8), 0]))
+    return edges[::2], edges[1::2]
+
+
+def still_probe():
+    from possession import pff
+    games, parts = [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        v = h.geometry.speed_mps
+        run_len = np.zeros(h.n)
+        for a, b in zip(*_runs((h.nearest_team != -1) & (v < 1.0))):
+            run_len[a:b] = b - a
+        keep = (h.nearest_team != -1) & (np.arange(h.n) >= h.id.kickoff)
+        parts.append(pd.DataFrame({"v": v[keep], "slow_run": run_len[keep], "dead": c.labels[keep] == D}))
+    t = pd.concat(parts, ignore_index=True)
+    print(f"{len(t)} seen frames after kick-off in the A games, P(dead) {t.dead.mean():.3f}")
+    g = t.groupby(pd.cut(t.v, STILL_BINS, include_lowest=True), observed=False)
+    print(pd.DataFrame({"share": g.size() / len(t), "p_dead": g.dead.mean()}).round(3).T.to_string())
+    g = t[t.v < 1].groupby(pd.cut(t.slow_run[t.v < 1], [0, 5, 12, 25, 50, 100, 1e9]), observed=False)
+    print("frames under 1 m/s by the length of their slow run (frames):")
+    print(pd.DataFrame({"share": g.size() / len(t), "p_dead": g.dead.mean()}).round(3).T.to_string())
+    for g_, hid in zip(challenge.load_geometry(), challenge._half_ids()):
+        h = challenge.observe(g_, hid)
+        a, b = _runs((h.nearest_team != -1) & (h.geometry.speed_mps < 1.0))
+        lengths = (b - a)[a >= hid.kickoff]
+        print(f"BAR-ATH half {hid.half}: slow runs >= 25 frames {(lengths >= 25).sum()}, >= 50 {(lengths >= 50).sum()}, "
+              f">= 100 {(lengths >= 100).sum()}; frames in runs >= 50: {lengths[lengths >= 50].sum()}")
+
+
+STILL_GRID = [(0.0, 0)] + [(v, f) for v in (0.5, 1.0) for f in (25, 50, 100)]
+
+
+def stillgrid(params, out, rhos, items):
+    from possession.decoder import _lag_handovers
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    chain = base.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, handover_lag=0)
+    rules = {(v, f): dataclasses.replace(base.params, dead_still_mps=v, dead_still_frames=f) for v, f in STILL_GRID}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        chained = [chain.decode(h).codes for h in case.halves]
+        for (v, f), p in rules.items():
+            codes = [_lag_handovers(_missing_run_dead(c, h, p), p.handover_lag) for c, h in zip(chained, case.halves)]
+            if (v, f) == (0.0, 0):
+                assert all(np.array_equal(c, base.decode(h).codes) for c, h in zip(codes[:2], case.halves))
+            f1, n = score.spell_f1(case.layout, case.gt, codes, runs)
+            rows.append({"group": group, "world": world, "variant": f"still {v} {f}", "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
 def lag_grid(params, out, rhos, items):
     model, s50, rows = Decoder.load(params), bench.Smoother(50), []
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
@@ -659,7 +833,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -673,4 +847,8 @@ if __name__ == "__main__":
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
      "lag": lambda: lag_grid(one, a.out, a.dead_bias, a.rule),
-     "snap": lambda: snap_grid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
+     "snap": lambda: snap_grid(one, a.out, a.dead_bias, a.rule),
+     "chain5": lambda: chain5_grid(one, a.out, a.dead_bias, a.rule),
+     "speedlogit": lambda: speedlogit_grid(one, a.out, a.dead_bias, a.rule),
+     "masked": lambda: masked_grid(one, a.out, a.dead_bias, a.rule), "still": still_probe,
+     "stillgrid": lambda: stillgrid(one, a.out, a.dead_bias, a.rule)}[a.probe]()

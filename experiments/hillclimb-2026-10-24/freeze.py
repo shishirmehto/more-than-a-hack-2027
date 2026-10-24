@@ -1,9 +1,10 @@
 """Write the hillclimb's final params: tier0_v1's chain and emission plus the selected dead-ball rule.
 
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/freeze.py RUN TRIM CLOSE [--dead-outside-m M]
-        [--q-logit A B C] [--handover-lag L] --out PATH
+        [--q-logit A B C] [--handover-lag L] [--dead-still MPS FRAMES] --out PATH
 
-Every value except the dead-ball fields, handover_lag and the emission's q_logit terms is copied from
+Every value except the dead-ball fields (dead_still_* among them), handover_lag and the emission's q_logit terms
+is copied from
 params/tier0_v1.json, so v1's public-window history is inherited and restated in the provenance word for word.
 """
 import argparse
@@ -32,6 +33,12 @@ LOGIT = ("The q_logit terms come from pre-registered experiment E5: logit(q) = a
          "replaced the constant q at v1's temper after passing the synthetic veto (at least tier0_v3's margin "
          "minus 0.003 in every group) and ranking first on the odd-game PFF minimum among tempers "
          "{0.03, 0.05, 0.1, 0.2}; even-indexed PFF games and seeds 15-24 only confirm.")
+STILL = ("dead_still_mps and dead_still_frames come from pre-registered experiment E11: on frames PFF's tracker "
+         "saw in the odd-indexed games, a ball under 1 m/s inside a slow run of 50-100 frames is dead 87% of the time "
+         "and 98% beyond 100 (probes.py still). Candidates were 0.5 or 1 m/s over 25, 50 or 100 frames; all passed "
+         "the synthetic veto (at least tier0_v5's margin minus 0.003 in every group), and the odd-game PFF minimum "
+         "with the tie rule (within 0.003, the longer run first) chose 1 m/s over 50 frames; even-indexed PFF games "
+         "and seeds 15-24 only confirm.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -48,28 +55,33 @@ def main(argv):
     ap.add_argument("--dead-outside-m", type=float, default=0.0)
     ap.add_argument("--q-logit", type=float, nargs=3, default=(0.0, 0.0, 0.0), metavar=("A", "B", "C"))
     ap.add_argument("--handover-lag", type=int, default=0)
+    ap.add_argument("--dead-still", type=float, nargs=2, default=(0.0, 0), metavar=("MPS", "FRAMES"))
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     v1_doc = json.loads(V1.read_text())
     model = Decoder.load(V1).replace(dead_min_run=a.run, dead_trim=a.trim, dead_close=a.close,
                                      dead_outside_m=a.dead_outside_m, q_logit_a=a.q_logit[0],
                                      q_logit_dist=a.q_logit[1], q_logit_margin=a.q_logit[2],
-                                     handover_lag=a.handover_lag)
+                                     handover_lag=a.handover_lag, dead_still_mps=a.dead_still[0],
+                                     dead_still_frames=int(a.dead_still[1]))
     logit = any(a.q_logit)
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
     if a.handover_lag:
         changed = changed.replace("dead_outside_m and", "dead_outside_m, handover_lag and")
+    if a.dead_still[0]:
+        changed = changed.replace("dead_outside_m,", "dead_outside_m, dead_still_mps, dead_still_frames,")
     pins = {k: v for source in bench.SOURCES.values() for k, v in source.pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
         "base": f"{V1} (every chain value and the rest of the emission)" if logit
                 else f"{V1} (every emission and chain value)",
         "selection": SELECTION + (" " + GEOMETRY if a.dead_outside_m else "") + (" " + LOGIT if logit else "") +
-                     (" " + LAG if a.handover_lag else ""),
+                     (" " + LAG if a.handover_lag else "") + (" " + STILL if a.dead_still[0] else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
+                    (", still-synth.csv and still-pff.csv" if a.dead_still[0] else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,

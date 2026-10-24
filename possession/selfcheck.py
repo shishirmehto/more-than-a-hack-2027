@@ -456,6 +456,26 @@ def dead_run_rule_known_answer() -> None:
     assert (rule(mixed.translate(swap), gap, dead_min_run=5, dead_close=3)
             == rule(mixed, gap, dead_min_run=5, dead_close=3).translate(swap))
 
+    tok = np.full(20, HOME, np.int8)
+    tok[13:17] = NO_TEAM
+    speed = np.full(20, 5.0, np.float32)
+    speed[5:13] = 0.2
+    one = np.ones(20, np.float32)
+    geo = BallGeometry(*(np.where(tok == NO_TEAM, np.nan, a).astype(np.float32) for a in (one, one, 0 * one, speed)))
+    still = Half(HalfId("still", 1, 0), tok, geo)
+
+    def still_rule(frames: int) -> str:
+        p = DecoderParams(dead_min_run=10, dead_still_mps=1.0, dead_still_frames=frames)
+        return "".join(letter[int(c)] for c in decoder._missing_run_dead(np.full(20, H, np.int8), still, p))
+
+    assert still_rule(6) == "HHHHH" + "D" * 12 + "HHH"
+    assert still_rule(9) == "H" * 20
+    _raises(ValueError, DecoderParams, dead_min_run=10, dead_still_mps=1.0)
+    _raises(ValueError, DecoderParams, dead_still_mps=1.0, dead_still_frames=6)
+    _raises(ValueError, decoder._missing_run_dead, np.full(20, H, np.int8), Half(still.id, tok),
+            DecoderParams(dead_min_run=10, dead_still_mps=1.0, dead_still_frames=6))
+    assert Decoder(Tier0Emission(), DecoderParams(dead_min_run=10, dead_still_mps=1.0, dead_still_frames=6)).needs_geometry
+
     model = Decoder(Tier0Emission(), DecoderParams(dead_min_run=126, dead_trim=25, dead_close=200, dead_outside_m=0.5))
     with tempfile.TemporaryDirectory() as tmp:
         path = model.save(Path(tmp) / "rule.json", {})
