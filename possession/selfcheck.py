@@ -537,6 +537,43 @@ def handover_lag_known_answer() -> None:
         assert Decoder.load(Path(tmp) / "lag.json") == model
 
 
+def spell_merge_known_answer() -> None:
+    """decoder._merge_spells: interior and tail merges, shortest first, D boundaries, mirroring, decode and save."""
+    code = {"H": H, "A": A, "D": D}
+    letter = {v: k for k, v in code.items()}
+
+    def merge(codes: str, frames: int, tails: int = 0) -> str:
+        out = decoder._merge_spells(np.array([code[c] for c in codes], np.int8), frames, tails)
+        return "".join(letter[int(c)] for c in out)
+
+    assert merge("HHHHAAHHHH", 3) == "HHHHHHHHHH"
+    assert merge("DAAHHHH", 3) == "DAAHHHH"
+    assert merge("HHHHAADD", 3) == "HHHHAADD"
+    assert merge("HHHHAADD", 3, 1) == "HHHHHHDD"
+    assert merge("HHHHHAHHAHHHHH", 3) == "H" * 14
+    assert merge("HHHHHAAHHHAAAAA", 4) == "H" * 10 + "A" * 5
+    assert merge("HHHHAAHHHH", 0) == "HHHHAAHHHH"
+    swap = str.maketrans("HA", "AH")
+    assert merge("HHAHHDAHAAAH".translate(swap), 2, 1) == merge("HHAHHDAHAAAH", 2, 1).translate(swap)
+    tok = np.array([HOME] * 10 + [AWAY] * 2 + [HOME] * 10, np.int8)
+    base = Decoder(Tier0Emission(q=0.99), DecoderParams(temper=1.0, poss_mean_s=0.2, stride=1))
+    assert base.decode(Half(HalfId("merge", 1, 0), tok)).codes.tolist() == [H] * 10 + [A] * 2 + [H] * 10
+    merged = base.replace(spell_merge_frames=3).decode(Half(HalfId("merge", 1, 0), tok))
+    assert merged.posterior is None and merged.codes.tolist() == [H] * 22
+    for bad in ({"spell_merge_tails": 1}, {"spell_merge_frames": 3, "spell_merge_tails": 2}):
+        try:
+            DecoderParams(**bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad} was accepted")
+    model = base.replace(spell_merge_frames=50, spell_merge_tails=1)
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = json.loads(model.save(Path(tmp) / "merge.json", {}).read_text())["params"]
+        assert (saved["spell_merge_frames"], saved["spell_merge_tails"]) == (50, 1)
+        assert "spell_merge_frames" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(Path(tmp) / "merge.json") == model
+
+
 def _expanded_hmm(p: DecoderParams):
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
@@ -995,6 +1032,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     geometry_emission_known_answer,
     dead_run_rule_known_answer,
     handover_lag_known_answer,
+    spell_merge_known_answer,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     tags_and_rates_known_answer,

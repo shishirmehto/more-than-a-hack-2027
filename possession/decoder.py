@@ -158,6 +158,13 @@ class DecoderParams:
     handover_lag:       inside each run of team calls, every hand-over between the teams moves this many
                         frames later; the run's edges stay put. 0 is off. The nearest-team token flips
                         while a pass is in the air, before the receiver's touch that labels mark.
+    spell_merge_frames: 0 is off. Otherwise, after the dead-run rule and before the lag, a possession
+                        shorter than this whose two neighbours are possessions joins them, shortest first;
+                        one that directly follows a dead stretch is kept. A short possession the chain
+                        calls inside another team's is more often wrong than right.
+    spell_merge_tails:  1 also lets a short possession before a dead stretch or the half's end join the
+                        possession before it, as metrica.rule.merge_short does to labels. Needs
+                        spell_merge_frames.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -186,6 +193,8 @@ class DecoderParams:
     dead_pace_still_mps: float = 0.0
     dead_pace_live_mps: float = 0.0
     handover_lag: int = 0
+    spell_merge_frames: int = 0
+    spell_merge_tails: int = 0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -205,6 +214,10 @@ class DecoderParams:
         _number("dead_pace_still_mps", self.dead_pace_still_mps, 0, math.inf, lo_open=False)
         _number("dead_pace_live_mps", self.dead_pace_live_mps, 0, math.inf, lo_open=False)
         _number("handover_lag", self.handover_lag, 0, math.inf, integer=True, lo_open=False)
+        _number("spell_merge_frames", self.spell_merge_frames, 0, math.inf, integer=True, lo_open=False)
+        _number("spell_merge_tails", self.spell_merge_tails, 0, 1, integer=True, lo_open=False, hi_open=False)
+        if self.spell_merge_tails and not self.spell_merge_frames:
+            raise ValueError("spell_merge_tails acts only with spell_merge_frames > 0")
         if bool(self.dead_still_mps) != bool(self.dead_still_frames):
             raise ValueError("dead_still_mps and dead_still_frames are set together")
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
@@ -227,7 +240,8 @@ class DecoderParams:
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
 _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
-                    "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0}
+                    "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0,
+                    "spell_merge_frames": 0, "spell_merge_tails": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -259,8 +273,9 @@ class Decoder:
              round(posterior, 9). The rounding makes exact symmetric ties (a flat block at the start of
              a half) resolve to the lower label on every machine instead of on 1-ulp noise.
           4. dead_min_run > 0 replaces the chain's D by the missing-run rule (see DecoderParams).
-          5. handover_lag moves the hand-overs between the teams later (see DecoderParams).
-          After 4 or 5 the posterior is dropped, because it no longer describes the codes.
+          5. spell_merge_frames joins short possessions to their neighbours (see DecoderParams).
+          6. handover_lag moves the hand-overs between the teams later (see DecoderParams).
+          After 4, 5 or 6 the posterior is dropped, because it no longer describes the codes.
         """
         p, kickoff = self.params, half.id.kickoff
         ev = self.emission.loglik(half)[kickoff:].astype(np.float64)
@@ -274,7 +289,7 @@ class Decoder:
         post[:kickoff] = (0.0, 0.0, 1.0)
         post[kickoff:] = np.repeat(_forward_backward(E, _chain(p)), p.stride, axis=0)[:m]
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
-        if p.dead_min_run or p.handover_lag:
+        if p.dead_min_run or p.handover_lag or p.spell_merge_frames:
             return Decoded(codes=_rules(codes, half, p), posterior=None)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
@@ -342,7 +357,29 @@ def _strict(cls: type, values: Mapping[str, object]):
 
 
 def _rules(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
-    return _lag_handovers(_missing_run_dead(codes, half, p), p.handover_lag)
+    merged = _merge_spells(_missing_run_dead(codes, half, p), p.spell_merge_frames, p.spell_merge_tails)
+    return _lag_handovers(merged, p.handover_lag)
+
+
+def _merge_spells(codes: NDArray[np.int8], frames: int, tails: int) -> NDArray[np.int8]:
+    """Shortest first, a team run under `frames` that follows another team run joins it, together with the
+    run after it when that run has the same team; with tails 0 only when a team run follows it."""
+    if not frames:
+        return codes
+    edges = np.flatnonzero(np.diff(codes)) + 1
+    runs = [[int(a), int(b), int(codes[a])] for a, b in zip(np.r_[0, edges], np.r_[edges, len(codes)])]
+    while True:
+        short = [(b - a, k) for k, (a, b, c) in enumerate(runs)
+                 if c != D and b - a < frames and k > 0 and runs[k - 1][2] != D
+                 and (tails or (k + 1 < len(runs) and runs[k + 1][2] != D))]
+        if not short:
+            return np.repeat(np.array([c for _, _, c in runs], np.int8), [b - a for a, b, _ in runs])
+        k = min(short)[1]
+        runs[k - 1][1] = runs[k][1]
+        del runs[k]
+        if k < len(runs) and runs[k][2] == runs[k - 1][2]:
+            runs[k - 1][1] = runs[k][1]
+            del runs[k]
 
 
 def _lag_handovers(codes: NDArray[np.int8], lag: int) -> NDArray[np.int8]:

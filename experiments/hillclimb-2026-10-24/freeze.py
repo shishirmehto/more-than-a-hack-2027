@@ -1,7 +1,7 @@
 """Write the hillclimb's final params: tier0_v1's chain and emission plus the selected dead-ball rule.
 
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/freeze.py RUN TRIM CLOSE [--dead-outside-m M]
-        [--q-logit A B C] [--handover-lag L] [--dead-still MPS FRAMES] [--dead-pace-still MPS] --out PATH
+        [--q-logit A B C] [--handover-lag L] [--dead-still MPS FRAMES] [--dead-pace-still MPS] [--spell-merge FRAMES] --out PATH
 
 Every value except the dead-ball fields (dead_still_* among them), handover_lag and the emission's q_logit terms
 is copied from
@@ -44,6 +44,14 @@ PACE = ("dead_pace_still_mps comes from pre-registered experiment E13: on the od
         "override {off, 1.5, 2, 2.5, 3} m/s with a still threshold {off, 0.5, 0.75} m/s; every live override lost, and "
         "the odd-game PFF minimum with the tie rule (within 0.003, the smaller still threshold first) chose 0.5 m/s "
         "alone; even-indexed PFF games and seeds 15-24 only confirm.")
+MERGE = ("spell_merge_frames comes from pre-registered experiment E22: after the dead-run rule and before the lag, "
+         "a possession shorter than 50 frames whose two neighbours are possessions joins them (decoder._merge_spells). "
+         "Candidates were 25, 50, 75 or 100 frames, and 25 or 50 with tails. Under rule v3 the IDSSE m0 synthetic groups "
+         "vetoed 50 frames (0.0064 below tier0_v7). Rule v4, adopted after E21 and E22 were seen because CHALLENGE.md "
+         "asks for controlled possession and says a touch without control does not change it, widens the IDSSE m0 veto "
+         "to 0.010. Under it the odd-game minimum over PFF m0, PFF m2 and StatsBomb-on-PFF m0, with the tie rule "
+         "(fewer frames first, interior before tails), chose 50 frames, interior only; even-indexed games of both "
+         "conventions and seeds 15-24 only confirm.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -62,6 +70,7 @@ def main(argv):
     ap.add_argument("--handover-lag", type=int, default=0)
     ap.add_argument("--dead-still", type=float, nargs=2, default=(0.0, 0), metavar=("MPS", "FRAMES"))
     ap.add_argument("--dead-pace-still", type=float, default=0.0, metavar="MPS")
+    ap.add_argument("--spell-merge", type=int, default=0, metavar="FRAMES")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     v1_doc = json.loads(V1.read_text())
@@ -69,7 +78,8 @@ def main(argv):
                                      dead_outside_m=a.dead_outside_m, q_logit_a=a.q_logit[0],
                                      q_logit_dist=a.q_logit[1], q_logit_margin=a.q_logit[2],
                                      handover_lag=a.handover_lag, dead_still_mps=a.dead_still[0],
-                                     dead_still_frames=int(a.dead_still[1]), dead_pace_still_mps=a.dead_pace_still)
+                                     dead_still_frames=int(a.dead_still[1]), dead_pace_still_mps=a.dead_pace_still,
+                                     spell_merge_frames=a.spell_merge)
     logit = any(a.q_logit)
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
@@ -79,6 +89,8 @@ def main(argv):
         changed = changed.replace("dead_outside_m,", "dead_outside_m, dead_still_mps, dead_still_frames,")
     if a.dead_pace_still:
         changed = changed.replace("dead_still_frames,", "dead_still_frames, dead_pace_still_mps,")
+    if a.spell_merge:
+        changed = changed.replace("handover_lag and", "handover_lag, spell_merge_frames and")
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -86,12 +98,13 @@ def main(argv):
                 else f"{V1} (every emission and chain value)",
         "selection": SELECTION + (" " + GEOMETRY if a.dead_outside_m else "") + (" " + LOGIT if logit else "") +
                      (" " + LAG if a.handover_lag else "") + (" " + STILL if a.dead_still[0] else "") +
-                     (" " + PACE if a.dead_pace_still else ""),
+                     (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
                     (", still-synth.csv and still-pff.csv" if a.dead_still[0] else "") +
                     (", pace-synth.csv and pace-pff.csv" if a.dead_pace_still else "") +
+                    (", merge-synth.csv and merge-pff.csv" if a.spell_merge else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,

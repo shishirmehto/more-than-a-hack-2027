@@ -67,6 +67,8 @@ holdgrid PARAMS --out CSV
                      E20: the held-team token (HoldEmission, q fitted on PFF-A by fit_hold) crossed with lag
 deadcues PARAMS      false and missed D frames under PARAMS by dead cue and by distance to a labelled stoppage
 versions PARAMS...   margin over smooth50 of each params file on --rule worlds, held-out B games skipped
+merge PARAMS --out CSV
+                     E22: short possessions joined to their neighbours (spell_merge_frames, spell_merge_tails)
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -770,6 +772,8 @@ def spells_probe(params, rhos, items):
     from evaluation import possession_metrics as pm
     model, s50 = Decoder.load(params), bench.Smoother(50)
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
         runs = score.valid_runs(case.gt)
         gt_sp = pm.possession_spells(case.gt, runs)
         for name, dec in (("model", model), ("s50", s50)):
@@ -1001,6 +1005,8 @@ PACE_GRID = [{"dead_pace_live_mps": lv, "dead_pace_still_mps": sv} for lv in (0.
              for sv in (0.0, 0.5, 0.75)]
 LAG7_GRID = [{"handover_lag": lag} for lag in (10, 15, 20, 25)]
 HOLD_RADII, HOLD_LAGS = (1.0, 1.5, 2.0), (0, 10, 20)
+MERGE_GRID = [{}] + [{"spell_merge_frames": n} for n in (25, 50, 75, 100)] + \
+    [{"spell_merge_frames": n, "spell_merge_tails": 1} for n in (25, 50)]
 COMBO_GRID = [{"handover_lag": lag, "dead_trim": trim, "dead_pace_still_mps": sv, "dead_still_frames": sf}
               for lag in (15, 20) for trim in (50, 37) for sv in (0.5, 0.75) for sf in (50, 25)]
 DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
@@ -1010,10 +1016,11 @@ DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
 def rulegrid(params, out, rhos, items, grid):
     """PARAMS's chain decoded once per half, then each grid entry's dead-run and lag fields applied on top;
     held-out B games are not decoded."""
-    from possession.decoder import _lag_handovers
+    from possession.decoder import _rules
     base, s50, rows = Decoder.load(params), bench.Smoother(50), []
     chain = base.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
-                         dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0)
+                         dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0,
+                         spell_merge_frames=0, spell_merge_tails=0)
     rules = {" ".join(f"{k}={v}" for k, v in g.items()) or "base": dataclasses.replace(base.params, **g) for g in grid}
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
@@ -1022,7 +1029,7 @@ def rulegrid(params, out, rhos, items, grid):
         floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
         chained = [chain.decode(h).codes for h in case.halves]
         for name, p in rules.items():
-            codes = [_lag_handovers(_missing_run_dead(c, h, p), p.handover_lag) for c, h in zip(chained, case.halves)]
+            codes = [_rules(c, h, p) for c, h in zip(chained, case.halves)]
             if p == base.params:
                 assert all(np.array_equal(c, base.decode(h).codes) for c, h in zip(codes[:2], case.halves))
             f1, n = score.spell_f1(case.layout, case.gt, codes, runs)
@@ -1236,6 +1243,7 @@ def lag_grid(params, out, rhos, items):
 
 INCUMBENT = (101, 50, 0)
 VETO_SLACK = 0.003
+WIDE_SLACK = 0.010
 
 
 def select(paths):
@@ -1265,12 +1273,14 @@ def select(paths):
     print("\nSELECTED", tied.index[0])
 
 
-def pick(synth_csv, pff_csv, base, prefer):
+def pick(synth_csv, pff_csv, base, prefer, wide=()):
     """The registered selection: the synthetic veto, then the PFF-A minimum, ties within VETO_SLACK to BASE, then
-    PREFER's order, then the fewest k=v fields changed from BASE, then the higher PFF-A minimum."""
+    PREFER's order, then the fewest k=v fields changed from BASE, then the higher PFF-A minimum. Groups whose name
+    starts with a WIDE prefix veto at WIDE_SLACK instead (rule v4: idsse_m0)."""
     sm = pd.read_csv(synth_csv).groupby(["group", "variant"]).margin.mean().unstack("group")
     pm = pd.read_csv(pff_csv).groupby(["group", "variant"]).margin.mean().unstack("group")
-    slack = sm.sub(sm.loc[base] - VETO_SLACK, axis=1)
+    allowed = pd.Series([WIDE_SLACK if g.startswith(tuple(wide)) else VETO_SLACK for g in sm.columns], sm.columns)
+    slack = sm.sub(sm.loc[base] - allowed, axis=1)
     t = pd.DataFrame({"synth_min": sm.min(axis=1), "pff_a_min": pm.min(axis=1), "pff_m0_A": pm.iloc[:, 0],
                       "pff_m2_A": pm.iloc[:, 1], "worst_group": slack.idxmin(axis=1), "veto_slack": slack.min(axis=1)})
     t["passes"] = t.veto_slack >= 0
@@ -1287,9 +1297,10 @@ def pick(synth_csv, pff_csv, base, prefer):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
+    ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
     ap.add_argument("--rule", nargs="+", default=SEARCH + NATIVE, help="deadrule: [source:]rule[:mode] items")
@@ -1311,9 +1322,10 @@ if __name__ == "__main__":
      "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID), "push": push_probe,
      "lag7": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LAG7_GRID),
      "deadlogit": lambda: deadlogit_grid(one, a.out, a.dead_bias, a.rule),
-     "pick": lambda: pick(*a.params, a.prefer),
+     "pick": lambda: pick(*a.params, a.prefer, a.wide),
      "combo": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, COMBO_GRID),
      "census": lambda: census(one, a.dead_bias, a.rule), "hold": hold,
      "holdgrid": lambda: holdgrid(one, a.out, a.dead_bias, a.rule),
      "deadcues": lambda: deadcues(one, a.dead_bias, a.rule),
-     "versions": lambda: versions(a.params, a.rule)}[a.probe]()
+     "versions": lambda: versions(a.params, a.rule),
+     "merge": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, MERGE_GRID)}[a.probe]()

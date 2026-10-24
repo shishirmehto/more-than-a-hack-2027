@@ -82,6 +82,16 @@ change has its own row in the decision log.
    for about 90% of live frames yet score spellF1 0.62 against each other, so one provider's convention
    should not decide alone.
 
+6. **Rule v4, adopted after E21 and E22 were seen.** The IDSSE m0 groups veto at 0.010 instead of 0.003 and
+   stay in every table; confirmation still needs every synthetic group above smooth50. E21 and E22 were each
+   blocked by IDSSE m0 alone, the DFL feed's per-touch labels (median possession 3.7 s). CHALLENGE.md (lines
+   51 to 81) asks for controlled possession and says a touch without control, a deflected pass and an aerial
+   duel won without control do not change it. Lines 83 to 103 also say the ground truth is derived
+   mechanically from the tracking's owning team and wins over the definition, so the document lowers the odds
+   of a per-touch ground truth without settling it. Because of the timing, v4 allowed one re-pick (E22, its
+   registered tie order unchanged) and no re-pick of E21, and the held-out confirmation decides. To reverse
+   it, keep rule v3 and drop tier0_v8 whatever its held-out result.
+
 Why synthetic worlds only veto: the renewal generator draws one mask for live frames and one for dead frames
 and switches between them exactly at each label boundary (`possession/dropout.py:227`). Gap edges therefore
 line up with true stoppage edges far more often than real gaps do, which rewards a trim of 0. Real gaps run
@@ -134,6 +144,8 @@ difference.
 | 37 | false and missed D by cue (probe) | 18% of labelled possessions come out dead | false D is 11.5% of live frames, 98% of it on unseen-ball frames and 40% over 10 s from any stoppage | direction |
 | 38 | StatsBomb's possession teams on PFF's tracking (new dev source `pffsb`) | the two providers score only spellF1 0.62 against each other | every shipped step helps under it too: v1 +0.047, v2 +0.109, v4 +0.125, v5 +0.137, v7 +0.145 over smooth50 | joins the ranking (rule v3) |
 | 39 | chain constants under rule v3 (E21) | a second convention might move them | stickier chains win all three real conventions (temper 0.07, poss 9 s: +0.134 / +0.173 / +0.177) but are vetoed on IDSSE m0 (-0.019) | no change |
+| 40 | nine-agent design fan-out (4 angles, a critic each, a ranker) | the plateau needs ideas from outside one line of thought | top idea: join short possessions to their neighbours; dropped ideas recorded in workflow wf_f30671ee-485 | direction |
+| 41 | short possessions join their neighbours, `spell_merge_frames` (E22) | short predicted spells inside another team's are mostly wrong | 50 frames: PFF-A m0 +0.1335 against +0.1268, m2 +0.1678 against +0.1548, StatsBomb +0.1611 against +0.1446, 12 of 15 synthetic groups up; IDSSE m0 down 0.0064 to 0.0080. Rule v3 picks no change; rule v4 picks 50 frames, interior only | confirming |
 
 ## What did not work, and why
 
