@@ -100,6 +100,7 @@ spellseen PARAMS     label-free: spell-feature medians and the fully-seen share 
 deadsplit PARAMS     label-reading: PARAMS's dead-ball headroom on PFF-A split into inserted, long inserted and removed D
 deadcensus PARAMS    label-reading: label-free statistics of the long stoppages PARAMS misses on PFF-A, against live play
 deadedges PARAMS     label-reading: insert_long split into missed, half and caught stoppages and the caught ones' edges
+deadstarts PARAMS    label-reading: the dead rule's cue runs against labelled stoppage edges, by ball-out evidence
 spellveto PARAMS WEIGHTS --out CSV
                      E29 veto rows: PARAMS with the spell flip at each registered arm and spellflip's all-A weights
 subs CSV...          label-free: label shares, H, A and D runs and differing frames of our own submission CSVs
@@ -2189,6 +2190,60 @@ def deadedges(params):
           f"{g.d_after.mean():.3f}")
 
 
+def deadstarts(params):
+    """Label-reading, never a candidate: on native PFF-A m0, for each labelled D stretch of 50+ frames, where the
+    dead rule's cue run (decoder._dead_cues) starts and ends against the labelled edges (lead = labelled start
+    minus cue-run start, lag = cue-run end minus labelled end, in frames), split by whether the ball is seen
+    outside the pitch near the edge; and deadedges' start and end fills on caught stretches split the same way."""
+    from possession.decoder import _dead_cues
+    model, rows = Decoder.load(params), []
+    p = model.params
+    fills = {k: [] for k in ("base", "start out", "start in", "end out", "end in")}
+    for world, pooled_a, labs, games_a in native_a():
+        if "_m0_" not in world:
+            continue
+        for h, lab in zip(pooled_a.halves, labs):
+            c, cue = model.decode(h).codes, _dead_cues(h, p)
+            out = h.geometry.outside_m > p.dead_outside_m
+            starts, stops = _runs(cue)
+            f = {k: c.copy() for k in list(fills)[1:]}
+            for a, b in zip(*_runs(lab == D)):
+                if b - a < 50 or a < h.id.kickoff:
+                    continue
+                i = np.searchsorted(stops, a, side="right")
+                j = np.searchsorted(starts, b, side="left") - 1
+                lead = int(a - starts[i]) if i < len(starts) and starts[i] < b else None
+                lag = int(stops[j] - b) if j >= 0 and stops[j] > a else None
+                out_a = bool(out[max(a - 25, 0):a + 75].any())
+                out_b = bool(out[max(b - 75, 0):b + 25].any())
+                d = np.flatnonzero(c[a:b] == D)
+                share = len(d) / (b - a)
+                rows.append({"kind": "missed" if share < 0.1 else "half" if share < 0.5 else "caught", "lead": lead,
+                             "lag": lag, "out_start": out_a, "out_end": out_b,
+                             "start_gap": int(d[0]) if len(d) else None,
+                             "end_gap": int(b - a - d[-1] - 1) if len(d) else None})
+                if share >= 0.5:
+                    f["start out" if out_a else "start in"][a:a + d[0]] = D
+                    f["end out" if out_b else "end in"][a + d[-1] + 1:b] = D
+            fills["base"].append(c)
+            for k in list(fills)[1:]:
+                fills[k].append(f[k])
+        runs = score.valid_runs(pooled_a.gt)
+        f0 = None
+        for name, codes in fills.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
+            f0 = f1 if name == "base" else f0
+            print(f"{name}: spellF1 {f1:.4f} delta {f1 - f0:+.4f} n_pred {n}")
+    t = pd.DataFrame(rows)
+    q = [0.1, 0.25, 0.5, 0.75, 0.9]
+    for col, by in (("lead", "out_start"), ("lag", "out_end"), ("start_gap", "out_start"), ("end_gap", "out_end")):
+        print(f"\n{col} by {by}, caught stretches (frames)")
+        s = t[t.kind == "caught"].dropna(subset=[col])
+        print(s.groupby(by)[col].describe(percentiles=q).round(1).to_string())
+    print("\nout_start share by kind")
+    print(t.groupby("kind")[["out_start", "out_end"]].mean().round(3).to_string())
+
+
 def spellveto(params, weights, out, rhos, items):
     """E29 veto rows: PARAMS with spell_flip at each SPELL_ARMS entry and the all-A WEIGHTS (spellflip's JSON),
     applied by decoder._spell_flip on top of PARAMS's codes before its lag; the first two halves of each world are
@@ -2473,7 +2528,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -2489,7 +2544,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

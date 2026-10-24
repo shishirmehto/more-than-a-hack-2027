@@ -121,6 +121,10 @@ confirmed under the pre-registered rule v2, with no StatsBomb data.
   half's majority-token team and away from it gain the same (+0.0046 each). So the gain does not hinge on the
   partly seen runs PFF's tracker makes, and the Athletic-to-Barcelona tilt of v12's BAR-ATH changes is not a
   bias the fit shows on PFF. These are PFF-A numbers, not BAR-ATH ones.
+- v12 keeps the token-share gate (`spell_flip_seen` 0.5) though it dropped the token-share weight. The gate
+  only decides which runs are judged. On BAR-ATH it admits nearly every short run, and the fully seen split
+  above says those runs still gain on PFF-A. The weight scaled every run's score by a quantity whose BAR-ATH
+  median sits outside PFF-A's range, which is the extrapolation the stop was registered against.
 - How it was chosen, plainly: the fan-out ranker placed the spell logit last, and I ran it because the flip
   ceiling was seven times the bar (experiment 54). The tie order (token-gated arm first at a cut) was fixed
   after the first gate and after the veto preview had shown the gated arm ahead on IDSSE m0. Under rule v2's

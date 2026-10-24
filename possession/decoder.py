@@ -598,15 +598,8 @@ def _lag_handovers(codes: NDArray[np.int8], lag: int) -> NDArray[np.int8]:
     return out
 
 
-def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
-    if not p.dead_min_run:
-        return codes
-    kickoff, n = half.id.kickoff, half.n
-    team = codes.copy()
-    called = np.flatnonzero(team != D)
-    if len(called):
-        last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
-        team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
+def _dead_cues(half: Half, p: DecoderParams) -> NDArray[np.bool_]:
+    """The frames the dead_min_run rule treats as missing: ball unseen, plus each enabled dead_* cue."""
     unseen = half.nearest_team == NO_TEAM
     if (p.dead_outside_m or p.dead_still_mps) and half.geometry is None:
         raise ValueError(f"{half.id}: dead_outside_m and dead_still_mps read ball geometry and the Half has none; "
@@ -626,6 +619,19 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         unseen = unseen | (half.geometry.outside_m > p.dead_outside_m)
     if p.dead_pace_live_mps:
         unseen = unseen & ~(half.pace_mps > p.dead_pace_live_mps)
+    return unseen
+
+
+def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
+    if not p.dead_min_run:
+        return codes
+    kickoff, n = half.id.kickoff, half.n
+    team = codes.copy()
+    called = np.flatnonzero(team != D)
+    if len(called):
+        last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
+        team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
+    unseen = _dead_cues(half, p)
     missing = np.concatenate(([False], unseen, [False]))
     edges = np.flatnonzero(np.diff(missing.view(np.int8)))
     dead = np.zeros(n + 1, dtype=np.int32)
