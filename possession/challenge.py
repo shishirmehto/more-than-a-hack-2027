@@ -129,23 +129,6 @@ def _player_pace(g: Geometry) -> NDArray[np.float32]:
     return out
 
 
-def _team_push(g: Geometry, kickoff: int) -> NDArray[np.float32]:
-    k, push = _PACE_STEP, np.full((g.n, 2), np.nan)
-    for team in (HOME, AWAY):
-        x = g.players_xy[:, g.slot_team == team, 0]
-        with np.errstate(all="ignore"):
-            start = float(np.nanmean(x[kickoff:kickoff + FPS]))
-        if np.isnan(start):
-            continue
-        sign = 1.0 if start < g.pitch_m[0] / 2 else -1.0
-        for lo in range(k, g.n - k, _CHUNK):
-            hi = min(lo + _CHUNK, g.n - k)
-            dx = (x[lo + k:hi + k].astype(np.float64) - x[lo - k:hi - k].astype(np.float64)) / (2 * k) * FPS
-            some = np.isfinite(dx).any(axis=1)
-            push[lo:hi, team][some] = sign * np.nanmedian(dx[some], axis=1)
-    return (push[:, HOME] - push[:, AWAY]).astype(np.float32)
-
-
 def _ball_speed(ball: NDArray[np.float64]) -> NDArray[np.float64]:
     k = _SPEED_STEP
     pad = np.full((k, 2), np.nan)
@@ -162,8 +145,7 @@ def observe(g: Geometry, id: HalfId) -> Half:
     first slot.
     """
     token, geometry = _nearest(g)
-    return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
-                push_mps=_team_push(g, id.kickoff))
+    return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g))
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",

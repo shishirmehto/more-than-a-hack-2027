@@ -116,10 +116,6 @@ class Half:
                   slot across 24 frames, so it assumes the slot follows one tracked object over that span,
                   which holds for the ATD's track slots and the dev sources' player slots; a reused slot is
                   one outlier the median absorbs.
-    push_mps:     float32 [n] next to pace_mps: home push minus away push, where a team's push is the median
-                  over its slots present at t-12 and t+12 of the x velocity in m/s, positive toward the goal
-                  the team attacks (it starts the half in the other half). NaN where either team has no such
-                  slot. It flips sign when the teams swap.
 
     Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
     NO_TEAM frames.
@@ -128,7 +124,6 @@ class Half:
     nearest_team: NDArray[np.int8]
     geometry: BallGeometry | None = None
     pace_mps: NDArray[np.float32] | None = None
-    push_mps: NDArray[np.float32] | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -149,12 +144,10 @@ class Half:
                 if not np.array_equal(np.isnan(a), unseen):
                     raise ValueError(f"geometry.{name} must be NaN exactly where nearest_team is NO_TEAM")
                 _freeze(a)
-        for name in ("pace_mps", "push_mps"):
-            a = getattr(self, name)
-            if a is None:
-                continue
+        if self.pace_mps is not None:
+            a = self.pace_mps
             if not isinstance(a, np.ndarray) or a.dtype != np.float32 or a.shape != tok.shape:
-                raise ValueError(f"{name} must be float32 [{self.n}], got {getattr(a, 'dtype', None)} "
+                raise ValueError(f"pace_mps must be float32 [{self.n}], got {getattr(a, 'dtype', None)} "
                                  f"{getattr(a, 'shape', None)}")
             _freeze(a)
 

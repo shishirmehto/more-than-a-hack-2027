@@ -49,8 +49,6 @@ pacegrid PARAMS --out CSV
                      E13: the median-player-speed knobs of the dead-run stage on PARAMS, as stillgrid does
 push                 P(home possession) by the teams' push toward the goal they attack (median per-player x
                      velocity, signed by the attacking direction at kick-off) on PFF A games, ball seen or not
-pushgrid PARAMS --out CSV
-                     E16: the push_logit emission term on PARAMS, each decoded in full; B games are not decoded
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -902,26 +900,6 @@ def push_probe():
     print("logistic P(home) = sigmoid(a + b * diff):", w.round(4).tolist())
 
 
-PUSH_LOGITS = (0.0, 0.15, 0.31, 0.45)
-
-
-def pushgrid(params, out, rhos, items):
-    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
-    variants = {b: base.replace(push_logit=b) for b in PUSH_LOGITS}
-    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
-        if world.endswith("_B"):
-            continue
-        runs = score.valid_runs(case.gt)
-        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
-        for b, model in variants.items():
-            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
-            rows.append({"group": group, "world": world, "variant": f"push_logit={b}", "spell_f1": f1,
-                         "floor": floor, "margin": f1 - floor, "n_pred": n})
-        print(world, flush=True)
-    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
-    print(out)
-
-
 def lag_grid(params, out, rhos, items):
     model, s50, rows = Decoder.load(params), bench.Smoother(50), []
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
@@ -972,7 +950,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "pushgrid"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -992,5 +970,4 @@ if __name__ == "__main__":
      "masked": lambda: masked_grid(one, a.out, a.dead_bias, a.rule), "still": still_probe,
      "stillgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, STILL_GRID),
      "dead6": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DEAD6_GRID), "motion": motion_probe,
-     "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID), "push": push_probe,
-     "pushgrid": lambda: pushgrid(one, a.out, a.dead_bias, a.rule)}[a.probe]()
+     "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID), "push": push_probe}[a.probe]()
