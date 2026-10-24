@@ -31,7 +31,7 @@ _M_FLOOR, _M_CAP = 1e-6, 0.98
 _MARGIN_CAP_M = 30.0
 _SPEED_CAP_MPS = 40.0
 _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mps", "dead_pace_still_mps",
-                     "dead_pace_live_mps", "dead_restart_delay")
+                     "dead_pace_live_mps")
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
 
 
@@ -152,8 +152,6 @@ class DecoderParams:
     dead_pace_still_mps: 0 is off. Otherwise a frame whose median player speed (Half.pace_mps) is below this
                         counts as missing when the dead_min_run rule finds its runs: players walk during
                         stoppages. Needs dead_min_run.
-    dead_restart_delay: frames added to the end of every dead run that ends inside the half, after the run
-                        length test: play restarts after the ball reappears. 0 is off; needs dead_min_run.
     dead_pace_live_mps: 0 is off. Otherwise a frame whose median player speed is above this never counts as
                         missing, whatever the other dead_* rules say: the tracker lost the ball but play goes
                         on. Needs dead_min_run.
@@ -187,7 +185,6 @@ class DecoderParams:
     dead_still_frames: int = 0
     dead_pace_still_mps: float = 0.0
     dead_pace_live_mps: float = 0.0
-    dead_restart_delay: int = 0
     handover_lag: int = 0
 
     def __post_init__(self) -> None:
@@ -207,7 +204,6 @@ class DecoderParams:
         _number("dead_still_frames", self.dead_still_frames, 0, math.inf, integer=True, lo_open=False)
         _number("dead_pace_still_mps", self.dead_pace_still_mps, 0, math.inf, lo_open=False)
         _number("dead_pace_live_mps", self.dead_pace_live_mps, 0, math.inf, lo_open=False)
-        _number("dead_restart_delay", self.dead_restart_delay, 0, math.inf, integer=True, lo_open=False)
         _number("handover_lag", self.handover_lag, 0, math.inf, integer=True, lo_open=False)
         if bool(self.dead_still_mps) != bool(self.dead_still_frames):
             raise ValueError("dead_still_mps and dead_still_frames are set together")
@@ -231,8 +227,7 @@ class DecoderParams:
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
 _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
-                    "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0,
-                    "dead_restart_delay": 0, "handover_lag": 0}
+                    "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -398,7 +393,7 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
         if hi - lo >= p.dead_min_run - 2 * p.dead_trim and min(hi, n) > max(lo, 0):
             dead[max(lo, 0)] += 1
-            dead[min(hi + (p.dead_restart_delay if stop < n else 0), n)] -= 1
+            dead[min(hi, n)] -= 1
     out = np.where(np.cumsum(dead[:n]) > 0, D, team).astype(np.int8)
     out[:kickoff] = D
     if p.dead_close:
