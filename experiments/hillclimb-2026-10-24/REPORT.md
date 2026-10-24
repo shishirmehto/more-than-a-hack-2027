@@ -406,9 +406,9 @@ penalty lowers the predicted count too, and I had read that ratio when I added Î
   for lighter jobs. v10's synthetic confirmation, split off to stay under 2 GB, still peaked at 2.10 GB
   resident (3.26 GB footprint).
 - Byte-for-byte reproduction was checked only on this laptop, with the numpy and Python in `.venv`, most
-  recently from a fresh clone of commit dfa8e68 (`data/derived/verify/20261024-clean-dfa8e68/`, v7 and v9).
-  After dfa8e68 changed `observe` and `Half`, v2 to v6 and v8 were rebuilt at db26d0e and match their pinned
-  hashes (`data/derived/verify/20261024-1315-hashes/`). From v3 on,
+  recently from a fresh clone of commit 006dc70 (`data/derived/verify/20261024-clean-006dc70/`): v2 to v10 all
+  match their pinned hashes, v10 twice, and selfcheck is 30 ok at that commit (Python 3.11.14, numpy 2.4.6,
+  pandas 3.0.6). From v3 on,
   float32 geometry meets hard thresholds (`outside_m > 0.5`, the speed and pace cutoffs). `probes.py jitter`
   moves every float decoder input by up to 1e-6, 1e-5 and 1e-4 relative (v9 and v10 at 1e-6 and 1e-4 only,
   their runs also moving push_mps): 0 of 158,857 BAR-ATH frames change for v7 to v10, although up to 103 frames sit within 1e-3 of a
