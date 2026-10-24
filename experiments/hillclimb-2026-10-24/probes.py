@@ -103,6 +103,10 @@ deadedges PARAMS     label-reading: insert_long split into missed, half and caug
 outrungrid PARAMS --out CSV  E33: PARAMS with each OUTRUN_GRID minimum run for ball-out cue runs
 leadgrid PARAMS --out CSV  E32: PARAMS with each LEAD_GRID start-trim cut on the --rule worlds
 insertruns PARAMS    label-reading ceiling of making short dead cue runs D, by ball-out evidence
+ttitoken             E39 gate: nearest-player token against a time-to-intercept token on PFF-A seen alive frames
+restartdet PARAMS    restart detector gate: law-of-the-game triggers and last touch against the first call after D
+postfill PARAMS      restart-taker ceiling: wrong first calls after D given the labelled restart team
+postd PARAMS         restart-taker gate: first team call after each D stretch against the labelled restart team
 islandruns PARAMS    E37 ceiling: label-free island candidates inside team runs, inserted where labels say it helps
 spellmodel PARAMS    E36 first gate: OOF spell flip target and capacity arms (weighted, span_share, pairs, dedup)
 flipindep PARAMS     spell flip ceiling with the per-run target applied at once (indep) against the greedy oracle (seq)
@@ -2302,6 +2306,250 @@ def islandruns(params):
     paired_delta(per_game, [n for n in dict.fromkeys(r["variant"] for r in rows) if n != "base"])
 
 
+TTI_REACT_S, TTI_VMAX, TTI_STEP = 0.7, 5.0, 5
+SPEED_BANDS, MARGIN_BANDS = [0, 2, 8, 1e9], [0, 1, 3, 1e9]
+
+
+def _tti_token(g, seen):
+    """Team of the slot with the smallest time to intercept the ball (Spearman 2018 as in Shaw's open
+    implementation: reaction TTI_REACT_S along the slot's velocity over +-TTI_STEP frames, then TTI_VMAX m/s
+    straight), NO_TEAM where the ball is not SEEN or no slot is present."""
+    out = np.full(g.n, NO_TEAM, np.int8)
+    xy = g.players_xy.astype(np.float64)
+    v = np.zeros_like(xy)
+    k = TTI_STEP
+    v[k:-k] = (xy[2 * k:] - xy[:-2 * k]) / (2 * k / FPS)
+    v = np.nan_to_num(v)
+    for lo in range(0, g.n, CHUNK):
+        b = g.ball_xy[lo:lo + CHUNK].astype(np.float64)
+        p = xy[lo:lo + CHUNK] + TTI_REACT_S * v[lo:lo + CHUNK]
+        t = np.hypot(*(p - b[:, None, :]).transpose(2, 0, 1)) / TTI_VMAX
+        t = np.where(np.isnan(t), np.inf, t)
+        j = t.argmin(1)
+        ok = seen[lo:lo + CHUNK] & np.isfinite(t[np.arange(len(j)), j])
+        out[lo:lo + CHUNK] = np.where(ok, g.slot_team[j], NO_TEAM)
+    return out
+
+
+def ttitoken():
+    """E39 gate, label-reading, no decode: on native PFF-A m0 seen alive frames after kickoff, how often the
+    nearest-player token and the time-to-intercept token (_tti_token) name the labelled team, overall, where they
+    disagree, and by ball speed and team margin bands."""
+    from possession import pff
+    games, rows = [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        tti = _tti_token(c.geometry, h.nearest_team != NO_TEAM)
+        keep = (np.arange(h.n) >= h.id.kickoff) & (h.nearest_team != NO_TEAM) & np.isin(c.labels, (H, A))
+        lab = c.labels[keep]
+        rows.append(pd.DataFrame({"near": h.nearest_team[keep] == lab, "tti": tti[keep] == lab,
+                                  "speed": np.digitize(h.geometry.speed_mps[keep], SPEED_BANDS[1:-1]),
+                                  "margin": np.digitize(h.geometry.margin_m[keep], MARGIN_BANDS[1:-1])}))
+    t = pd.concat(rows, ignore_index=True)
+    dis = t.near != t.tti
+    print(f"{len(t)} seen alive frames on {len(games[0::2])} PFF-A games: nearest right {t.near.mean():.4f}, "
+          f"tti right {t.tti.mean():.4f}; they disagree on {dis.mean():.4f}, where tti is right on "
+          f"{t.tti[dis].mean():.4f}")
+    for col, bands in (("speed", SPEED_BANDS), ("margin", MARGIN_BANDS)):
+        g = t.assign(dis=dis).groupby(col)
+        print(pd.DataFrame({"band": [f"{bands[i]}-{bands[i + 1]}" for i in g.groups], "frames": g.size().values,
+                            "nearest_right": g.near.mean().values, "tti_right": g.tti.mean().values,
+                            "disagree": g.dis.mean().values,
+                            "tti_right_when_disagree": [x.tti[x.dis].mean() for _, x in g]}).round(4).to_string(index=False))
+
+
+def postd(params):
+    """Restart-taker gate, label-reading: on native PFF-A m0 with PARAMS's final codes, each D stretch after kickoff
+    that ends before the half does and is followed by a labelled team within 125 frames; how often the first team
+    code after it is that labelled team, and how many team runs under 50 frames follow a D stretch and precede a
+    run of the other team (post-D stubs)."""
+    model, out = Decoder.load(params), []
+    for world, pooled_a, labs, games_a in native_a():
+        if "_m0_" not in world:
+            continue
+        stubs = 0
+        for h, lab in zip(pooled_a.halves, labs):
+            c = model.decode(h).codes
+            for a, b in zip(*_runs(c == D)):
+                a, b = int(a), int(b)
+                if a <= h.id.kickoff or b >= h.n:
+                    continue
+                live = np.flatnonzero(np.isin(lab[b:b + 125], (H, A)))
+                if len(live):
+                    out.append({"right": int(c[b]) == int(lab[b + live[0]]), "lag": int(live[0])})
+                k = b
+                while k < h.n and c[k] == c[b]:
+                    k += 1
+                stubs += k - b < 50 and k < h.n and c[k] == 1 - c[b]
+        t = pd.DataFrame(out)
+        print(f"{world}: {len(t)} D stretches with a labelled team within 125 frames after; first team code after "
+              f"the stretch is that team on {t.right.mean():.4f}; label goes live a median {t.lag.median():.0f} "
+              f"frames after; post-D stubs {stubs}")
+
+
+POSTFILL_ARMS = {"k50": 50, "k125": 125, "run": None}
+
+
+def postfill(params):
+    """Restart-taker ceiling, label-reading, never a candidate: on native PFF-A m0 and m2 with PARAMS's final codes,
+    each D stretch after kickoff whose first team code is not the labelled team of the first live frame within 125
+    frames after it; left to right, the first team run after the stretch takes that team over its first 50 or 125
+    frames or whole (POSTFILL_ARMS) when that raises the half's matched-minus-F/2 value, each world on its labels."""
+    model, rows, per_game = Decoder.load(params), [], []
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        base = [model.decode(h).codes for h in halves]
+        runs_ = score.valid_runs(pooled_a.gt)
+        f13, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, base, runs_)
+
+        def value(lab, codes):
+            s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+            return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f13 / 2 * s["n_pred"]
+
+        cands = []
+        for h, lab, c in zip(halves, labs, base):
+            cc = []
+            for a, b in zip(*_runs(c == D)):
+                a, b = int(a), int(b)
+                if a <= h.id.kickoff or b >= h.n:
+                    continue
+                live = np.flatnonzero(np.isin(lab[b:b + 125], (H, A)))
+                if not len(live) or int(c[b]) == int(lab[b + live[0]]):
+                    continue
+                k = b + int(np.argmax(c[b:] != c[b])) if (c[b:] != c[b]).any() else h.n
+                cc.append((b, k, int(lab[b + live[0]])))
+            cands.append(cc)
+        variants, counts = {"base": base}, {}
+        for name, cap in POSTFILL_ARMS.items():
+            out, n = [], 0
+            for c, lab, cc in zip(base, labs, cands):
+                cur, best = c.copy(), value(lab, c)
+                for b, k, team in cc:
+                    trial = cur.copy()
+                    trial[b:k if cap is None else min(k, b + cap)] = team
+                    v = value(lab, trial)
+                    if v > best:
+                        cur, best, n = trial, v, n + 1
+                out.append(cur)
+            variants[name], counts[name] = out, n
+        for name, codes in variants.items():
+            f1, npred = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs_)
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f13, "n_pred": npred,
+                         "filled": counts.get(name, 0), "candidates": sum(map(len, cands))})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    paired_delta(per_game, POSTFILL_ARMS)
+
+
+RESTART_HOLD, RESTART_AFTER, CORNER_M, KICKOFF_M, CLEAR_M = 25, 50, 1.5, 1.0, 9.0
+
+
+def _held(flag):
+    """FLAG with only its runs of RESTART_HOLD+ frames kept."""
+    out = np.zeros_like(flag)
+    for a, b in zip(*_runs(flag)):
+        if b - a >= RESTART_HOLD:
+            out[a:b] = True
+    return out
+
+
+def _restart_triggers(g, lo, hi, throw_m):
+    """{kind: (home fired, away fired)} over frames [lo, hi) of Geometry G, each a law-of-the-game configuration
+    held RESTART_HOLD frames: throw-in, a team's slot more than THROW_M beyond a touchline; corner, a slot within
+    CORNER_M of a corner point with no opponent within CLEAR_M of it; kick-off, a slot within KICKOFF_M of the
+    centre mark, no opponent within CLEAR_M of the mark, and each team's slots on one side of halfway (1 m slack)."""
+    xy = g.players_xy[lo:hi].astype(np.float64)
+    length, width = g.pitch_m
+    team = g.slot_team
+    x, y = xy[..., 0], xy[..., 1]
+    out = {}
+    with np.errstate(invalid="ignore"):
+        beyond = (y < -throw_m) | (y > width + throw_m)
+        corners = np.array([(0, 0), (0, width), (length, 0), (length, width)], np.float64)
+        dc = np.hypot(x[..., None] - corners[:, 0], y[..., None] - corners[:, 1])
+        dmark = np.hypot(x - length / 2, y - width / 2)
+        side = np.sign(x - length / 2)
+        fired = {}
+        for k in (HOME, AWAY):
+            own, opp = team == k, team == 1 - k
+            near_corner = (dc[:, own] < CORNER_M).any(1)
+            opp_clear = ~(np.nan_to_num(dc[:, opp], nan=1e9).min(1) < CLEAR_M)
+            corner = (near_corner & opp_clear).any(1)
+            med_own = np.nanmedian(np.where(own, side, np.nan), axis=1)
+            med_opp = np.nanmedian(np.where(opp, side, np.nan), axis=1)
+            halves_ok = (np.nan_to_num((x[:, own] - length / 2) * med_own[:, None], nan=1.0) > -1).all(1) & \
+                        (np.nan_to_num((x[:, opp] - length / 2) * med_opp[:, None], nan=1.0) > -1).all(1)
+            kickoff = (np.nan_to_num(dmark[:, own], nan=1e9) < KICKOFF_M).any(1) & \
+                      (np.nan_to_num(dmark[:, opp], nan=1e9) >= CLEAR_M).all(1) & halves_ok
+            fired[k] = {"throw": _held(beyond[:, own].any(1)).any(), "corner": _held(corner).any(),
+                        "kickoff": _held(kickoff).any()}
+    return {kind: (fired[HOME][kind], fired[AWAY][kind]) for kind in ("throw", "corner", "kickoff")}
+
+
+def restartdet(params):
+    """Restart detector gate, label-reading for evaluation only: on native PFF-A m0, PARAMS's D stretches after
+    kickoff followed by a labelled team within 125 frames (postd's population); per arm, the team a label-free
+    trigger names over the stretch and RESTART_AFTER frames after it (no trigger when both teams fire), its fire
+    share, its accuracy where it fires, and the decoder's first team code accuracy on the same stretches."""
+    from possession import pff
+    model, games, rows = Decoder.load(params), [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        codes, lab, tok = model.decode(h).codes, c.labels, h.nearest_team
+        out_ = np.nan_to_num(h.geometry.outside_m, nan=0.0) > 0.5
+        for a, b in zip(*_runs(codes == D)):
+            a, b = int(a), int(b)
+            if a <= h.id.kickoff or b >= h.n:
+                continue
+            live = np.flatnonzero(np.isin(lab[b:b + 125], (H, A)))
+            if not len(live):
+                continue
+            hi = min(b + RESTART_AFTER, h.n)
+            r = {"truth": int(lab[b + live[0]]), "v13": int(codes[b])}
+            for throw_m in (0.5, 1.0):
+                trig = _restart_triggers(c.geometry, a, hi, throw_m)
+                teams = {k for kind, (fh, fa) in trig.items() for k, f in ((H, fh), (A, fa)) if f}
+                r[f"geo{throw_m}"] = teams.pop() if len(teams) == 1 else -1
+                if throw_m == 1.0:
+                    r.update({f"kind_{kind}": int(fh or fa) for kind, (fh, fa) in trig.items()})
+            gone = np.flatnonzero(out_[max(a - 50, 0):hi])
+            r["lasttouch"] = -1
+            if len(gone):
+                f0 = max(a - 50, 0) + int(gone[0])
+                before = np.flatnonzero(tok[max(f0 - 125, 0):f0] != NO_TEAM)
+                if len(before):
+                    r["lasttouch"] = 1 - int(tok[max(f0 - 125, 0) + before[-1]])
+            r["geo1.0+lasttouch"] = r["geo1.0"] if r["geo1.0"] >= 0 else r["lasttouch"]
+            rows.append(r)
+        print(c.id.match, c.id.half, flush=True)
+    t = pd.DataFrame(rows)
+    print(f"\n{len(t)} D stretches; v13 first call right on {(t.v13 == t.truth).mean():.4f}; kinds fired (1 m): "
+          + ", ".join(f"{k} {t[f'kind_{k}'].mean():.3f}" for k in ("throw", "corner", "kickoff")))
+    for arm in ("geo0.5", "geo1.0", "lasttouch", "geo1.0+lasttouch"):
+        f = t[arm] >= 0
+        print(f"{arm}: fires on {f.mean():.4f}; right where it fires {(t[arm][f] == t.truth[f]).mean():.4f}; v13 "
+              f"right there {(t.v13[f] == t.truth[f]).mean():.4f}; disagrees with v13 on {(t[arm][f] != t.v13[f]).mean():.4f}"
+              f" of those, where it is right on {(t[arm][f & (t[arm] != t.v13)] == t.truth[f & (t[arm] != t.v13)]).mean():.4f}")
+
+
 def barath_spell(params):
     """E29's registered stop, label-free: the SPELL_FEATURES medians over BAR-ATH's candidate runs (short team runs
     of PARAMS's codes before its spell flip and lag, ATD inputs only) against the 10th-90th percentile range of
@@ -3384,7 +3632,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -3400,7 +3648,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
