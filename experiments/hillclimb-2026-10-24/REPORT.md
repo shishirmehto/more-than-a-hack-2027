@@ -217,6 +217,11 @@ no StatsBomb data, and tier0_v8's did. Every file from v2 on was ranked on PFF-A
   of BAR-ATH's team runs (against 4% on PFF-A) prompted the BAR-ATH feature check, and the token-share median
   that check printed shaped E30. These are match-wide statistics of inputs and of outputs, and the organisers
   have not confirmed that either kind is allowed.
+- The organisers' clarifications of 22 and 23 October (upstream c073f29 and f8f2629, merged here on 24 October)
+  say the public window is for checking the pipeline and is neither training data nor a tuning set, ban hand
+  labels and any human-produced data about BAR-ATH for every purpose, validation included, and allow
+  automatic pseudo-labels and watching or inspecting the data to design features. This run follows each of
+  them. They still say nothing about match-wide statistics of automatic inputs or outputs.
 - PFF data has no licence file and its specs say proprietary, so it is treated as all rights reserved. No PFF
   file and nothing frame-level derived from one is committed. But fitted constants are: the three logistic
   coefficients in tier0_v4 onward were fitted on 1,869,449 PFF-A frames, and the dead-rule, lag, still-ball,
@@ -523,6 +528,11 @@ penalty lowers the predicted count too, and I had read that ratio when I added Î
   the same PFF games (`possession/pff/statsbomb.py`), fetched by the data session under the StatsBomb Public
   Data User Agreement for local research. None is about BAR-ATH. The providers made these labels, not us; to
   our knowledge all four come from analysts tagging events (inferred, not stated in the files).
+- **The training-data list SUBMISSION.md now asks for.** Since upstream f8f2629 the document must list every
+  labelled dataset, its source, who labelled it and how much, none from the provided game. The bullet above
+  is the draft. Add the amounts: Metrica 3 games, IDSSE 7 matches, PFF 64 games split 32 selection and 32
+  held out (the token reliability alone was fitted on 1,869,449 PFF-A frames), and StatsBomb's events on the
+  same 64 PFF games if it stays.
 - **StatsBomb's terms.** Clause 1.4 of the agreement requires StatsBomb's logo on any publication of analysis
   formed from its data, and clause 1.2.2 bars commercially exploiting the data or analysis derived from it.
   StatsBomb data entered rule v3 and v4 rankings, so it shaped tier0_v8's selection and not tier0_v7's. This
