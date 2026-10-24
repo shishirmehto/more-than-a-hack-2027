@@ -499,16 +499,18 @@ def dead_run_rule_known_answer() -> None:
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_outside_m=1.0, dead_out_min_run=13)
 
     lines = np.where(tok == NO_TEAM, np.nan, 20.0).astype(np.float32)
-    lines[5] = 1.5
 
-    def line(**params: float) -> str:
-        half = Half(HalfId("line", 1, 0), tok, BallGeometry(seen, seen, inside, seen, lines))
+    def line(at5: float = 1.5, **params: float) -> str:
+        geo = lines.copy()
+        geo[5] = at5
+        half = Half(HalfId("line", 1, 0), tok, BallGeometry(seen, seen, inside, seen, geo))
         p = DecoderParams(dead_min_run=12, dead_trim=2, **params)
         return "".join(letter[int(c)] for c in decoder._missing_run_dead(np.full(20, H, np.int8), half, p))
 
     assert line() == h20 and line(dead_line_m=1.0, dead_line_min_run=8) == h20
     assert line(dead_line_m=2.0, dead_line_min_run=8) == "HHHHHHHHDDDDHHHHHHHH"
     assert line(dead_line_m=2.0, dead_line_min_run=8, dead_line_lead_cut=2) == "HHHHHHDDDDDDHHHHHHHH"
+    assert line(-0.5, dead_line_m=1.0, dead_line_min_run=8) == "HHHHHHHHDDDDHHHHHHHH"
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_lead_cut=2)
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_m=2.0)
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_m=2.0, dead_line_min_run=13)
