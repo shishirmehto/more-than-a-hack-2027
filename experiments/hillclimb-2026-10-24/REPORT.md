@@ -8,6 +8,12 @@ The probes behind the numbers are in `probes.py` in this folder, and the final p
 reviewers on other models (claude-sonnet-5-5 and claude-fable-5-1) read both. This report was corrected from
 their findings; the log's last rows list each one.
 
+**Data credit.** Experiments 38, 39, 41 and 42, and the rule v3 and v4 rankings behind tier0_v8 and tier0_v9,
+use StatsBomb's free World Cup 2022 event data. Data source: StatsBomb
+([hudl/open-data](https://github.com/hudl/open-data) at `4b73468`). No StatsBomb file is in this repo.
+
+<img src="https://raw.githubusercontent.com/hudl/open-data/4b73468fc5b0f1950f9f66fada70ad3a4f9327cb/img/SB%20-%20Icon%20Lockup%20-%20Colour%20positive.png" alt="StatsBomb" width="240">
+
 ## Result
 
 Thirteen new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed
@@ -618,10 +624,10 @@ penalty lowers the predicted count too, and I had read that ratio when I added Î
   StatsBomb data entered rule v3 and v4 rankings, so it shaped tier0_v8's selection and not tier0_v7's. This
   report already publishes analysis formed from StatsBomb data (experiments 38, 39, 41 and 42), so it needs
   that credit before the branch is pushed, whichever file ships. If v8 ships, the technical document needs it
-  too, and the team should decide whether a prize competition counts as commercial use. The team's call on
-  24 October: no credit for now, because the data is used only for the hackathon and the analysis is not
-  posted online. The repo must be public, so before any push the StatsBomb sections of this report come out,
-  unless the team decides to credit StatsBomb instead.
+  too, and the team should decide whether a prize competition counts as commercial use. On 24 October the team
+  first chose no credit, because the analysis was not online. Pushing the branch to the public PR publishes it,
+  so the team then chose to credit StatsBomb and keep these sections. The data source and StatsBomb's logo are
+  at the top of this report. Clause 1.2.2 is still open.
 - **PFF's terms.** No licence is on record (see "Rules this run kept"), and the fitted constants from PFF-A
   are in every params file from v4 on; v11 and v12 add the spell-flip weights.
 - **The cues.** Nearest-team token with a fitted reliability, a 15-frame hand-over lag, a dead-ball stage
