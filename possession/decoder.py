@@ -28,6 +28,7 @@ STATE_LABEL = np.array([{State.H: H, State.A: A, State.D_AFTER_H: D, State.D_AFT
                        dtype=np.int8)
 
 _M_FLOOR, _M_CAP = 1e-6, 0.98
+_MARGIN_CAP_M = 30.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,43 +48,31 @@ class Tier0Emission:
     q:           P(token == label's team | alive, ball seen).
     alive_share: a0, prior over the alive share of the half.
 
-    Geometry terms, each off at its default (and then left out of a saved file). Any of them on makes
-    the emission need Half.geometry (`needs_geometry`), which only challenge.observe supplies:
-    margin_scale_m: lambda > 0 replaces the constant q on seen frames by
-                    q(m) = 0.5 + (q_max - 0.5) * (1 - exp(-m / lambda)), m = BallGeometry.margin_m.
-                    0 keeps the constant q.
-    q_max:          the asymptote of q(m); ignored when margin_scale_m is 0.
-    outside_bonus:  log-evidence added to D on frames whose ball lies more than outside_min_m metres
-                    outside the pitch.
-    far_bonus:      log-evidence added to D on frames whose nearest player is more than far_min_m metres
-                    from the ball.
-    Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, margin_scale_m >= 0,
-    0.5 < q_max < 1, finite bonuses, outside_min_m >= 0, far_min_m > 0.
+    Geometry term, off at its default (and then left out of a saved file). On, it makes the emission
+    need Half.geometry (`needs_geometry`), which only challenge.observe supplies:
+    q_logit_a, q_logit_dist, q_logit_margin: (a, b, c). Any non-zero replaces the constant q on seen frames
+                    by q = 1 / (1 + exp(-(a + b ln(1 + d) + c ln(1 + min(m, 30))))), with d =
+                    BallGeometry.nearest_m and m = BallGeometry.margin_m (inf when a team has no slot). A
+                    fitted q can fall below 0.5, where a token points away from its own team.
+    Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, finite q_logit terms.
     """
     q: float = 0.78
     dead_bias: float = 1.0
     alive_share: float = 0.6
-    margin_scale_m: float = 0.0
-    q_max: float = 0.95
-    outside_bonus: float = 0.0
-    outside_min_m: float = 1.0
-    far_bonus: float = 0.0
-    far_min_m: float = 10.0
+    q_logit_a: float = 0.0
+    q_logit_dist: float = 0.0
+    q_logit_margin: float = 0.0
 
     def __post_init__(self) -> None:
         _number("q", self.q, 0, 1)
         _number("dead_bias", self.dead_bias, 0, math.inf)
         _number("alive_share", self.alive_share, 0, 1, hi_open=False)
-        _number("margin_scale_m", self.margin_scale_m, 0, math.inf, lo_open=False)
-        _number("q_max", self.q_max, 0.5, 1)
-        _number("outside_bonus", self.outside_bonus, -math.inf, math.inf)
-        _number("outside_min_m", self.outside_min_m, 0, math.inf, lo_open=False)
-        _number("far_bonus", self.far_bonus, -math.inf, math.inf)
-        _number("far_min_m", self.far_min_m, 0, math.inf)
+        for name in ("q_logit_a", "q_logit_dist", "q_logit_margin"):
+            _number(name, getattr(self, name), -math.inf, math.inf)
 
     @property
     def needs_geometry(self) -> bool:
-        return self.margin_scale_m > 0 or self.outside_bonus != 0 or self.far_bonus != 0
+        return bool(self.q_logit_a or self.q_logit_dist or self.q_logit_margin)
 
     def loglik(self, half: Half) -> NDArray[np.float32]:
         tok = half.nearest_team
@@ -107,21 +96,16 @@ class Tier0Emission:
     def _add_geometry(self, out: NDArray[np.float64], half: Half, seen: NDArray[np.float64]) -> None:
         g = half.geometry
         if g is None:
-            raise ValueError(f"{half.id}: this emission reads ball geometry (margin_scale_m, outside_bonus or "
-                             "far_bonus) and the Half has none; observe it from a Geometry "
-                             "(challenge.halves('atd')), not from baseline_raw")
-        if self.margin_scale_m > 0:
-            where = half.nearest_team != NO_TEAM
-            margin = g.margin_m[where].astype(np.float64)
-            qm = 0.5 + (self.q_max - 0.5) * -np.expm1(-margin / self.margin_scale_m)
-            home = half.nearest_team[where] == HOME
-            hit, miss = np.log(qm), np.log1p(-qm)
-            out[where, 0] = np.where(home, hit, miss) + seen[0]
-            out[where, 1] = np.where(home, miss, hit) + seen[1]
-        if self.outside_bonus:
-            out[g.outside_m > self.outside_min_m, 2] += self.outside_bonus
-        if self.far_bonus:
-            out[g.nearest_m > self.far_min_m, 2] += self.far_bonus
+            raise ValueError(f"{half.id}: this emission reads ball geometry (q_logit) and the Half has none; "
+                             "observe it from a Geometry (challenge.halves('atd')), not from baseline_raw")
+        where = half.nearest_team != NO_TEAM
+        nearest = g.nearest_m[where].astype(np.float64)
+        margin = np.minimum(g.margin_m[where].astype(np.float64), _MARGIN_CAP_M)
+        z = self.q_logit_a + self.q_logit_dist * np.log1p(nearest) + self.q_logit_margin * np.log1p(margin)
+        hit, miss = -np.logaddexp(0.0, -z), -np.logaddexp(0.0, z)
+        home = half.nearest_team[where] == HOME
+        out[where, 0] = np.where(home, hit, miss) + seen[0]
+        out[where, 1] = np.where(home, miss, hit) + seen[1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,8 +189,7 @@ class DecoderParams:
 
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
 _OPTIONAL_EMISSION = {f.name: f.default for f in dataclasses.fields(Tier0Emission)
-                      if f.name in ("margin_scale_m", "q_max", "outside_bonus", "outside_min_m", "far_bonus",
-                                    "far_min_m")}
+                      if f.name.startswith("q_logit_")}
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")

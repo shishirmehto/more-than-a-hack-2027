@@ -27,7 +27,7 @@ python -m possession make-submission --params params/tier0_v1.json --out evaluat
 python evaluation/run_evaluation.py --bootstrap 1000    # existing scorer, unchanged, scores the CSV on the public window
 ```
 
-`make-submission` reads `evaluation/results/baseline_raw.csv` and the params JSON. It uses no RNG and no Metrica files, so it reproduces the CSV byte for byte on a clean checkout. A params file that turns on a geometry term (the emission's `margin_scale_m`, `outside_bonus` or `far_bonus`, or `dead_outside_m` with `dead_min_run`, see `Decoder.needs_geometry`) is the exception. `make-submission` then decodes `challenge.halves("atd")`, so building its CSV needs the gated ATD on disk (`MTAH_DATA_DIR`), and without it the build stops with the IOError from `games.require`. The tokens are the same either way (`selfcheck.atd_reproduces_baseline_raw`). `fit-dev` is the only command that needs Metrica, and its product is a small JSON of numbers.
+`make-submission` reads `evaluation/results/baseline_raw.csv` and the params JSON. It uses no RNG and no Metrica files, so it reproduces the CSV byte for byte on a clean checkout. A params file that turns on a geometry term (the emission's `q_logit_*` terms, or `dead_outside_m` with `dead_min_run`, see `Decoder.needs_geometry`) is the exception. `make-submission` then decodes `challenge.halves("atd")`, so building its CSV needs the gated ATD on disk (`MTAH_DATA_DIR`), and without it the build stops with the IOError from `games.require`. The tokens are the same either way (`selfcheck.atd_reproduces_baseline_raw`). `fit-dev` is the only command that needs Metrica, and its product is a small JSON of numbers.
 
 Python, score a decoder on three dev games, the pooled dev set and the public window. Two calls:
 

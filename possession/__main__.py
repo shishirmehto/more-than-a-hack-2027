@@ -68,15 +68,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                      help="close stretches of team calls shorter than this between dead runs (0 = off)")
     fit.add_argument("--dead-outside-m", type=float, nargs="+", default=[0.0],
                      help="with --dead-min-run, a ball seen this far outside the pitch counts as missing (0 off)")
-    fit.add_argument("--margin-scale-m", type=float, nargs="+", default=[0.0],
-                     help="q(m) team-margin scale in metres (0 keeps the constant --q); see Tier0Emission")
-    fit.add_argument("--q-max", type=float, nargs="+", default=[0.95])
-    fit.add_argument("--outside-bonus", type=float, nargs="+", default=[0.0],
-                     help="D log-evidence when the ball is more than --outside-min-m outside the pitch")
-    fit.add_argument("--outside-min-m", type=float, nargs="+", default=[1.0])
-    fit.add_argument("--far-bonus", type=float, nargs="+", default=[0.0],
-                     help="D log-evidence when the nearest player is more than --far-min-m from the ball")
-    fit.add_argument("--far-min-m", type=float, nargs="+", default=[10.0])
     fit.add_argument("--reference-window", type=int, default=None, metavar="WINDOW",
                      help="select by the worst group margin over baseline_smooth<WINDOW> (bench.SELECTION_MARGIN) "
                           "instead of the worst raw world score")
@@ -176,9 +167,7 @@ def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:
               "q": args.q, "p_dead_after_poss": args.p_dead_after_poss, "p_flip_after_dead": args.p_flip_after_dead,
               "dead_min_run": args.dead_min_run, "dead_trim": args.dead_trim,
               "dead_close": args.dead_close,
-              "dead_outside_m": args.dead_outside_m,
-              "margin_scale_m": args.margin_scale_m, "q_max": args.q_max, "outside_bonus": args.outside_bonus,
-              "outside_min_m": args.outside_min_m, "far_bonus": args.far_bonus, "far_min_m": args.far_min_m}
+              "dead_outside_m": args.dead_outside_m}
     grids = [{"decode_rule": ["marginal"], "temper": args.temper, **shared}]
     if args.map_temper:
         grids.append({"decode_rule": ["map"], "temper": args.map_temper,

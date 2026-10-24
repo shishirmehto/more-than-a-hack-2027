@@ -383,19 +383,16 @@ def geometry_emission_known_answer() -> None:
                        outside_m=np.array([nan, 0, 0, 2, 0.5, 0], np.float32))
     half = Half(HalfId("geo", 1, 0), tok, geo)
     plain = Tier0Emission(q=0.8)
-    on = Tier0Emission(q=0.8, margin_scale_m=3.0, q_max=0.95, outside_bonus=2.0, outside_min_m=1.0,
-                       far_bonus=1.5, far_min_m=10.0)
+    on = Tier0Emission(q=0.8, q_logit_a=1.0, q_logit_dist=-1.0, q_logit_margin=0.5)
     assert not plain.needs_geometry and on.needs_geometry
     _raises(ValueError, on.loglik, Half(HalfId("geo", 1, 0), tok))
     assert np.array_equal(plain.loglik(half), plain.loglik(Half(HalfId("geo", 1, 0), tok)))
     base, got = plain.loglik(half).astype(np.float64), on.loglik(half).astype(np.float64)
-    e1 = 0.5 + 0.45 * (1 - math.exp(-1))
-    qm = np.array([0.5, e1, 0.95, e1, 0.5 + 0.45 * (1 - math.exp(-1 / 3))])
+    qm = np.array([0.576116885, 0.294879445, 0.834571772, 0.644404983, 0.561674644])
     home = tok[1:] == HOME
     want = np.log(np.stack([np.where(home, qm, 1 - qm), np.where(home, 1 - qm, qm)], 1)) + math.log(5 / 6)
     assert np.allclose(got[1:, :2], want, atol=1e-6), (got[1:, :2], want)
-    assert np.allclose(got[:, 2] - base[:, 2], [0, 0, 1.5, 2.0, 0, 0], atol=1e-6), got[:, 2] - base[:, 2]
-    assert np.array_equal(got[0], base[0])
+    assert np.array_equal(got[:, 2], base[:, 2]) and np.array_equal(got[0], base[0])
     mirrored = on.loglik(Half(HalfId("geo", 1, 0), np.where(tok == NO_TEAM, NO_TEAM, 1 - tok).astype(np.int8), geo))
     assert np.array_equal(mirrored, on.loglik(half)[:, [1, 0, 2]])
 
@@ -413,12 +410,13 @@ def geometry_emission_known_answer() -> None:
     assert (codes[5:8] == D).all() and (codes[:5] != D).all() and (codes[8:] != D).all(), codes
 
     v0 = Decoder.load(PARAMS_V0)
-    model = v0.replace(margin_scale_m=3.0, outside_bonus=2.0)
-    assert model.emission.margin_scale_m == 3.0 and model.params == v0.params
+    model = v0.replace(q_logit_a=1.0, q_logit_dist=-1.0, q_logit_margin=0.5)
+    assert model.emission.q_logit_dist == -1.0 and model.params == v0.params
     with tempfile.TemporaryDirectory() as tmp:
         path = model.save(Path(tmp) / "geo.json", {})
         emission = json.loads(path.read_text())["emission"]
-        assert set(emission) == {"kind", "q", "dead_bias", "alive_share", "margin_scale_m", "outside_bonus"}, emission
+        assert set(emission) == {"kind", "q", "dead_bias", "alive_share", "q_logit_a", "q_logit_dist",
+                                 "q_logit_margin"}, emission
         assert Decoder.load(path) == model
 
 
