@@ -487,6 +487,17 @@ def dead_run_rule_known_answer() -> None:
     assert lead(inside, dead_out_lead_cut=2) == "HHHHHHHHDDDDHHHHHHHH"
     assert lead(inside, dead_lead_cut=2) == "HHHHHHDDDDDDHHHHHHHH"
 
+    def short(outside: np.ndarray, **params: int) -> str:
+        half = Half(HalfId("short", 1, 0), tok, BallGeometry(seen, seen, outside, seen))
+        p = DecoderParams(dead_min_run=12, dead_trim=2, dead_outside_m=1.0, **params)
+        return "".join(letter[int(c)] for c in decoder._missing_run_dead(np.full(20, H, np.int8), half, p))
+
+    assert short(left) == h20 and short(inside, dead_out_min_run=8) == h20
+    assert short(left, dead_out_min_run=8) == "HHHHHHHDDDDDHHHHHHHH"
+    assert short(left, dead_out_min_run=8, dead_out_lead_cut=2) == "HHHHHDDDDDDDHHHHHHHH"
+    _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_out_min_run=8)
+    _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_outside_m=1.0, dead_out_min_run=13)
+
     tok = np.full(20, HOME, np.int8)
     tok[13:17] = NO_TEAM
     speed = np.full(20, 5.0, np.float32)

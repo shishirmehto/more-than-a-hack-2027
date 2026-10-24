@@ -98,7 +98,18 @@ NO_SEEN = ("E30 refitted the same model with the token-share feature left out (i
            "label-free match-wide BAR-ATH statistic, under the team's unconfirmed reading of RULES.md; the weights "
            "are still fitted only on PFF-A labels. Same arms, tie order and rule v2 chose token share 0.5+ at P 0.8 "
            "again, and the BAR-ATH check, over the features with a non-zero weight, passed before this file was "
-           "frozen.")
+           "frozen. That pass was certain once the one feature outside PFF-A's range was left out, because the "
+           "check's medians do not depend on the weights, so it is no evidence of transfer.")
+LEAD = ("dead_lead_cut and dead_out_lead_cut come from pre-registered experiment E32 on tier0_v12. Label-reading "
+        "oracles on PFF-A (probes.py deadedges, deadstarts) put +0.021 at the start edges of stoppages the dead rule "
+        "already marks, because dead_trim cuts every dead run's start; where the ball is seen more than "
+        "dead_outside_m outside the pitch near the run's start, the cue starts a median 5 frames before the "
+        "labelled stoppage. Candidates, registered before any result: out-only cuts 25, 40, 50 and lead cuts 10 to "
+        "50 with out variants (probes.py LEAD_GRID). Rule v2 (synthetic veto at tier0_v12 minus 0.003 in every "
+        "group; the odd-game minimum over PFF m0 and m2 ranks; ties within 0.003 to the base, then the registered "
+        "order: out-only cuts smallest first, then lead cuts 10 to 50, each plain before its out variants) chose "
+        "this file's values. Even-indexed PFF games and seeds 15-24 only confirm. No BAR-ATH statistic was read. "
+        "No StatsBomb data entered this selection.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -121,6 +132,7 @@ def main(argv):
     ap.add_argument("--spell-push", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("MPS", "FRAMES", "UNSEEN"))
     ap.add_argument("--switch-penalty", type=float, default=0.0, metavar="LAMBDA")
     ap.add_argument("--spell-flip", type=float, nargs=3, default=(0.0, 0, 0.0), metavar=("P", "FRAMES", "SEEN"))
+    ap.add_argument("--dead-lead-cut", type=int, nargs=2, default=(0, 0), metavar=("ALL", "OUT"))
     ap.add_argument("--spell-logit", type=float, nargs="+", default=None, metavar="W",
                     help="the intercept, then one weight per decoder.SPELL_FEATURES name in order; trailing "
                          "features left out weigh 0 and are not written")
@@ -138,7 +150,9 @@ def main(argv):
                                      spell_push_frames=int(a.spell_push[1]), spell_push_unseen=a.spell_push[2],
                                      switch_penalty=a.switch_penalty, spell_flip_p=a.spell_flip[0],
                                      spell_flip_frames=int(a.spell_flip[1]), spell_flip_seen=a.spell_flip[2],
-                                     spell_logit=dict(zip(("a",) + SPELL_FEATURES, a.spell_logit or ())))
+                                     spell_logit=dict(zip(("a",) + SPELL_FEATURES, a.spell_logit or ())),
+                                     dead_lead_cut=a.dead_lead_cut[0], dead_out_lead_cut=a.dead_lead_cut[1])
+    lead = any(a.dead_lead_cut)
     logit = any(a.q_logit)
     no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
@@ -158,6 +172,8 @@ def main(argv):
     if a.spell_flip[0]:
         changed = changed.replace("handover_lag", "handover_lag, spell_flip_p, spell_flip_frames, spell_flip_seen, "
                                   "spell_logit", 1)
+    if lead:
+        changed = changed.replace("dead_close,", "dead_close, dead_lead_cut, dead_out_lead_cut,", 1)
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -167,7 +183,8 @@ def main(argv):
                      (" " + LAG if a.handover_lag else "") + (" " + STILL if a.dead_still[0] else "") +
                      (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else "") +
                      (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
-                     (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else ""),
+                     (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else "") +
+                     (" " + LEAD if lead else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -181,6 +198,8 @@ def main(argv):
                      "select-e29.out" if a.spell_flip[0] else "") +
                     (", barath-spell-v11.out, spellseen-v11.out, e30-spellflip.out, e30-pff.csv, e30-synth.csv, "
                      "select-e30.out and barath-spell-e30.out" if no_seen else "") +
+                    (", deadsplit-v12.out, deadcensus-v12.out, deadedges-v12.out, deadstarts-v12.out, e32-pff.csv, "
+                     "e32-synth.csv and select-e32.out" if lead else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
@@ -188,7 +207,7 @@ def main(argv):
                          "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
                          "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Every experiment from E17 on, "
                          "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and "
-                         "the spell_flip fields came after the "
+                         "the spell_flip and dead_lead fields came after the "
                          "first read. Inherited from "
                          "tier0_v1: " + v1_doc["provenance"]["public_window"],
     })

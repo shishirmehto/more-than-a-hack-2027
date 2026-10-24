@@ -10,9 +10,10 @@ their findings; the log's last rows list each one.
 
 ## Result
 
-Eleven new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed every
-held-out test and was then stopped by its registered BAR-ATH transfer check; tier0_v12, its refit without the
-feature that tripped the check, passed everything and is the recommendation:
+Twelve new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed every
+held-out test and was then stopped by its registered BAR-ATH transfer check; tier0_v12 is its refit without the
+feature that tripped the check. tier0_v13, v12 with a stoppage start dated by a ball seen leaving the pitch, is
+the recommendation:
 
 | params | adds to the previous file | builds from | sha256 of the CSV |
 |---|---|---|---|
@@ -27,6 +28,7 @@ feature that tripped the check, passed everything and is the recommendation:
 | `params/tier0_v10.json` | `switch_penalty` 1.0: the decode charges 1 nat per change of team, so an island of one team inside the other survives only when its summed block log-odds reach 2 nats | the gated ATD | `d137e9e61c7a9b3e…` |
 | `params/tier0_v11.json` (stopped) | `spell_flip_*`: a logistic over 14 label-free spell features, fitted on PFF-A labels, gives a short possession with a token on half its frames to the other team at P 0.8 or more | the gated ATD | `119e1f080f3470e2…` |
 | `params/tier0_v12.json` | to tier0_v10: v11's spell flip refitted without the token-share feature (its weight 0) | the gated ATD | `002da6a32d63f03c…` |
+| `params/tier0_v13.json` | `dead_out_lead_cut` 25: a dead run whose ball is seen leaving the pitch near its start loses 25 frames there instead of 50 | the gated ATD | `8d980307e73c50e4…` |
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
 the held-out half is"). The numbers are spellF1 margins over `baseline_smooth50`; the PFF columns are the 32
@@ -45,7 +47,8 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 | tier0_v9 | +0.139 [+0.130, +0.149] | +0.172 [+0.161, +0.182] | over v7: +0.005 [+0.003, +0.007] 25/32 / +0.009 [+0.006, +0.012] 27/32 | +0.107 (IDSSE m0) |
 | tier0_v10 | +0.143 [+0.134, +0.153] | +0.179 [+0.168, +0.189] | over v9: +0.004 [+0.002, +0.005] 25/32 / +0.007 [+0.005, +0.009] 29/32 | +0.105 (IDSSE m0) |
 | tier0_v11 (stopped) | +0.151 [+0.142, +0.160] | +0.190 [+0.180, +0.199] | over v10: +0.008 [+0.005, +0.011] 29/32 / +0.011 [+0.008, +0.014] 32/32 | +0.106 (IDSSE m0) |
-| **tier0_v12** | +0.151 [+0.142, +0.160] | +0.189 [+0.179, +0.199] | over v10: +0.008 [+0.006, +0.010] 30/32 / +0.010 [+0.008, +0.013] 30/32 | +0.107 (IDSSE m0) |
+| tier0_v12 | +0.151 [+0.142, +0.160] | +0.189 [+0.179, +0.199] | over v10: +0.008 [+0.006, +0.010] 30/32 / +0.010 [+0.008, +0.013] 30/32 | +0.107 (IDSSE m0) |
+| **tier0_v13** | +0.154 [+0.145, +0.163] | +0.192 [+0.182, +0.202] | over v12: +0.0031 [+0.0022, +0.0041] 29/32 / +0.0033 [+0.0023, +0.0044] 27/32 | +0.111 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
   about half again on top of v2's margin. tier0_v8's margin is +0.049 and +0.060 above v2's (a difference of
@@ -96,10 +99,26 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   a lower bound of +0.002 on 23 of 32 games. Under StatsBomb's convention on the held-out PFF games its margin
   is +0.171 against v7's +0.154.
 
-My recommendation is tier0_v12, if the team is comfortable that building the CSV needs the gated ATD files on
-disk and that it carries 13 weights fitted on PFF labels, and otherwise tier0_v2, the best file that builds from
-committed inputs alone. tier0_v12 is tier0_v10 plus E30's spell flip. Every step from v7 was selected and
-confirmed under the pre-registered rule v2, with no StatsBomb data.
+My recommendation is tier0_v13, if the team is comfortable that building the CSV needs the gated ATD files on
+disk, that it carries 13 weights fitted on PFF labels, and that v12's redesign read a label-free BAR-ATH
+statistic; otherwise tier0_v10, or tier0_v2, the best file that builds from committed inputs alone. tier0_v13 is
+tier0_v12 plus E32's ball-out stoppage start. Every step from v7 was selected and confirmed under the
+pre-registered rule v2, with no StatsBomb data.
+
+- v13's held-out gain over v12 (PFF-B m0 +0.0031 [+0.0022, +0.0041], 29 of 32 games; m2 +0.0033 [+0.0023,
+  +0.0044], 27 of 32) is about two thirds of its selection gain (+0.0046). On synthetic seeds 15-24 it sits
+  above v12 in all 15 groups and on every one of the 150 seed worlds, IDSSE m0 included (+0.0042 to +0.0057),
+  the cleanest confirmation of the run. No BAR-ATH statistic entered E32. On BAR-ATH it changes 677 of 158,857
+  graded frames, 639 of them from a team to D at a stoppage's start.
+- Why it works: the dead rule cut 2 s off every stoppage's start. Where the ball is seen crossing a line, the
+  rule's cue already starts within about 5 frames of the labelled stoppage (experiment 62), so the cut only
+  delayed a correct start. A ball seen leaving the pitch dates the stoppage on any tracker, which is why I
+  expect it to transfer; that is an inference, not a BAR-ATH measurement.
+- Cuts of 40 and 50 frames scored 0.0018 higher on PFF-A, inside the tie band; the order registered before the
+  run picked the smallest cut, and I kept to it.
+
+What follows describes tier0_v12, which v13 builds on.
+
 
 - v12's held-out gain over v10 (PFF-B m0 +0.0078 [+0.0055, +0.0100], m2 +0.0104 [+0.0080, +0.0128], 30 of 32
   games each) is about 85% of its out-of-fold selection gain (+0.0093 on m0). It sits above v10 in all 15
@@ -365,10 +384,16 @@ overstates how independent the B columns are:
 | 54 | ceiling of short-possession flips, label-reading, never a candidate (`probes.py flipruns`): on v10's codes after its push flip, a greedy left-to-right oracle gives each team run under 250 frames to the other team when that raises the half's mean matched count minus F/2 per predicted spell; populations by token share (seen 0.5+, unseen under 0.5, all) | E28's oracle closed the dead stage; the touch rule's ranker wanted a ceiling that holds whatever the detector does; kill set before the run: under +0.006 on PFF-A m0 for seen runs | PFF-A m0 +0.0413 pooled for seen runs (754 flips; paired mean +0.0410 [+0.0346, +0.0474], 32 of 32 games), +0.0236 unseen (641), +0.0617 all (1,304); m2 +0.0550, +0.0311, +0.0822 | the headroom is in team calls on short possessions, about seven times the bar; opens E29 |
 | 55 | E29 first gate (`probes.py spellflip`): a ridge-1 Newton logistic over 14 label-free spell features (`decoder.SPELL_FEATURES`: length, token shares, closest own approach, ball speed, own margin, push, the chain's log-odds, neighbours) predicts whether giving one short possession away alone raises the half's matched count minus F/2 per predicted spell on the PFF-A m0 labels; 2-fold game-OOF; arms token share 0.5+ (seen) or all runs at P 0.8, 0.65, 0.5 | experiment 54 put the ceiling at about seven times the bar; this is the fan-out's spell logit, ranked last there, in its critic's revised form (a spell-level target, ridge with a convergence check, OOF spellF1 with a paired interval); kill set before the run: no arm at +0.006 with a lower bound above 0 | 3,734 runs, flip helps alone on 42%; OOF AUC 0.78 (seen) and 0.76 (all), printed by the probe's first version (spellflip-v10.out; the committed probe prints univariate AUCs only); PFF-A m0 seen>=0.8 +0.0095 [+0.0071, +0.0119] 29 of 32, all>=0.8 +0.0101, seen>=0.65 +0.0148, all>=0.65 +0.0156 [+0.0120, +0.0192]; m2 +0.013 to +0.027; the decoder's own path (fsum features rounded to 9 places, logit rounded to 6) reproduces every number | passes; two feature pairs are exactly collinear (own_tok + other_tok = 1, sandwiched = 1 - next_to_d), so the ridge splits their weights |
 | 56 | E29 selection, confirmation and transfer stop: rule v2 with the all-A weights on the synthetic veto (tie order, fixed after the first gate by structure: higher cut first, token-gated first) | pre-registered; the BAR-ATH stop (any feature median outside PFF-A's 10th-90th percentile stops the freeze) was registered with the tie order | veto: the 0.65 and 0.5 arms fail IDSSE m0; seen>=0.8 lifts all 15 groups over v10 and wins the tie with all>=0.8; frozen as tier0_v11; PFF-B m0 +0.0078 [+0.0048, +0.0109] 29 of 32, m2 +0.0112 [+0.0082, +0.0143] 32 of 32; seeds 15-24 above v10 in all 15 groups; v11 changes 1,790 BAR-ATH frames in the final CSV (the stop's own count, before the lag, is 1,820) and cuts its team runs from 406 to 354 (12.8%, against 4% on PFF-A) | **stopped by the BAR-ATH check**: the median seen share of BAR-ATH's short runs is 1.000 against PFF-A's 90th percentile 0.946; v10 stays recommended; v11 is kept as a frozen, confirmed, unrecommended file; v11 was frozen before the check, against the registered order |
-| 57 | E30: E29's model refitted with the token-share feature left out (weight 0), the same gates, arms, tie order and rule v2; the BAR-ATH stop, over the features with a non-zero weight, before any freeze | v11 was stopped on that feature, which measures how often the mask sees the ball, a property of PFF's tracker; registered before any code; the design used a label-free BAR-ATH statistic | OOF PFF-A m0 seen>=0.8 +0.0093 [+0.0072, +0.0114] 31 of 32; the veto passes seen>=0.8 (slack 0.0047) and all>=0.8, seen>=0.65 misses by 0.0007; seen>=0.8 selected; stop passes, by construction (its table is computed before any weight enters, and only the token-share feature was outside range); frozen as tier0_v12; PFF-B m0 +0.0078 [+0.0055, +0.0100] 30 of 32, m2 +0.0104 [+0.0080, +0.0128] 30 of 32, v11 minus v12 +0.0001 and +0.0008 (intervals cross 0); seeds 15-24 above v10 in all 15 groups on the seed mean (IDSSE m0 +0.0015, +0.0017, +0.0024, one seed of ten below 0 in each); 1,266 BAR-ATH frames change, team runs 406 to 372 | **tier0_v12, recommended**; the synthetic confirmation peaked at 2.26 GB resident |
+| 57 | E30: E29's model refitted with the token-share feature left out (weight 0), the same gates, arms, tie order and rule v2; the BAR-ATH stop, over the features with a non-zero weight, before any freeze | v11 was stopped on that feature, which measures how often the mask sees the ball, a property of PFF's tracker; registered before any code; the design used a label-free BAR-ATH statistic | OOF PFF-A m0 seen>=0.8 +0.0093 [+0.0072, +0.0114] 31 of 32; the veto passes seen>=0.8 (slack 0.0047) and all>=0.8, seen>=0.65 misses by 0.0007; seen>=0.8 selected; stop passes, by construction (its table is computed before any weight enters, and only the token-share feature was outside range); frozen as tier0_v12; PFF-B m0 +0.0078 [+0.0055, +0.0100] 30 of 32, m2 +0.0104 [+0.0080, +0.0128] 30 of 32, v11 minus v12 +0.0001 and +0.0008 (intervals cross 0); seeds 15-24 above v10 in all 15 groups on the seed mean (IDSSE m0 +0.0015, +0.0017, +0.0024, one seed of ten below 0 in each); 1,266 BAR-ATH frames change, team runs 406 to 372 | **tier0_v12**, recommended until v13; the synthetic confirmation peaked at 2.26 GB resident |
 | 58 | E31: two touch features added to the spell logit (`touch_own`, `touch_other`: the ball's velocity change within 1.5 m of a player, over the run's own-token frames and over other-token frames within 25 frames), refitted without the token-share feature; E30's gates, arms, tie order and rule v2, with v12 as the base | the census (experiment 34) puts most lost spells in short possessions, and a touch is the direct evidence of who plays the ball; registered before any code | OOF PFF-A m0 seen>=0.8 +0.0119 [+0.0093, +0.0144] 30 of 32 over v10; the veto passes seen>=0.8 (slack 0.0047) and all>=0.8; PFF-A minimum 0.1484 against v12's 0.1459, inside the 0.003 tie band; lifts all 15 synthetic groups over v12 | **no change**: v12 wins the tie; the touch features stay in the decoder at weight 0 and no params file uses them |
 | 59 | dead-ball decomposition, label-reading, never a candidate (`probes.py deadsplit`): on v12's final codes on PFF-A, labelled D frames made D (insert), only labelled D stretches of 50+ frames (insert_long), D frames labelled live given back to the previous team (remove), and both | E28's veto oracle (+0.003) and the perfect-dead oracle (+0.085 on v7) differ thirtyfold, so the headroom must sit in missed stoppages; kill set before the run: under +0.010 on PFF-A m0 for insert_long ends the stoppage-insertion line | PFF-A m0 insert +0.0716, insert_long +0.0705 [+0.0645, +0.0760] 32 of 32, remove +0.0090 [+0.0038, +0.0142] 22 of 32, both +0.0802; m2 +0.073, +0.072, +0.020, +0.093 | the line opens: nearly all dead-ball headroom is long labelled stoppages that v12 calls as a team, seven times the bar |
 | 60 | review check, not a candidate: E30's out-of-fold seen>=0.8 flips on PFF-A restricted to fully seen runs, partly seen runs, runs next to D, runs not next to D, flips toward the half's majority-token team and flips away (`probes.py spellflip --split`) | both reviewers: the BAR-ATH stop could not fail, BAR-ATH's short runs are almost all fully seen and next to D, and 71% of v12's BAR-ATH changes go to Barcelona; sonnet: the registered kill on D-neighbour runs was dropped and never measured | reproduces E30 (+0.0093); fully seen +0.0044 [+0.0031, +0.0058] (71 flips), partly seen +0.0048 (122), next to D +0.0024 [+0.0015, +0.0032] (93), not next to D +0.0069 (100), toward majority +0.0046, away +0.0046; m2 alike; the first run of this check left the touch features in and split E31's model instead (every subset positive there too) | v12 stays recommended; the dropped kill would not have fired |
+| 61 | where the stoppage headroom sits, label-reading, never a candidate (`probes.py deadcensus`, `deadedges`): v12's codes on each labelled stoppage of 50+ frames on PFF-A m0, and deadsplit's fill split by what v12 does there | experiment 59's +0.07 had to be located before any design | of 2,987 such stoppages v12 makes 2,417 mostly D, 323 partly and misses 247 (2% of stoppage frames, median 5.1 s); filling missed ones +0.0136, half-caught +0.0137, caught ones whole +0.0428 [+0.0394, +0.0461], of which their start edges +0.0212 [+0.0191, +0.0232] and end edges +0.0153; v12's D starts a median 29 frames late and ends on time at the median | the headroom is at the edges of stoppages v12 already marks, the start most |
+| 62 | the dead rule's cue runs against labelled stoppage edges, label-reading (`probes.py deadstarts`), split by whether the ball is seen more than 0.5 m outside the pitch from 25 frames before to 75 after the labelled start | dead_trim cuts 50 frames from every dead run's start, even where the ball is seen leaving the pitch | where the ball is seen going out (30% of caught stoppages) the cue starts a median 5 frames before the labelled start (75th percentile 19) and D 46 frames late, worth +0.0065 filled; elsewhere the cue's lead is median 36 frames (10th to 90th percentile -29 to 181), worth +0.0145 | an evidence-dated start is crisp where the ball is seen going out, and a constant trim is not |
+| 63 | E32: two dead-rule fields, `dead_lead_cut` (a shorter start trim for every dead run) and `dead_out_lead_cut` (a shorter start trim where the ball is seen more than 0.5 m outside the pitch from 25 frames before to 75 after the run's start); 14 arms on v12 (`probes.py LEAD_GRID`); rule v2; tie order after v12: out-only cuts smallest first, then lead cuts 10 to 50, each plain before its out variants | experiments 61 and 62; registered before any result with an expected gain of about +0.005 | all 15 arms pass the veto and all lift the synthetic minimum (v12 0.1067); PFF-A minimum: out cut 40 and 50 0.1522, out cut 25 0.1504, lead cuts alone 0.1472 to 0.1491, v12 0.1458; the registered order picks out cut 25, 0.0018 below cut 40 inside the tie band; frozen as tier0_v13; PFF-B over v12 m0 +0.0031 [+0.0022, +0.0041] 29 of 32, m2 +0.0033 [+0.0023, +0.0044] 27 of 32; seeds 15-24 above v12 in all 15 groups and on all 150 seed worlds (IDSSE m0 +0.0042 to +0.0057); the synthetic run peaked at 2.42 GB; 677 BAR-ATH frames change, 639 of them team to D | **tier0_v13, recommended on the v12 line**: no BAR-ATH statistic entered E32, and its gain holds on every seed world |
+| 64 | stoppage ends and short stoppages, label-reading (`probes.py deadends`) | after E32, the other edge and the stoppages v12 misses | only 147 of 2,417 caught stoppages end on a still seen ball that then moves (a restart kick), worth +0.0039 filled; the other ends +0.0116 with no anchor; missed or half-caught stoppages with the ball seen outside near their start: 233, worth +0.0111 filled | an end anchor is capped near the tie band; a shorter minimum run for ball-out cue runs is E33 |
+| 66 | E33: decoder field `dead_out_min_run`, a shorter minimum length for cue runs with ball-out evidence near their start; arms 113, 101, 88, 76 on v13; rule v2 | experiment 64: short stoppages with the ball seen going out are worth +0.0111; registered before any result with an expected +0.003 to +0.005 | PFF-A over v13: 76 frames +0.0030 m0 / +0.0032 m2, 88 +0.0027, 101 +0.0025, 113 +0.0014; best minimum 0.1533 against 0.1504 | **no change**: every arm sits inside the 0.003 tie band, so the veto was not run; the field stays in the decoder at 0 |
+| 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames (overlapping slots, or officials in a team's slots) are untraced |
 
 ## What did not work, and why
 
@@ -481,7 +506,7 @@ penalty lowers the predicted count too, and I had read that ratio when I added �
   sources' player slots, and the docstring says so.
 - Score runs peaked at 2.1 to 4.0 GB, above the 2 GB the laptop guideline asks for, after the user had asked
   for lighter jobs. v10's synthetic confirmation, split off to stay under 2 GB, still peaked at 2.10 GB
-  resident (3.26 GB footprint), and v12's at 2.26 GB.
+  resident (3.26 GB footprint), v12's at 2.26 GB and v13's at 2.42 GB.
 - Byte-for-byte reproduction was checked only on this laptop, with the numpy and Python in `.venv`, most
   recently from a fresh clone of commit 006dc70 (`data/derived/verify/20261024-clean-006dc70/`): v2 to v10 all
   match their pinned hashes, v10 twice, and selfcheck is 30 ok at that commit (Python 3.11.14, numpy 2.4.6,
@@ -549,7 +574,7 @@ penalty lowers the predicted count too, and I had read that ratio when I added �
   toward goal, used to overrule short possessions the ball mostly did not see, (tier0_v10) a decode that
   charges each change of team, so the weakest short islands disappear, and (tier0_v12) a logistic over 13
   label-free features of each short possession, fitted on PFF labels, that gives the possessions it judges
-  spurious to the other team.
+  spurious to the other team, and (tier0_v13) a stoppage start dated by a ball seen leaving the pitch.
 - **The AI assistant.** Claude ran this search and its subagents. It read BAR-ATH only as the aggregates
   listed above, and it never produced or scored a BAR-ATH label.
 
@@ -576,6 +601,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-
 S2="1.8203 -1.1172 0.0 -0.1774 0.1774 1.0146 -0.0625 -0.0433 0.6543 -0.2162 -0.1519 -0.2919 -0.0788 -0.0906 0.2919"
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.8 250 0.5 --spell-logit $S2 --out params/tier0_v12.json
 python -m possession make-submission --params params/tier0_v12.json --out tier0_v12.csv
+python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.8 250 0.5 --spell-logit $S2 --dead-lead-cut 0 25 --out params/tier0_v13.json
+python -m possession make-submission --params params/tier0_v13.json --out tier0_v13.csv
 ```
 
 Each selection reruns from its probe, for example `python experiments/hillclimb-2026-10-24/probes.py logit

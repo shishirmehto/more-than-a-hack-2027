@@ -31,7 +31,7 @@ _M_FLOOR, _M_CAP = 1e-6, 0.98
 _MARGIN_CAP_M = 30.0
 _SPEED_CAP_MPS = 40.0
 _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mps", "dead_pace_still_mps",
-                     "dead_pace_live_mps", "dead_lead_cut", "dead_out_lead_cut")
+                     "dead_pace_live_mps", "dead_lead_cut", "dead_out_lead_cut", "dead_out_min_run")
 _OUT_BEFORE, _OUT_AFTER = 25, 75
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
@@ -148,6 +148,8 @@ class DecoderParams:
                         seen more than dead_outside_m outside the pitch from 25 frames before to 75 frames
                         after the run's start: a ball seen leaving the pitch dates the stoppage. Needs
                         dead_outside_m.
+    dead_out_min_run:   0 is off. Otherwise a run with that same ball-out evidence counts as dead from this
+                        many frames instead of dead_min_run. Needs dead_outside_m.
     dead_close:         a stretch of team calls shorter than this many frames with dead runs on both
                         sides becomes D too, so brief ball sightings inside one stoppage do not split it
                         into spurious possessions; 0 = off, ignored when dead_min_run is 0.
@@ -243,6 +245,7 @@ class DecoderParams:
     spell_logit: Mapping[str, float] = dataclasses.field(default_factory=dict)
     dead_lead_cut: int = 0
     dead_out_lead_cut: int = 0
+    dead_out_min_run: int = 0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -259,8 +262,10 @@ class DecoderParams:
         _number("dead_lead_cut", self.dead_lead_cut, 0, self.dead_trim, integer=True, lo_open=False, hi_open=False)
         _number("dead_out_lead_cut", self.dead_out_lead_cut, 0, self.dead_trim, integer=True, lo_open=False,
                 hi_open=False)
-        if self.dead_out_lead_cut and not self.dead_outside_m:
-            raise ValueError("dead_out_lead_cut reads dead_outside_m and acts only with it > 0")
+        _number("dead_out_min_run", self.dead_out_min_run, 0, self.dead_min_run, integer=True, lo_open=False,
+                hi_open=False)
+        if (self.dead_out_lead_cut or self.dead_out_min_run) and not self.dead_outside_m:
+            raise ValueError("dead_out_lead_cut and dead_out_min_run read dead_outside_m and act only with it > 0")
         _number("dead_outside_m", self.dead_outside_m, 0, math.inf, lo_open=False)
         _number("dead_still_mps", self.dead_still_mps, 0, math.inf, lo_open=False)
         _number("dead_still_frames", self.dead_still_frames, 0, math.inf, integer=True, lo_open=False)
@@ -322,7 +327,7 @@ _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_ou
                     "spell_merge_frames": 0, "spell_merge_tails": 0, "spell_push_mps": 0.0, "spell_push_frames": 0,
                     "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0, "spell_flip_p": 0.0,
                     "spell_flip_frames": 0, "spell_flip_seen": 0.0, "spell_logit": {}, "dead_lead_cut": 0,
-                    "dead_out_lead_cut": 0}
+                    "dead_out_lead_cut": 0, "dead_out_min_run": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -648,17 +653,17 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
         team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
     unseen = _dead_cues(half, p)
-    out = half.geometry.outside_m > p.dead_outside_m if p.dead_out_lead_cut else None
+    out = half.geometry.outside_m > p.dead_outside_m if p.dead_out_lead_cut or p.dead_out_min_run else None
     missing = np.concatenate(([False], unseen, [False]))
     edges = np.flatnonzero(np.diff(missing.view(np.int8)))
     dead = np.zeros(n + 1, dtype=np.int32)
     for start, stop in zip(edges[::2], edges[1::2]):
-        lead = p.dead_trim - p.dead_lead_cut
+        lead, need = p.dead_trim - p.dead_lead_cut, p.dead_min_run
         if out is not None and out[max(start - _OUT_BEFORE, 0):start + _OUT_AFTER].any():
-            lead = max(lead - p.dead_out_lead_cut, 0)
+            lead, need = max(lead - p.dead_out_lead_cut, 0), p.dead_out_min_run or need
         lo = start + lead if start > 0 else -p.dead_min_run
         hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
-        if hi - lo >= p.dead_min_run - lead - p.dead_trim and min(hi, n) > max(lo, 0):
+        if hi - lo >= need - lead - p.dead_trim and min(hi, n) > max(lo, 0):
             dead[max(lo, 0)] += 1
             dead[min(hi, n)] -= 1
     out = np.where(np.cumsum(dead[:n]) > 0, D, team).astype(np.int8)
