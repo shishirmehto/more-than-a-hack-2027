@@ -60,6 +60,12 @@ pick SYNTH PFF BASE --prefer V...
                      to the variants in --prefer order (the registered tie order), then to the higher PFF-A minimum
 combo PARAMS --out CSV
                      E19: the near-miss settings of E11, E12, E13 and E17 crossed on PARAMS, as stillgrid does
+census PARAMS        why labelled possessions go unmatched under PARAMS (matched, dead, wrong team, fragmented,
+                     overlong), by labelled length
+hold                 token accuracy on PFF-A: nearest team against the last team within R m, by distance
+holdgrid PARAMS --out CSV
+                     E20: the held-team token (HoldEmission, q fitted on PFF-A by fit_hold) crossed with lag
+deadcues PARAMS      false and missed D frames under PARAMS by dead cue and by distance to a labelled stoppage
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -76,7 +82,7 @@ import pandas as pd
 
 from possession import bench, challenge, idsse, metrica, score
 from possession.decoder import Decoder, _missing_run_dead
-from possession.half import FPS, D, H
+from possession.half import FPS, HOME, NO_TEAM, D, H, X
 
 SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
 NATIVE = ["pff:m0:native", "pff:m2:native"]
@@ -97,16 +103,21 @@ def oracle(params, rhos=(2.6,), items=SEARCH):
     model, s50 = Decoder.load(params), bench.Smoother(50)
     rows = []
     for world, cases in bench.dev_worlds(items, rhos, seeds=SEEDS).items():
+        if world.endswith("_B"):
+            continue
         case = bench.pooled(cases)
         runs = score.valid_runs(case.gt)
         per = {}
         for half, gt in zip(case.halves, case.layout.cut(case.gt)):
             mine, floor = model.decode(half).codes, s50.decode(half).codes
             team = ffill_team(mine, np.where(floor == D, H, floor))
+            seen = half.nearest_team != NO_TEAM
             variants = {"model": mine, "s50": floor,
                         "s50D_modelteam": np.where(floor == D, D, team),
                         "oracleD_modelteam": np.where(gt == D, D, team),
-                        "modelD_oracleteam": np.where(mine == D, D, np.where(gt == D, team, gt))}
+                        "modelD_oracleteam": np.where(mine == D, D, np.where(gt == D, team, gt)),
+                        "modelD_oracleteam_seen": np.where(mine == D, D, np.where((gt != D) & seen, gt, team)),
+                        "modelD_oracleteam_unseen": np.where(mine == D, D, np.where((gt != D) & ~seen, gt, team))}
             for name, codes in variants.items():
                 per.setdefault(name, []).append(codes.astype(np.int8))
         for name, preds in per.items():
@@ -114,6 +125,198 @@ def oracle(params, rhos=(2.6,), items=SEARCH):
             rows.append({"group": bench.group(world), "variant": name, "spell_f1": f1, "n_pred": n})
     t = pd.DataFrame(rows)
     print(t.pivot_table(index="variant", columns="group", values="spell_f1").round(4).to_string())
+
+
+def census(params, rhos=(2.6,), items=SEARCH):
+    """Why labelled possessions go unmatched: each one is matched (a same-team spell at IoU >= 0.5), dead or
+    wrong_team (under half of it covered by its team), fragmented (two or more same-team spells, none at 0.5) or
+    overlong (one spell covers it but runs on into its neighbours); by labelled length. Held-out B games are skipped."""
+    model, rows = Decoder.load(params), []
+    bins = [0, 2, 5, 10, 20, np.inf]
+    for world, cases in bench.dev_worlds(items, rhos, seeds=SEEDS).items():
+        if world.endswith("_B"):
+            continue
+        case = bench.pooled(cases)
+        runs = score.valid_runs(case.gt)
+        pred = score._assemble_checked(case.layout, case.gt, [model.decode(h).codes for h in case.halves])
+        spells = score.possession_spells(pred, runs)
+        starts = np.array([a for a, _, _ in spells])
+        for a, b, c in score.possession_spells(case.gt, runs):
+            seg = pred[a:b]
+            same = [(x, y) for x, y, k in spells[max(np.searchsorted(starts, a, "right") - 1, 0):
+                                                 np.searchsorted(starts, b)] if k == c and x < b and y > a]
+            iou = max(((min(b, y) - max(a, x)) / (max(b, y) - min(a, x)) for x, y in same), default=0.0)
+            if iou >= 0.5:
+                kind = "matched"
+            elif (seg == c).sum() * 2 < b - a:
+                kind = "dead" if (seg == D).sum() >= ((seg != c) & (seg != D)).sum() else "wrong_team"
+            else:
+                kind = "fragmented" if len(same) > 1 else "overlong"
+            rows.append({"group": bench.group(world), "kind": kind,
+                         "length": pd.cut([(b - a) / FPS], bins, right=False).astype(str)[0]})
+        print(world, "labelled", len(rows), "predicted spells", len(spells), flush=True)
+    t = pd.DataFrame(rows)
+    print(pd.crosstab([t.group, t.length], t.kind, normalize="index", margins=False).round(3).to_string())
+    print(pd.crosstab(t.group, t.kind, normalize="index").round(3).to_string())
+    print(t.groupby(["group", "length"]).size().unstack("length").to_string())
+
+
+def hold():
+    """Token accuracy on native PFF A games, live frames after kickoff: the nearest team against the team of the
+    last player seen within R m of the ball (held through flights and gaps), by nearest-player distance."""
+    from possession import challenge, pff
+    radii, games, rows = (1.0, 1.5, 2.0, 3.0), [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        tok, d, idx = h.nearest_team, h.geometry.nearest_m, np.arange(h.n)
+        live = (c.labels != D) & (idx >= h.id.kickoff)
+        row = {"seen": tok != NO_TEAM, "d": np.nan_to_num(d, nan=np.inf), "nearest": tok == c.labels}
+        for r in radii:
+            ctrl = (tok != NO_TEAM) & (d <= r)
+            last = np.maximum.accumulate(np.where(ctrl, idx, -1))
+            row[f"hold{r:g}"] = np.where(last >= 0, tok[np.maximum(last, 0)], NO_TEAM) == c.labels
+        rows.append(pd.DataFrame({k: v[live] for k, v in row.items()}))
+    t = pd.concat(rows)
+    t["bin"] = np.where(t.seen, pd.cut(t.d, [0, 1, 2, 3, 5, 10, np.inf], right=False).astype(str), "unseen")
+    out = t.groupby("bin").mean(numeric_only=True).drop(columns=["seen", "d"])
+    out.insert(0, "share", t.groupby("bin").size() / len(t))
+    print(out.round(4).to_string())
+    print("all seen", t[t.seen].mean(numeric_only=True).round(4).to_dict())
+
+
+def _held(half, radius):
+    """Team of the last frame whose nearest player was seen within radius m of the ball; NO_TEAM before it."""
+    tok, idx = half.nearest_team, np.arange(half.n)
+    last = np.maximum.accumulate(np.where((tok != NO_TEAM) & (half.geometry.nearest_m <= radius), idx, -1))
+    return np.where(last >= 0, tok[np.maximum(last, 0)], NO_TEAM).astype(np.int8)
+
+
+def fit_hold(radius):
+    """(q_hold, q_gap) on native PFF A games, live frames after kickoff with a held team: how often the held team
+    is the labelled one on seen frames farther than radius from the nearest player, and on unseen frames."""
+    from possession import challenge, pff
+    games, far, gap = [], [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        held, tok = _held(h, radius), h.nearest_team
+        keep = (c.labels != D) & (np.arange(h.n) >= h.id.kickoff) & (held != NO_TEAM)
+        hit = held == c.labels
+        far.append(hit[keep & (tok != NO_TEAM) & (h.geometry.nearest_m > radius)])
+        gap.append(hit[keep & (tok == NO_TEAM)])
+    q_hold, q_gap = float(np.concatenate(far).mean()), float(np.concatenate(gap).mean())
+    print(f"hold {radius:g} m: q_hold {q_hold:.4f}, q_gap {q_gap:.4f}", flush=True)
+    return q_hold, q_gap
+
+
+@dataclasses.dataclass(frozen=True)
+class HoldEmission:
+    """Probe-only: BASE's emission, with the team row of every seen frame farther than radius from the nearest
+    player replaced by the held team at q_hold, and (q_gap > 0) unseen frames given the held team at q_gap."""
+    base: object
+    radius: float
+    q_hold: float
+    q_gap: float
+
+    @property
+    def needs_geometry(self):
+        return True
+
+    def loglik(self, half):
+        out = self.base.loglik(half).astype(np.float64)
+        held, tok = _held(half, self.radius), half.nearest_team
+        alive = np.logaddexp(out[:, 0], out[:, 1])
+        far = (tok != NO_TEAM) & (half.geometry.nearest_m > self.radius) & (held != NO_TEAM)
+        home = held == HOME
+        lq, lm = np.log(self.q_hold), np.log1p(-self.q_hold)
+        out[far, 0] = np.where(home[far], lq, lm) + alive[far]
+        out[far, 1] = np.where(home[far], lm, lq) + alive[far]
+        if self.q_gap:
+            gap = (tok == NO_TEAM) & (held != NO_TEAM)
+            lq, lm = np.log(self.q_gap), np.log1p(-self.q_gap)
+            out[gap, 0] += np.where(home[gap], lq, lm)
+            out[gap, 1] += np.where(home[gap], lm, lq)
+            out[gap, 2] += np.log(0.5)
+        return out.astype(np.float32)
+
+
+def holdgrid(params, out, rhos, items):
+    """E20: PARAMS with the held-team token, R x gaps x lag; the dead-run stage as PARAMS has it."""
+    from possession.decoder import _lag_handovers
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    fits = {r: fit_hold(r) for r in HOLD_RADII}
+    zero = dict(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
+                dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, handover_lag=0)
+    chain_params = dataclasses.replace(base.params, **zero)
+    chains = {(r, gaps): Decoder(HoldEmission(base.emission, r, q_hold, q_gap if gaps else 0.0), chain_params)
+              for r, (q_hold, q_gap) in fits.items() for gaps in (False, True)}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        variants = {"base": [base.decode(h).codes for h in case.halves]}
+        for (r, gaps), chain in chains.items():
+            dead = [_missing_run_dead(chain.decode(h).codes, h, base.params) for h in case.halves]
+            for lag in HOLD_LAGS:
+                variants[f"hold={r:g} gaps={'on' if gaps else 'off'} lag={lag}"] = [_lag_handovers(c, lag) for c in dead]
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, codes, runs)
+            rows.append({"group": group, "world": world, "variant": name, "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
+def deadcues(params, rhos=(2.6,), items=SEARCH):
+    """Where PARAMS's D goes wrong, by frame: labelled-live frames called D (false D) and labelled-D frames called
+    live (missed D), split by which dead cue covers the frame (ball unseen, slow ball run, walking players, ball
+    off the pitch, none) and by distance to the nearest labelled stoppage. Held-out B games are skipped."""
+    model, rows = Decoder.load(params), []
+    p = model.params
+    for world, cases in bench.dev_worlds(items, rhos, seeds=SEEDS).items():
+        if world.endswith("_B"):
+            continue
+        case = bench.pooled(cases)
+        for half, gt in zip(case.halves, case.layout.cut(case.gt)):
+            codes, g, n = model.decode(half).codes, half.geometry, half.n
+            idx = np.arange(n)
+            slow = np.zeros(n, bool)
+            run = np.concatenate(([0], (g.speed_mps < p.dead_still_mps).view(np.int8), [0]))
+            edges = np.flatnonzero(np.diff(run))
+            for a, b in zip(edges[::2], edges[1::2]):
+                slow[a:b] = b - a >= p.dead_still_frames
+            cue = np.select([half.nearest_team == NO_TEAM, slow, half.pace_mps < p.dead_pace_still_mps,
+                             g.outside_m > p.dead_outside_m], ["unseen", "slow", "walking", "outside"], "none")
+            dead_gt = np.flatnonzero(gt == D)
+            if len(dead_gt) == 0:
+                continue
+            pos = np.clip(np.searchsorted(dead_gt, idx), 1, len(dead_gt) - 1)
+            gap = np.minimum(np.abs(idx - dead_gt[pos - 1]), np.abs(dead_gt[pos] - idx)) / FPS
+            near = pd.cut(gap, [-1, 0, 2, 5, 10, np.inf]).astype(str)
+            keep = (idx >= half.id.kickoff) & (gt != X)
+            kind = np.where((gt != D) & (codes == D), "false_D", np.where((gt == D) & (codes != D), "missed_D", ""))
+            m = keep & (kind != "")
+            rows.append(pd.DataFrame({"group": bench.group(world), "kind": kind[m], "cue": cue[m], "near_s": near[m]}))
+            rows.append(pd.DataFrame({"group": bench.group(world), "kind": np.where(gt[keep] == D, "all_D", "all_live"),
+                                      "cue": cue[keep], "near_s": near[keep]}))
+        print(world, flush=True)
+    t = pd.concat(rows)
+    print(t.groupby(["group", "kind"]).size().unstack("kind").to_string())
+    print(pd.crosstab([t.group, t.kind], t.cue, normalize="index").round(3).to_string())
+    print(pd.crosstab([t.group, t.kind], t.near_s, normalize="index").round(3).to_string())
 
 
 def features(g):
@@ -780,6 +983,7 @@ STILL_GRID = [{}] + [{"dead_still_mps": v, "dead_still_frames": f} for v in (0.5
 PACE_GRID = [{"dead_pace_live_mps": lv, "dead_pace_still_mps": sv} for lv in (0.0, 1.5, 2.0, 2.5, 3.0)
              for sv in (0.0, 0.5, 0.75)]
 LAG7_GRID = [{"handover_lag": lag} for lag in (10, 15, 20, 25)]
+HOLD_RADII, HOLD_LAGS = (1.0, 1.5, 2.0), (0, 10, 20)
 COMBO_GRID = [{"handover_lag": lag, "dead_trim": trim, "dead_pace_still_mps": sv, "dead_still_frames": sf}
               for lag in (15, 20) for trim in (50, 37) for sv in (0.5, 0.75) for sf in (50, 25)]
 DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
@@ -1045,6 +1249,8 @@ def select(paths):
 
 
 def pick(synth_csv, pff_csv, base, prefer):
+    """The registered selection: the synthetic veto, then the PFF-A minimum, ties within VETO_SLACK to BASE, then
+    PREFER's order, then the fewest k=v fields changed from BASE, then the higher PFF-A minimum."""
     sm = pd.read_csv(synth_csv).groupby(["group", "variant"]).margin.mean().unstack("group")
     pm = pd.read_csv(pff_csv).groupby(["group", "variant"]).margin.mean().unstack("group")
     slack = sm.sub(sm.loc[base] - VETO_SLACK, axis=1)
@@ -1056,14 +1262,15 @@ def pick(synth_csv, pff_csv, base, prefer):
     tied = ok[ok.pff_a_min >= ok.pff_a_min.max() - VETO_SLACK]
     order = [base] + [v for v in prefer if v != base]
     rank = {v: i for i, v in enumerate(order)}
-    chosen = sorted(tied.index, key=lambda v: (rank.get(v, len(order)), -tied.pff_a_min[v]))[0]
+    changed = lambda v: len(set(v.split()) - set(base.split()))
+    chosen = sorted(tied.index, key=lambda v: (rank.get(v, len(order)), changed(v), -tied.pff_a_min[v]))[0]
     print(f"\n{int(t.passes.sum())} of {len(t)} pass the veto; tied within {VETO_SLACK}: {sorted(tied.index)}")
     print("SELECTED", chosen)
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
@@ -1088,4 +1295,7 @@ if __name__ == "__main__":
      "lag7": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LAG7_GRID),
      "deadlogit": lambda: deadlogit_grid(one, a.out, a.dead_bias, a.rule),
      "pick": lambda: pick(*a.params, a.prefer),
-     "combo": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, COMBO_GRID)}[a.probe]()
+     "combo": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, COMBO_GRID),
+     "census": lambda: census(one, a.dead_bias, a.rule), "hold": hold,
+     "holdgrid": lambda: holdgrid(one, a.out, a.dead_bias, a.rule),
+     "deadcues": lambda: deadcues(one, a.dead_bias, a.rule)}[a.probe]()
