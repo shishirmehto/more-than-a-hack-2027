@@ -399,6 +399,18 @@ def geometry_emission_known_answer() -> None:
     mirrored = on.loglik(Half(HalfId("geo", 1, 0), np.where(tok == NO_TEAM, NO_TEAM, 1 - tok).astype(np.int8), geo))
     assert np.array_equal(mirrored, on.loglik(half)[:, [1, 0, 2]])
 
+    tok = np.array([HOME] * 4 + [AWAY] * 6 + [HOME] * 4, np.int8)
+    out = np.zeros(14, np.float32)
+    out[5:8] = (2.0, 0.5, 3.0)
+    geo = BallGeometry(np.ones(14, np.float32), np.ones(14, np.float32), out)
+    rule = Decoder(Tier0Emission(), DecoderParams(dead_min_run=3, dead_trim=0, dead_outside_m=1.0))
+    assert rule.needs_geometry and not rule.replace(dead_min_run=0).needs_geometry
+    _raises(ValueError, rule.decode, Half(HalfId("dead", 1, 0), tok))
+    codes = rule.decode(Half(HalfId("dead", 1, 0), tok, geo)).codes
+    assert (codes[5:8] != D).all(), codes
+    codes = rule.replace(dead_outside_m=0.4).decode(Half(HalfId("dead", 1, 0), tok, geo)).codes
+    assert (codes[5:8] == D).all() and (codes[:5] != D).all() and (codes[8:] != D).all(), codes
+
     v0 = Decoder.load(PARAMS_V0)
     model = v0.replace(margin_scale_m=3.0, outside_bonus=2.0)
     assert model.emission.margin_scale_m == 3.0 and model.params == v0.params

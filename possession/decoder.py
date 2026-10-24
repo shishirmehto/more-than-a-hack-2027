@@ -142,6 +142,9 @@ class DecoderParams:
                         A run touching a half's first or last frame counts as unbounded on that side.
                         101 with dead_trim 50 is starter/baseline.py's "no ball within 50 frames".
     dead_trim:          frames cut from each end of a dead run; ignored when dead_min_run is 0.
+    dead_outside_m:     0 is off. Otherwise a frame whose ball is seen more than this many metres outside
+                        the pitch (Half.geometry.outside_m) counts as missing when the dead_min_run rule
+                        finds its runs; needs Half.geometry. Ignored when dead_min_run is 0.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -163,6 +166,7 @@ class DecoderParams:
     min_dead_frames: int = 1
     dead_min_run: int = 0
     dead_trim: int = 0
+    dead_outside_m: float = 0.0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -175,6 +179,7 @@ class DecoderParams:
         _number("min_dead_frames", self.min_dead_frames, 1, math.inf, integer=True, lo_open=False)
         _number("dead_min_run", self.dead_min_run, 0, math.inf, integer=True, lo_open=False)
         _number("dead_trim", self.dead_trim, 0, math.inf, integer=True, lo_open=False)
+        _number("dead_outside_m", self.dead_outside_m, 0, math.inf, lo_open=False)
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
             raise ValueError("dead_trim must leave part of a dead_min_run run: 2 * dead_trim < dead_min_run")
         if self.decode_rule == "marginal":
@@ -194,7 +199,7 @@ _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
 _OPTIONAL_EMISSION = {f.name: f.default for f in dataclasses.fields(Tier0Emission)
                       if f.name in ("margin_scale_m", "q_max", "outside_bonus", "outside_min_m", "far_bonus",
                                     "far_min_m")}
-_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0}
+_OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_outside_m": 0.0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -243,6 +248,11 @@ class Decoder:
         if p.dead_min_run:
             return Decoded(codes=_missing_run_dead(codes, half, p), posterior=None)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
+
+    @property
+    def needs_geometry(self) -> bool:
+        """True when decoding reads Half.geometry, which only challenge.observe supplies."""
+        return self.emission.needs_geometry or bool(self.params.dead_min_run and self.params.dead_outside_m)
 
     def replace(self, **flat: object) -> "Decoder":
         """A copy with fields changed by flat name. Each key goes to the emission or the params,
@@ -309,7 +319,13 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
     if len(called):
         last = np.maximum.accumulate(np.where(team != D, np.arange(n), -1))
         team = np.where(last >= 0, team[np.maximum(last, 0)], team[called[0]]).astype(np.int8)
-    missing = np.concatenate(([False], half.nearest_team == NO_TEAM, [False]))
+    unseen = half.nearest_team == NO_TEAM
+    if p.dead_outside_m:
+        if half.geometry is None:
+            raise ValueError(f"{half.id}: dead_outside_m reads ball geometry and the Half has none; observe it "
+                             "from a Geometry (challenge.halves('atd')), not from baseline_raw")
+        unseen = unseen | (half.geometry.outside_m > p.dead_outside_m)
+    missing = np.concatenate(([False], unseen, [False]))
     edges = np.flatnonzero(np.diff(missing.view(np.int8)))
     dead = np.zeros(n + 1, dtype=np.int32)
     for start, stop in zip(edges[::2], edges[1::2]):
