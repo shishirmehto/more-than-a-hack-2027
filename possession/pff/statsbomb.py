@@ -2,8 +2,9 @@
 the same dead frames, with each live frame given to StatsBomb's possession_team instead of PFF's last
 home_ball. StatsBomb changes possession only once a team has established control, so its spells are fewer
 and longer (a median of 85 per half against PFF's 137). The events are hudl/open-data at COMMIT under
-<data dir>/external/statsbomb_wc2022, used under the StatsBomb Public Data User Agreement, which the user
-accepted for local research: never commit an event file or anything frame-level derived from one."""
+<data dir>/external/statsbomb_wc2022, fetched for local research under the StatsBomb Public Data User
+Agreement (STATSBOMB_AGREEMENT_ACCEPTED=1), which asks for StatsBomb credit on any published analysis: never
+commit an event file or anything frame-level derived from one."""
 from __future__ import annotations
 
 import dataclasses

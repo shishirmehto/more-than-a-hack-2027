@@ -24,7 +24,8 @@ SELECTION = ("Pre-registered rule v2 (.audit/hillclimb-2026-10-24.tsv): candidat
              "candidate's seed-mean pooled spellF1 margin over baseline_smooth50 must be at least the incumbent "
              "101/50/0's minus 0.003 in every group, because the renewal generator switches masks at label "
              "boundaries. The minimum over native PFF m0 and m2 on odd-indexed games ranks; ties within 0.003 go "
-             "to the higher synthetic minimum. Even-indexed PFF games and seeds 15-24 only confirm.")
+             "to the higher synthetic minimum. Even-indexed PFF games and seeds 15-24 only confirm. Game indices count "
+             "from 1: the odd-indexed games are pff.GAMES[0::2].")
 GEOMETRY = ("dead_outside_m was added after the dead rule, judged on native PFF only: it had to raise both "
             "odd-game margins and keep a 90% per-game lower bound above 0 on even games.")
 LOGIT = ("The q_logit terms come from pre-registered experiment E5: logit(q) = a + b ln(1 + nearest_m) + "
@@ -108,8 +109,11 @@ def main(argv):
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
-        "public_window": f"The hillclimb did not read the public window; it changed only {changed}. Inherited "
-                         "from tier0_v1: " + v1_doc["provenance"]["public_window"],
+        "public_window": f"The hillclimb changed only {changed}. It scored files on the public window as a "
+                         "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
+                         "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Experiments E17 to E23, selection "
+                         "rules v3 and v4 and spell_merge_frames all came after the first read. Inherited from "
+                         "tier0_v1: " + v1_doc["provenance"]["public_window"],
     })
     print(a.out.read_text())
 
