@@ -140,7 +140,8 @@ class DecoderParams:
                         least this many frames, each shrunk by dead_trim frames at both ends, and every
                         other frame takes the chain's team (its D filled from the previous team call).
                         A run touching a half's first or last frame counts as unbounded on that side.
-                        101 with dead_trim 50 is starter/baseline.py's "no ball within 50 frames".
+                        101 with dead_trim 50 gives starter/baseline.py's smooth50 D mask ("no ball
+                        within 50 frames"); the team labels still come from the chain.
     dead_trim:          frames cut from each end of a dead run; ignored when dead_min_run is 0.
     dead_close:         a stretch of team calls shorter than this many frames with dead runs on both
                         sides becomes D too, so brief ball sightings inside one stoppage do not split it
