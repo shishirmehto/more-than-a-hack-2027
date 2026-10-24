@@ -103,6 +103,9 @@ deadedges PARAMS     label-reading: insert_long split into missed, half and caug
 outrungrid PARAMS --out CSV  E33: PARAMS with each OUTRUN_GRID minimum run for ball-out cue runs
 leadgrid PARAMS --out CSV  E32: PARAMS with each LEAD_GRID start-trim cut on the --rule worlds
 insertruns PARAMS    label-reading ceiling of making short dead cue runs D, by ball-out evidence
+islandruns PARAMS    E37 ceiling: label-free island candidates inside team runs, inserted where labels say it helps
+spellmodel PARAMS    E36 first gate: OOF spell flip target and capacity arms (weighted, span_share, pairs, dedup)
+flipindep PARAMS     spell flip ceiling with the per-run target applied at once (indep) against the greedy oracle (seq)
 insertfit PARAMS --out PREFIX
                      E35 first gate: OOF run logistic on PFF-A choosing short cue runs to make D
 stepfeas PARAMS      E34 feasibility pass: pace-drop dating of no-out stoppage starts against labels, with the kill gate
@@ -1336,6 +1339,7 @@ LEAD_GRID = [{}] + [{"dead_out_lead_cut": o} for o in (25, 40, 50)] + \
     [dict(dead_lead_cut=l, **({"dead_out_lead_cut": o} if o else {}))
      for l, outs in ((10, (0, 25, 40)), (20, (0, 25, 30)), (30, (0, 20)), (40, (0, 10)), (50, (0,))) for o in outs]
 OUTRUN_GRID = [{}] + [{"dead_out_min_run": r} for r in (113, 101, 88, 76)]
+CUT_GRID = [{}] + [{"spell_flip_p": c} for c in (0.75, 0.7, 0.65)]
 DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
               for r in (101, 126) for t in (12, 25, 37, 50) for c in (100, 150, 200)]
 
@@ -1819,6 +1823,76 @@ def flipruns(params, frames=250):
     paired_delta(per_game, FLIP_POPS)
 
 
+def flipindep(params, frames=250):
+    """Label-reading, never a candidate: does the spell flip's per-run target hold flipruns' ceiling? On native
+    PFF-A m0 and m2 with PARAMS's codes before its spell flip and lag (_pre_lag): flip every FLIP_POPS run under
+    FRAMES whose flip alone raises the half's matched-minus-F/2 value on the world's labels, all at once on the
+    pre-flip codes (indep, the target spellflip fits and _spell_flip applies), against flipruns' greedy left-to-right
+    oracle on the same codes (seq); with no flip and PARAMS's own codes for reference."""
+    from possession.decoder import _lag_handovers
+    model, rows, per_game = Decoder.load(params), [], []
+    p, chain = model.params, _rules_off(model)
+    lag = lambda x: _lag_handovers(x, p.handover_lag)
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        pre = [_pre_lag(model, chain, h)[0] for h in halves]
+        runs_ = score.valid_runs(pooled_a.gt)
+        f_base, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [lag(c) for c in pre], runs_)
+
+        def value(lab, codes):
+            s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+            return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f_base / 2 * s["n_pred"]
+
+        variants = {"no flip": [lag(c) for c in pre], Path(params).stem: [model.decode(h).codes for h in halves]}
+        counts = {}
+        for name, keep in FLIP_POPS.items():
+            ind, seq, k_ind, k_seq, both = [], [], 0, 0, 0
+            for c, h, lab in zip(pre, halves, labs):
+                v0, picked = value(lab, lag(c)), []
+                cur, best = c.copy(), v0
+                for a, b, team in _team_runs(c, h.id.kickoff):
+                    if b - a >= frames or not keep((h.nearest_team[a:b] != NO_TEAM).mean()):
+                        continue
+                    alone = c.copy()
+                    alone[a:b] = 1 - team
+                    if value(lab, lag(alone)) > v0:
+                        picked.append((a, b, team))
+                    trial = cur.copy()
+                    trial[a:b] = 1 - team
+                    v = value(lab, lag(trial))
+                    if v > best:
+                        cur, best, k_seq = trial, v, k_seq + 1
+                        both += bool(picked and picked[-1][0] == a)
+                new = c.copy()
+                for a, b, team in picked:
+                    new[a:b] = 1 - team
+                k_ind += len(picked)
+                ind.append(lag(new))
+                seq.append(lag(cur))
+            variants[f"indep {name}"], variants[f"seq {name}"] = ind, seq
+            counts[f"indep {name}"], counts[f"seq {name}"] = k_ind, (k_seq, both)
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs_)
+            k = counts.get(name, 0)
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f_base, "n_pred": n,
+                         "flipped": k[0] if isinstance(k, tuple) else k,
+                         "also_indep": k[1] if isinstance(k, tuple) else ""})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": "no flip", "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    g = pd.DataFrame(per_game).pivot_table(index="game", columns="variant", values="spell_f1")
+    print("\nper-game paired delta over no flip on PFF-A m0, mean [90% t interval], games won")
+    for name in g.columns.drop("no flip"):
+        d = (g[name] - g["no flip"]).to_numpy()
+        hw = T90 * d.std(ddof=1) / np.sqrt(len(d))
+        print(f"  {name}: {d.mean():+.4f} [{d.mean() - hw:+.4f}, {d.mean() + hw:+.4f}] {(d > 0).sum()}/{len(d)}")
+
+
 SPELL_CUTS = (0.8, 0.65, 0.5)
 SPELL_ARMS = [("seen", 0.8), ("all", 0.8), ("seen", 0.65), ("all", 0.65), ("seen", 0.5), ("all", 0.5)]
 SPELL_SEEN = {"seen": 0.5, "all": 0.0}
@@ -1842,9 +1916,11 @@ def _pre_lag(model, chain, h):
     return pre, _frame_logodds(g, h, p.stride, m)
 
 
-def ridge_newton(x, y, lam=1.0, steps=50):
+def ridge_newton(x, y, lam=1.0, steps=50, s=None):
     """Logistic weights on raw features X (column 0 the intercept), fitted on standardised columns with a ridge
-    LAM on every weight but the intercept; raises unless the step falls under 1e-8."""
+    LAM on every weight but the intercept, each row weighted by S (default 1); raises unless the step falls under
+    1e-8."""
+    s = np.ones(len(x)) if s is None else s
     mu, sd = x[:, 1:].mean(axis=0), x[:, 1:].std(axis=0)
     sd[sd == 0] = 1.0
     z = np.column_stack([np.ones(len(x)), (x[:, 1:] - mu) / sd])
@@ -1852,7 +1928,7 @@ def ridge_newton(x, y, lam=1.0, steps=50):
     ridge[0, 0] = 0.0
     for _ in range(steps):
         q = 1 / (1 + np.exp(-z @ w))
-        dw = np.linalg.solve(z.T @ (z * (q * (1 - q))[:, None]) + ridge, z.T @ (q - y) + ridge @ w)
+        dw = np.linalg.solve(z.T @ (z * (s * q * (1 - q))[:, None]) + ridge, z.T @ (s * (q - y)) + ridge @ w)
         w -= dw
         if np.abs(dw).max() < 1e-8:
             return np.r_[w[0] - (w[1:] / sd * mu).sum(), w[1:] / sd]
@@ -1991,6 +2067,239 @@ def spellflip(params, out, drop=(), split=False):
     r.drop(columns=["delta", "flipped"]).to_csv(f"{out}-pff.csv", index=False, float_format="%.6f")
     Path(f"{out}-weights.json").write_text(json.dumps(full, indent=2, sort_keys=True) + "\n")
     print(f"{out}-pff.csv {out}-weights.json")
+
+
+SPELL_BASE = ("len", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own", "push", "logodds",
+              "sandwiched", "prev_len", "next_len", "next_to_d")
+SPELL_PAIRS = ("len", "own_tok", "closest_own", "speed_med", "margin_own", "push", "logodds", "sandwiched", "prev_len",
+               "next_len")
+
+
+def _span_share(pre, a, b):
+    """ln(L / (L + P + N)) for the run [a, b) of PRE, P and N its team neighbours' lengths (0 for a D neighbour)."""
+    edges = np.flatnonzero(np.diff(pre)) + 1
+    starts, stops = np.r_[0, edges], np.r_[edges, len(pre)]
+    k = int(np.searchsorted(starts, a))
+    side = lambda j: stops[j] - starts[j] if 0 <= j < len(starts) and pre[starts[j]] != D else 0
+    return float(np.log((b - a) / ((b - a) + side(k - 1) + side(k + 1))))
+
+
+def spellmodel(params, cut=0.8):
+    """E36 first gate, PFF-A only, zero decoder change: on PARAMS's pre-flip codes, the spell flip's runs (its
+    frames and seen limits) with their single-run value change on m0 and on m2; 2-fold game-OOF arms R (refit of the
+    shipped form: SPELL_BASE, 0/1 m0 target), W0 (R weighted by |d_m0| capped at 1, mean 1 per training fold), S (R
+    plus span_share), X (R plus pairwise products of SPELL_PAIRS) and D (R without next_to_d and other_tok); each
+    arm's runs flip together on the pre-flip codes, at CUT and at R's flip count, scored by pooled spellF1."""
+    from possession.decoder import SPELL_FEATURES, _lag_handovers, _spell_runs
+    model = Decoder.load(params)
+    p, chain = model.params, _rules_off(model)
+    lag = lambda x: _lag_handovers(x, p.handover_lag)
+    col = {f: i for i, f in enumerate(SPELL_FEATURES)}
+    worlds, recs = {}, {}
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        games = list(dict.fromkeys(h.id.match for h in halves))
+        runs = score.valid_runs(pooled_a.gt)
+        f13, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [model.decode(h).codes for h in halves], runs)
+        pres = []
+        for h, lab in zip(halves, labs):
+            pre, lo = _pre_lag(model, chain, h)
+            pres.append(pre)
+
+            def value(codes):
+                s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+                return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f13 / 2 * s["n_pred"]
+
+            v0 = value(lag(pre))
+            for a, b, t, x in _spell_runs(pre, h, p.spell_flip_frames, lo):
+                if x[col["seen"]] < p.spell_flip_seen:
+                    continue
+                trial = pre.copy()
+                trial[a:b] = 1 - t
+                key = (h.id.match, h.id.half, a)
+                r = recs.setdefault(key, {"key": key, "b": b, "t": t, "fold": games.index(h.id.match) % 2,
+                                          "span_share": _span_share(pre, a, b), **{f: x[col[f]] for f in SPELL_FEATURES}})
+                assert r["b"] == b and r["t"] == t, key
+                r["d_m2" if "_m2_" in world else "d_m0"] = value(lag(trial)) - v0
+        worlds[world] = (pooled_a, pres, games_a, runs, f13)
+        print(world, flush=True)
+    t = pd.DataFrame(list(recs.values()))
+    assert t[["d_m0", "d_m2"]].notna().all().all()
+    y = (t.d_m0 > 0).to_numpy(np.float64)
+    pairs = np.column_stack([t[f1] * t[f2] for f1, f2 in itertools.combinations(SPELL_PAIRS, 2)])
+    base = t[list(SPELL_BASE)].to_numpy(np.float64)
+    arms = {"R": base, "W0": base, "S": np.column_stack([base, t.span_share]), "X": np.column_stack([base, pairs]),
+            "D": t[[f for f in SPELL_BASE if f not in ("next_to_d", "other_tok")]].to_numpy(np.float64)}
+    fold = t.fold.to_numpy()
+    print(f"\n{len(t)} judged runs on PFF-A; flip helps on m0 {y.mean():.3f}, on m2 {(t.d_m2 > 0).mean():.3f}; "
+          f"univariate AUC span_share {auc(t.span_share.to_numpy(), y):.3f}")
+    z = {}
+    for name, feats in arms.items():
+        x1 = np.column_stack([np.ones(len(t)), feats])
+        z[name] = np.zeros(len(t))
+        for f in (0, 1):
+            tr = fold != f
+            s = None
+            if name == "W0":
+                s = np.minimum(np.abs(t.d_m0.to_numpy()[tr]), 1.0)
+                s = s / s.mean()
+                print(f"W0 fold {f}: effective sample {s.sum() ** 2 / (s ** 2).sum():.0f} of {tr.sum()}")
+            w = ridge_newton(x1[tr], y[tr], s=s)
+            z[name][~tr] = x1[~tr] @ w
+        print(f"{name}: OOF AUC {auc(z[name], y):.3f}")
+    zc = np.log(cut / (1 - cut))
+    k_r = int((z["R"] >= zc).sum())
+    picks = {"no flip": np.zeros(len(t), bool)}
+    top = lambda name, k: np.isin(np.arange(len(t)), np.argsort(-z[name], kind="stable")[:k])
+    for name in arms:
+        picks[f"{name}@{cut}"] = z[name] >= zc
+        picks[f"{name}#{k_r}"] = top(name, k_r)
+    for name in arms:
+        k = int(picks[f"{name}@{cut}"].sum())
+        if k != k_r:
+            picks[f"R#{k}"] = top("R", k)
+    rows, per_game = [], []
+    for world, (pooled_a, pres, games_a, runs, f13) in worlds.items():
+        dcol = "d_m2" if "_m2_" in world else "d_m0"
+        idx = {(h.id.match, h.id.half): i for i, h in enumerate(pooled_a.halves)}
+        variants = {Path(params).stem: [model.decode(h).codes for h in pooled_a.halves]}
+        for name, sel in picks.items():
+            codes = [c.copy() for c in pres]
+            for (m, hh, a), b, team in zip(t.key[sel], t.b[sel], t.t[sel]):
+                codes[idx[(m, hh)]][a:b] = 1 - team
+            variants[name] = [lag(c) for c in codes]
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
+            sel = picks.get(name)
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta_v13": f1 - f13, "n_pred": n,
+                         "flipped": int(sel.sum()) if sel is not None else "",
+                         "captured": round(float(t[dcol][sel].sum()), 2) if sel is not None else ""})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): c for h, c in zip(pooled_a.halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": "R", "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+    r = pd.DataFrame(rows)
+    print("\nOOF flips on PFF-A, all arms judged on the same pre-flip codes")
+    print(r.round(5).to_string(index=False))
+    g = pd.DataFrame(per_game).pivot_table(index="game", columns="variant", values="spell_f1")
+    print("\nper-game paired delta against R at the same operating point, PFF-A m0, mean [90% t interval], games won")
+    for name in g.columns:
+        ref = f"R@{cut}" if "@" in name else f"R#{k_r}" if "#" in name and not name.startswith("R#") else None
+        if ref is None or name == ref:
+            continue
+        if f"R#{int(picks[name].sum())}" in g.columns and "@" in name and name != f"R@{cut}":
+            d = (g[name] - g[f"R#{int(picks[name].sum())}"]).to_numpy()
+            print(f"  {name} against R at its flip count: {d.mean():+.4f} [{d.mean() - T90 * d.std(ddof=1) / np.sqrt(len(d)):+.4f}, "
+                  f"{d.mean() + T90 * d.std(ddof=1) / np.sqrt(len(d)):+.4f}] {(d > 0).sum()}/{len(d)}")
+        d = (g[name] - g[ref]).to_numpy()
+        hw = T90 * d.std(ddof=1) / np.sqrt(len(d))
+        print(f"  {name}: {d.mean():+.4f} [{d.mean() - hw:+.4f}, {d.mean() + hw:+.4f}] {(d > 0).sum()}/{len(d)}")
+
+
+ISLAND_MAX, ISLAND_BURST, ISLAND_ALT = 250, 10, {"temper": 0.3, "poss_mean_s": 2.0}
+
+
+def _stretches(flag, lo, hi, min_len):
+    """Maximal runs of FLAG inside [lo, hi) that touch neither edge, MIN_LEN to ISLAND_MAX - 1 frames long."""
+    return [(lo + a, lo + b) for a, b in zip(*_runs(flag[lo:hi]))
+            if a > 0 and lo + b < hi and min_len <= b - a < ISLAND_MAX]
+
+
+def _bursts(tok, host, lo, hi, min_len):
+    """Spans from the first to the last other-team token of each group of ISLAND_BURST+ such tokens with no host
+    token between them, inside [lo, hi) without touching its edges, MIN_LEN to ISLAND_MAX - 1 frames long."""
+    idx = np.flatnonzero(np.isin(tok[lo:hi], (host, 1 - host))) + lo
+    out, k = [], 0
+    while k < len(idx):
+        if tok[idx[k]] != 1 - host:
+            k += 1
+            continue
+        j = k
+        while j + 1 < len(idx) and tok[idx[j + 1]] == 1 - host:
+            j += 1
+        a, b = int(idx[k]), int(idx[j]) + 1
+        if j - k + 1 >= ISLAND_BURST and a > lo and b < hi and min_len <= b - a < ISLAND_MAX:
+            out.append((a, b))
+        k = j + 1
+    return out
+
+
+def islandruns(params):
+    """E37 ceiling, label-reading, never a candidate: on native PFF-A m0 and m2, PARAMS's codes after its spell flip
+    and before its lag; label-free island candidates strictly inside one team run, clear of runs the push or spell
+    flip relabelled, from three generators (a: frames whose chain log-odds favour the other team; b: other-team
+    runs of a second chain at ISLAND_ALT with no rules; c: bursts of ISLAND_BURST+ other-team tokens), at minimum
+    lengths 75 and 50; left to right, an island takes the other team when that raises the half's matched-minus-F/2
+    value; plus the perfect-island line (labelled possessions of 50 to 249 frames inside a run of the other team,
+    at their labelled edges), each world on its own labels."""
+    from possession.decoder import _lag_handovers, _spell_flip
+    model, rows, per_game = Decoder.load(params), [], []
+    p, chain = model.params, _rules_off(model)
+    alt = chain.replace(**ISLAND_ALT)
+    lag = lambda x: _lag_handovers(x, p.handover_lag)
+    for world, pooled_a, labs, games_a in native_a():
+        halves = pooled_a.halves
+        posts, cands = [], []
+        for h, lab in zip(halves, labs):
+            pre, lo = _pre_lag(model, chain, h)
+            post = _spell_flip(pre, h, p, lo)
+            assert np.array_equal(lag(post), model.decode(h).codes), h.id
+            relabelled = post != _missing_run_dead(chain.decode(h).codes, h, p)
+            a_codes, tok = alt.decode(h).codes, h.nearest_team
+            by = {}
+            for a0, b0, host in _team_runs(post, h.id.kickoff):
+                other = 1 - host
+                flags = {"a": (lo * (1.0 if host == H else -1.0)) < 0, "b": a_codes == other}
+                for m in (75, 50):
+                    for gname in ("a", "b", "c"):
+                        found = (_bursts(tok, host, a0, b0, m) if gname == "c"
+                                 else _stretches(flags[gname], a0, b0, m))
+                        by.setdefault(f"{gname}{m}", []).extend(
+                            (a, b, host) for a, b in found if not relabelled[a:b].any())
+                lab_runs = [(a0 + a, a0 + b) for a, b in zip(*_runs(lab[a0:b0] == other))]
+                by.setdefault("perfect", []).extend(
+                    (a, b, host) for a, b in lab_runs if a > a0 and b < b0 and 50 <= b - a < ISLAND_MAX)
+            posts.append(post)
+            cands.append({k: sorted(v) for k, v in by.items()})
+        runs_ = score.valid_runs(pooled_a.gt)
+        f13, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [lag(c) for c in posts], runs_)
+
+        def value(lab, codes):
+            s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
+            return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f13 / 2 * s["n_pred"]
+
+        variants, counts = {"base": [lag(c) for c in posts]}, {}
+        for name in ("perfect",) + tuple(f"{g}{m}" for m in (75, 50) for g in "abc"):
+            out, k, n_c = [], 0, 0
+            for c, lab, cd in zip(posts, labs, cands):
+                cur, best = c.copy(), value(lab, lag(c))
+                for a, b, host in cd.get(name, []):
+                    n_c += 1
+                    if (cur[a:b] != host).any():
+                        continue
+                    trial = cur.copy()
+                    trial[a:b] = 1 - host
+                    v = value(lab, lag(trial))
+                    if v > best:
+                        cur, best, k = trial, v, k + 1
+                out.append(lag(cur))
+            variants[name], counts[name] = out, (k, n_c)
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs_)
+            k, n_c = counts.get(name, (0, 0))
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f13, "n_pred": n,
+                         "inserted": k, "candidates": n_c})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    paired_delta(per_game, [n for n in dict.fromkeys(r["variant"] for r in rows) if n != "base"])
 
 
 def barath_spell(params):
@@ -3075,7 +3384,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -3091,7 +3400,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
