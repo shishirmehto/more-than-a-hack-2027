@@ -70,6 +70,10 @@ versions PARAMS...   margin over smooth50 of each params file on --rule worlds, 
 merge PARAMS --out CSV
                      E22: short possessions joined to their neighbours (spell_merge_frames, spell_merge_tails)
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
+barath-push          label-free: the shipped push signal's attack sign, quantiles and home-token share by push bin on
+                     BAR-ATH's ATD
+pff-push-tokens      barath-push's home-token share by push bin on native PFF A games (m0), for comparison
+subs CSV...          label-free: label shares, H, A and D runs and differing frames of our own submission CSVs
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
 
@@ -573,6 +577,74 @@ def barath_geometry():
                           ("margin", [0, 0.5, 1, 2, 5, 1e9])):
             share = pd.cut(s[col], bins, include_lowest=True).value_counts(normalize=True, sort=False)
             print(f"  {col}:", {str(k): round(v, 3) for k, v in share.items()})
+
+
+def barath_push():
+    """Label-free orientation check of the shipped Half.push_mps on BAR-ATH's ATD: each team's mean x at kick-off
+    and the attack sign it implies, push quantiles, and the share of seen frames whose nearest player is home by
+    push bin (PFF-A labels give 0.24 at <= -3 and 0.75 at >= +3 for P(home), push_probe)."""
+    for g, hid in zip(challenge.load_geometry(), challenge._half_ids()):
+        h = challenge.observe(g, hid)
+        for team in (HOME, 1 - HOME):
+            with np.errstate(all="ignore"):
+                start = float(np.nanmean(g.players_xy[hid.kickoff:hid.kickoff + FPS, g.slot_team == team, 0]))
+            print(f"half {hid.half} team {team}: mean x at kick-off {start:.1f} of {g.pitch_m[0]}, "
+                  f"attack sign {'+' if start < g.pitch_m[0] / 2 else '-'}")
+        live = np.arange(h.n) >= hid.kickoff
+        print(f"  push NaN share {np.isnan(h.push_mps[live]).mean():.3f}; quantiles 5/25/50/75/95:",
+              np.nanpercentile(h.push_mps[live], [5, 25, 50, 75, 95]).round(2).tolist())
+        print(_token_by_push([h]).to_string())
+
+
+def pff_push_tokens():
+    """barath-push's home-token share by push bin, on native PFF A games (m0) with the ball PFF's tracker saw:
+    the same label-free statistic on the dev source the push stage was selected on."""
+    from possession import pff
+    games, hs = [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        hs.append(challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id))
+    print(f"{len(hs)} halves")
+    print(_token_by_push(hs).to_string())
+
+
+def _token_by_push(hs, bins=(-1e9, -3, -2, -1, 0, 1, 2, 3, 1e9)):
+    parts = []
+    for h in hs:
+        live = np.arange(h.n) >= h.id.kickoff
+        tok, push = h.nearest_team[live], h.push_mps[live].astype(np.float64)
+        keep = (tok != NO_TEAM) & np.isfinite(push)
+        parts.append(pd.DataFrame({"push": push[keep], "home": tok[keep] == HOME}))
+    t = pd.concat(parts, ignore_index=True)
+    grp = t.groupby(pd.cut(t.push, list(bins)), observed=False)
+    return pd.DataFrame({"share": grp.size() / len(t), "p_home_token": grp.home.mean()}).round(3).T
+
+
+def subs(paths):
+    """Label-free counts of our own submission CSVs on the graded frames: label shares, maximal H, A and D runs,
+    and frames that differ from the first file."""
+    import games
+    blocks = [(lo, hi + 1) for _, lo, hi in games.half_video_blocks(challenge.GAME)]
+    first = None
+    for path in paths:
+        lab = pd.read_csv(path).label.to_numpy()
+        graded = np.concatenate([lab[lo:hi] for lo, hi in blocks])
+        runs = {k: sum(int(((x == k) & ~np.r_[False, x[:-1] == k]).sum()) for x in (lab[lo:hi] for lo, hi in blocks))
+                for k in ("H", "A", "D")}
+        diff = "" if first is None else f", differs from the first file on {int((graded != first).sum())} frames"
+        print(f"{Path(path).name}: shares", pd.Series(graded).value_counts(normalize=True).round(4).to_dict(),
+              f"runs {runs}{diff}")
+        if first is not None:
+            half = np.concatenate([np.full(hi - lo, k + 1) for k, (lo, hi) in enumerate(blocks)])
+            moved = graded != first
+            print(pd.crosstab([half[moved], first[moved]], graded[moved],
+                              rownames=["half", "first file"], colnames=["this file"]).to_string())
+        first = graded if first is None else first
 
 
 def close_dead(codes, gap, kickoff):
@@ -1490,7 +1562,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
@@ -1503,7 +1575,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

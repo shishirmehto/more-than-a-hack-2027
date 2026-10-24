@@ -174,8 +174,8 @@ class DecoderParams:
     spell_push_between: 1 flips only possessions whose two neighbours are possessions of the other team.
                         Needs spell_push_mps.
     spell_push_unseen:  0 is off. Otherwise only a possession whose share of frames with no token is at least
-                        this is judged: push trails a turnover by seconds, so where the ball was seen the token
-                        decides. Needs spell_push_mps.
+                        this is judged, on the inference (not measured) that push trails a turnover, so where
+                        the ball was seen the token decides. Needs spell_push_mps.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
