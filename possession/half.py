@@ -86,17 +86,35 @@ class Geometry:
 
 
 @dataclass(frozen=True, slots=True)
+class BallGeometry:
+    """Per-frame distances, in metres, from the same ball-to-slot distances as Half.nearest_team. All
+    float32 [n], NaN exactly where nearest_team is NO_TEAM, team-symmetric and slot-order invariant.
+
+    margin_m:  |nearest away distance - nearest home distance|; inf when one team has no slot present.
+    nearest_m: distance to the nearest player of either team.
+    outside_m: distance from the ball to the pitch rectangle, 0 on or inside the lines.
+    """
+    margin_m: NDArray[np.float32]
+    nearest_m: NDArray[np.float32]
+    outside_m: NDArray[np.float32]
+
+
+@dataclass(frozen=True, slots=True)
 class Half:
     """The decoder's whole input for one half.
 
     nearest_team: int8 [n] in {-1, 0, 1}. Team of the player nearest the ball (squared metres, first
                   minimum, no threshold). -1 means NO EVIDENCE: the ball was not observed (or no
                   slot present). It is a mask, never a dead-ball marker.
+    geometry:     BallGeometry when the Half was observed from a Geometry (challenge.observe); None
+                  for a token-only source (baseline_raw.csv).
 
-    Invariants: values in {-1,0,1}; 0 <= id.kickoff < n.
+    Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
+    NO_TEAM frames.
     """
     id: HalfId
     nearest_team: NDArray[np.int8]
+    geometry: BallGeometry | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -107,6 +125,16 @@ class Half:
         if not 0 <= self.id.kickoff < self.n:
             raise ValueError(f"kickoff {self.id.kickoff} outside [0, {self.n})")
         _freeze(tok)
+        if self.geometry is not None:
+            unseen = tok == NO_TEAM
+            for name in ("margin_m", "nearest_m", "outside_m"):
+                a = getattr(self.geometry, name)
+                if not isinstance(a, np.ndarray) or a.dtype != np.float32 or a.shape != tok.shape:
+                    raise ValueError(f"geometry.{name} must be float32 [{self.n}], got "
+                                     f"{getattr(a, 'dtype', None)} {getattr(a, 'shape', None)}")
+                if not np.array_equal(np.isnan(a), unseen):
+                    raise ValueError(f"geometry.{name} must be NaN exactly where nearest_team is NO_TEAM")
+                _freeze(a)
 
     @property
     def n(self) -> int:

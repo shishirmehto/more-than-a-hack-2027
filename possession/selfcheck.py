@@ -20,7 +20,7 @@ import games
 
 from . import bench, challenge, decoder, dropout, idsse, measure, metrica, pff, score
 from .decoder import Decoder, DecoderParams, State, Tier0Emission
-from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, Block, CleanHalf, Geometry, Half, HalfId,
+from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, BallGeometry, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
 
 REPO = Path(__file__).resolve().parents[1]
@@ -120,6 +120,14 @@ def permutation_invariance() -> None:
         pitch_m=(105.3, 68.0))
     got = challenge.nearest_team(tiny)
     assert got.tolist() == [HOME, AWAY, NO_TEAM, AWAY, NO_TEAM, HOME], got
+    geo = challenge.observe(tiny, HalfId("tiny", 1, 0)).geometry
+    inf = np.inf
+    for have, want in ((geo.margin_m, [1, 0.8, nan, inf, nan, 0]), (geo.nearest_m, [1, 0.1, nan, 5, nan, 1]),
+                       (geo.outside_m, [0, 0, nan, 0, nan, 0])):
+        assert np.allclose(have, want, atol=1e-5, equal_nan=True), have
+    off = Geometry(np.array([[-3, -4], [106.3, 34], [50, 70]], np.float32), np.zeros((3, 2, 2), np.float32),
+                   np.array([HOME, AWAY], np.int8), (105.3, 68.0))
+    assert np.allclose(challenge.observe(off, HalfId("off", 1, 0)).geometry.outside_m, [5, 1, 2], atol=1e-5)
 
     rng = np.random.default_rng(0)
     n, s = 3000, 46
@@ -128,12 +136,19 @@ def permutation_invariance() -> None:
     ball = (rng.random((n, 2)) * (105.3, 68.0)).astype(np.float32)
     ball[rng.random(n) < 0.2] = np.nan
     team = (np.arange(s) % 2).astype(np.int8)
-    base = challenge.nearest_team(Geometry(ball.copy(), players.copy(), team.copy(), (105.3, 68.0)))
+    def observed(g: Geometry) -> list[bytes]:
+        h = challenge.observe(g, HalfId("perm", 1, 0))
+        assert np.array_equal(h.nearest_team, challenge.nearest_team(g))
+        return [a.tobytes() for a in (h.nearest_team, h.geometry.margin_m, h.geometry.nearest_m, h.geometry.outside_m)]
+
+    base_geometry = Geometry(ball.copy(), players.copy(), team.copy(), (105.3, 68.0))
+    base, base_all = challenge.nearest_team(base_geometry), observed(base_geometry)
     assert set(np.unique(base).tolist()) == {NO_TEAM, HOME, AWAY}
 
     perm = rng.permutation(s)
     whole = Geometry(ball.copy(), players[:, perm].copy(), team[perm].copy(), (105.3, 68.0))
     assert np.array_equal(challenge.nearest_team(whole), base)
+    assert observed(whole) == base_all
 
     within = players.copy()
     for t in (HOME, AWAY):
@@ -142,10 +157,19 @@ def permutation_invariance() -> None:
         within[:, slots] = players[np.arange(n)[:, None], slots[order]]
     shuffled = Geometry(ball.copy(), within, team.copy(), (105.3, 68.0))
     assert np.array_equal(challenge.nearest_team(shuffled), base)
+    assert observed(shuffled) == base_all
 
     padded = np.concatenate([players, np.full((n, 10, 2), np.nan, np.float32)], axis=1)
     pad_team = np.concatenate([team, np.zeros(10, np.int8)])
     assert np.array_equal(challenge.nearest_team(Geometry(ball.copy(), padded, pad_team, (105.3, 68.0))), base)
+    assert observed(Geometry(ball.copy(), padded, pad_team, (105.3, 68.0))) == base_all
+
+    swapped = observed(Geometry(ball.copy(), players.copy(), (1 - team).astype(np.int8), (105.3, 68.0)))
+    assert swapped[1:] == base_all[1:], "BallGeometry must not change when the teams swap"
+    tok = np.zeros(3, np.int8)
+    bad = np.zeros(3, np.float32)
+    _raises(ValueError, Half, HalfId("bad", 1, 0), tok, BallGeometry(bad, bad, bad.astype(np.float64)))
+    _raises(ValueError, Half, HalfId("bad", 1, 0), np.array([0, NO_TEAM, 1], np.int8), BallGeometry(bad, bad, bad))
 
 
 def baseline_raw_round_trip() -> None:

@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 import games
 
 from . import score
-from .half import AWAY, D, FPS, HOME, NO_TEAM, Block, Geometry, Half, HalfId, Layout
+from .half import AWAY, D, FPS, HOME, NO_TEAM, BallGeometry, Block, Geometry, Half, HalfId, Layout
 
 GAME = games.GAME
 
@@ -84,7 +84,14 @@ def nearest_team(g: Geometry) -> NDArray[np.int8]:
     take the FIRST minimum (np.argmin), return slot_team of that slot; no distance threshold.
     -1 where the ball is NaN or no slot is present.
     """
+    return _nearest(g)[0]
+
+
+def _nearest(g: Geometry) -> tuple[NDArray[np.int8], BallGeometry]:
+    """nearest_team and the BallGeometry built from the same squared distances."""
     out = np.full(g.n, NO_TEAM, dtype=np.int8)
+    d_team = np.full((g.n, 2), np.inf)
+    home = g.slot_team == HOME
     for lo in range(0, g.n, _CHUNK):
         ball = g.ball_xy[lo:lo + _CHUNK].astype(np.float64)
         players = g.players_xy[lo:lo + _CHUNK].astype(np.float64)
@@ -93,16 +100,29 @@ def nearest_team(g: Geometry) -> NDArray[np.int8]:
         j = d.argmin(1)
         ok = ~np.isnan(ball[:, 0]) & np.isfinite(d[np.arange(len(j)), j])
         out[lo:lo + _CHUNK] = np.where(ok, g.slot_team[j], NO_TEAM)
-    return out
+        d_team[lo:lo + _CHUNK, HOME] = np.where(home, d, np.inf).min(1)
+        d_team[lo:lo + _CHUNK, AWAY] = np.where(home, np.inf, d).min(1)
+    unseen = out == NO_TEAM
+    dist = np.sqrt(d_team)
+    with np.errstate(invalid="ignore"):
+        margin = np.abs(dist[:, AWAY] - dist[:, HOME])
+    margin[np.isinf(dist).any(1)] = np.inf
+    length, width = g.pitch_m
+    x, y = g.ball_xy[:, 0].astype(np.float64), g.ball_xy[:, 1].astype(np.float64)
+    outside = np.hypot(np.maximum.reduce([np.zeros(g.n), -x, x - length]),
+                       np.maximum.reduce([np.zeros(g.n), -y, y - width]))
+    arrays = [np.where(unseen, np.nan, a).astype(np.float32) for a in (margin, dist.min(1), outside)]
+    return out, BallGeometry(*arrays)
 
 
 def observe(g: Geometry, id: HalfId) -> Half:
-    """Geometry -> Half.
+    """Geometry -> Half, with the BallGeometry.
 
     Slot-order and slot-count invariant by construction, up to exact distance ties, which go to the
     first slot.
     """
-    return Half(id=id, nearest_team=nearest_team(g))
+    token, geometry = _nearest(g)
+    return Half(id=id, nearest_team=token, geometry=geometry)
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
