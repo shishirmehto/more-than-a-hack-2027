@@ -29,6 +29,8 @@ STATE_LABEL = np.array([{State.H: H, State.A: A, State.D_AFTER_H: D, State.D_AFT
 
 _M_FLOOR, _M_CAP = 1e-6, 0.98
 _MARGIN_CAP_M = 30.0
+_SPEED_CAP_MPS = 40.0
+_LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,10 +52,12 @@ class Tier0Emission:
 
     Geometry term, off at its default (and then left out of a saved file). On, it makes the emission
     need Half.geometry (`needs_geometry`), which only challenge.observe supplies:
-    q_logit_a, q_logit_dist, q_logit_margin: (a, b, c). Any non-zero replaces the constant q on seen frames
-                    by q = 1 / (1 + exp(-(a + b ln(1 + d) + c ln(1 + min(m, 30))))), with d =
-                    BallGeometry.nearest_m and m = BallGeometry.margin_m (inf when a team has no slot). A
-                    fitted q can fall below 0.5, where a token points away from its own team.
+    q_logit_a, q_logit_dist, q_logit_margin, q_logit_speed, q_logit_dist_speed: (a, b, c, e, f). Any
+                    non-zero replaces the constant q on seen frames by q = 1 / (1 + exp(-z)) with
+                    z = a + b ln(1 + d) + c ln(1 + min(m, 30)) + e ln(1 + v) + f ln(1 + d) ln(1 + v),
+                    d = BallGeometry.nearest_m, m = BallGeometry.margin_m (inf when a team has no slot)
+                    and v = min(BallGeometry.speed_mps, 40). A fitted q can fall below 0.5, where a token
+                    points away from its own team.
     Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, finite q_logit terms.
     """
     q: float = 0.78
@@ -62,17 +66,19 @@ class Tier0Emission:
     q_logit_a: float = 0.0
     q_logit_dist: float = 0.0
     q_logit_margin: float = 0.0
+    q_logit_speed: float = 0.0
+    q_logit_dist_speed: float = 0.0
 
     def __post_init__(self) -> None:
         _number("q", self.q, 0, 1)
         _number("dead_bias", self.dead_bias, 0, math.inf)
         _number("alive_share", self.alive_share, 0, 1, hi_open=False)
-        for name in ("q_logit_a", "q_logit_dist", "q_logit_margin"):
+        for name in _LOGIT_FIELDS:
             _number(name, getattr(self, name), -math.inf, math.inf)
 
     @property
     def needs_geometry(self) -> bool:
-        return bool(self.q_logit_a or self.q_logit_dist or self.q_logit_margin)
+        return any(getattr(self, name) for name in _LOGIT_FIELDS)
 
     def loglik(self, half: Half) -> NDArray[np.float32]:
         tok = half.nearest_team
@@ -101,7 +107,9 @@ class Tier0Emission:
         where = half.nearest_team != NO_TEAM
         nearest = g.nearest_m[where].astype(np.float64)
         margin = np.minimum(g.margin_m[where].astype(np.float64), _MARGIN_CAP_M)
-        z = self.q_logit_a + self.q_logit_dist * np.log1p(nearest) + self.q_logit_margin * np.log1p(margin)
+        speed = np.log1p(np.minimum(g.speed_mps[where].astype(np.float64), _SPEED_CAP_MPS))
+        z = (self.q_logit_a + self.q_logit_dist * np.log1p(nearest) + self.q_logit_margin * np.log1p(margin)
+             + (self.q_logit_speed + self.q_logit_dist_speed * np.log1p(nearest)) * speed)
         hit, miss = -np.logaddexp(0.0, -z), -np.logaddexp(0.0, z)
         home = half.nearest_team[where] == HOME
         out[where, 0] = np.where(home, hit, miss) + seen[0]
@@ -193,8 +201,7 @@ class DecoderParams:
 
 
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
-_OPTIONAL_EMISSION = {f.name: f.default for f in dataclasses.fields(Tier0Emission)
-                      if f.name.startswith("q_logit_")}
+_OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "handover_lag": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")

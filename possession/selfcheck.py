@@ -123,7 +123,7 @@ def permutation_invariance() -> None:
     geo = challenge.observe(tiny, HalfId("tiny", 1, 0)).geometry
     inf = np.inf
     for have, want in ((geo.margin_m, [1, 0.8, nan, inf, nan, 0]), (geo.nearest_m, [1, 0.1, nan, 5, nan, 1]),
-                       (geo.outside_m, [0, 0, nan, 0, nan, 0])):
+                       (geo.outside_m, [0, 0, nan, 0, nan, 0]), (geo.speed_mps, [0, 26.25, nan, 13.125, nan, 0])):
         assert np.allclose(have, want, atol=1e-5, equal_nan=True), have
     off = Geometry(np.array([[-3, -4], [106.3, 34], [50, 70]], np.float32), np.zeros((3, 2, 2), np.float32),
                    np.array([HOME, AWAY], np.int8), (105.3, 68.0))
@@ -139,7 +139,8 @@ def permutation_invariance() -> None:
     def observed(g: Geometry) -> list[bytes]:
         h = challenge.observe(g, HalfId("perm", 1, 0))
         assert np.array_equal(h.nearest_team, challenge.nearest_team(g))
-        return [a.tobytes() for a in (h.nearest_team, h.geometry.margin_m, h.geometry.nearest_m, h.geometry.outside_m)]
+        g = h.geometry
+        return [a.tobytes() for a in (h.nearest_team, g.margin_m, g.nearest_m, g.outside_m, g.speed_mps)]
 
     base_geometry = Geometry(ball.copy(), players.copy(), team.copy(), (105.3, 68.0))
     base, base_all = challenge.nearest_team(base_geometry), observed(base_geometry)
@@ -168,8 +169,8 @@ def permutation_invariance() -> None:
     assert swapped[1:] == base_all[1:], "BallGeometry must not change when the teams swap"
     tok = np.zeros(3, np.int8)
     bad = np.zeros(3, np.float32)
-    _raises(ValueError, Half, HalfId("bad", 1, 0), tok, BallGeometry(bad, bad, bad.astype(np.float64)))
-    _raises(ValueError, Half, HalfId("bad", 1, 0), np.array([0, NO_TEAM, 1], np.int8), BallGeometry(bad, bad, bad))
+    _raises(ValueError, Half, HalfId("bad", 1, 0), tok, BallGeometry(bad, bad, bad, bad.astype(np.float64)))
+    _raises(ValueError, Half, HalfId("bad", 1, 0), np.array([0, NO_TEAM, 1], np.int8), BallGeometry(bad, bad, bad, bad))
 
 
 def baseline_raw_round_trip() -> None:
@@ -380,7 +381,8 @@ def geometry_emission_known_answer() -> None:
     tok = np.array([NO_TEAM, HOME, AWAY, HOME, AWAY, HOME], np.int8)
     geo = BallGeometry(margin_m=np.array([nan, 0, 3, inf, 3, 1], np.float32),
                        nearest_m=np.array([nan, 1, 12, 2, 2, 2], np.float32),
-                       outside_m=np.array([nan, 0, 0, 2, 0.5, 0], np.float32))
+                       outside_m=np.array([nan, 0, 0, 2, 0.5, 0], np.float32),
+                       speed_mps=np.array([nan, 0, 10, 50, 3, 1], np.float32))
     half = Half(HalfId("geo", 1, 0), tok, geo)
     plain = Tier0Emission(q=0.8)
     on = Tier0Emission(q=0.8, q_logit_a=1.0, q_logit_dist=-1.0, q_logit_margin=0.5)
@@ -395,11 +397,16 @@ def geometry_emission_known_answer() -> None:
     assert np.array_equal(got[:, 2], base[:, 2]) and np.array_equal(got[0], base[0])
     mirrored = on.loglik(Half(HalfId("geo", 1, 0), np.where(tok == NO_TEAM, NO_TEAM, 1 - tok).astype(np.int8), geo))
     assert np.array_equal(mirrored, on.loglik(half)[:, [1, 0, 2]])
+    fast = Tier0Emission(q=0.8, q_logit_a=1.0, q_logit_dist=-1.0, q_logit_margin=0.5, q_logit_speed=-0.5,
+                         q_logit_dist_speed=0.25)
+    qs = np.array([0.576116885, 0.369787202, 0.686011764, 0.570070236, 0.522924595])
+    want = np.log(np.stack([np.where(home, qs, 1 - qs), np.where(home, 1 - qs, qs)], 1)) + math.log(5 / 6)
+    assert np.allclose(fast.loglik(half).astype(np.float64)[1:, :2], want, atol=1e-6)
 
     tok = np.array([HOME] * 4 + [AWAY] * 6 + [HOME] * 4, np.int8)
     out = np.zeros(14, np.float32)
     out[5:8] = (2.0, 0.5, 3.0)
-    geo = BallGeometry(np.ones(14, np.float32), np.ones(14, np.float32), out)
+    geo = BallGeometry(np.ones(14, np.float32), np.ones(14, np.float32), out, np.ones(14, np.float32))
     rule = Decoder(Tier0Emission(), DecoderParams(dead_min_run=3, dead_trim=0, dead_outside_m=1.0))
     assert rule.needs_geometry and not rule.replace(dead_min_run=0, dead_outside_m=0.0).needs_geometry
     _raises(ValueError, rule.replace, dead_min_run=0)

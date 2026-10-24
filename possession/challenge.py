@@ -28,6 +28,7 @@ KICKOFF_START = "kick off (start)"
 _TAG_HALF = {"1st half": 1, "2nd half": 2}
 
 _CHUNK = 20_000
+_SPEED_STEP = 2
 
 _NORM_LIMIT = 2.0
 
@@ -111,8 +112,18 @@ def _nearest(g: Geometry) -> tuple[NDArray[np.int8], BallGeometry]:
     x, y = g.ball_xy[:, 0].astype(np.float64), g.ball_xy[:, 1].astype(np.float64)
     outside = np.hypot(np.maximum.reduce([np.zeros(g.n), -x, x - length]),
                        np.maximum.reduce([np.zeros(g.n), -y, y - width]))
-    arrays = [np.where(unseen, np.nan, a).astype(np.float32) for a in (margin, dist.min(1), outside)]
+    arrays = [np.where(unseen, np.nan, a).astype(np.float32)
+              for a in (margin, dist.min(1), outside, _ball_speed(g.ball_xy.astype(np.float64)))]
     return out, BallGeometry(*arrays)
+
+
+def _ball_speed(ball: NDArray[np.float64]) -> NDArray[np.float64]:
+    k = _SPEED_STEP
+    pad = np.full((k, 2), np.nan)
+    back, fwd = np.vstack([pad, ball[:-k]])[:len(ball)], np.vstack([ball[k:], pad])[-len(ball):]
+    both = np.hypot(*(fwd - back).T) / (2 * k)
+    one = np.fmax(np.hypot(*(ball - back).T), np.hypot(*(fwd - ball).T)) / k
+    return np.nan_to_num(np.where(np.isnan(both), one, both), nan=0.0) * FPS
 
 
 def observe(g: Geometry, id: HalfId) -> Half:

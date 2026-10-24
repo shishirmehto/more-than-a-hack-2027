@@ -93,10 +93,13 @@ class BallGeometry:
     margin_m:  |nearest away distance - nearest home distance|; inf when one team has no slot present.
     nearest_m: distance to the nearest player of either team.
     outside_m: distance from the ball to the pitch rectangle, 0 on or inside the lines.
+    speed_mps: ball speed in m/s from its displacement between frames t-2 and t+2, else between t and
+               whichever of them has a ball; 0 when neither does.
     """
     margin_m: NDArray[np.float32]
     nearest_m: NDArray[np.float32]
     outside_m: NDArray[np.float32]
+    speed_mps: NDArray[np.float32]
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,7 +130,7 @@ class Half:
         _freeze(tok)
         if self.geometry is not None:
             unseen = tok == NO_TEAM
-            for name in ("margin_m", "nearest_m", "outside_m"):
+            for name in ("margin_m", "nearest_m", "outside_m", "speed_mps"):
                 a = getattr(self.geometry, name)
                 if not isinstance(a, np.ndarray) or a.dtype != np.float32 or a.shape != tok.shape:
                     raise ValueError(f"geometry.{name} must be float32 [{self.n}], got "
