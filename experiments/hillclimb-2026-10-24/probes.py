@@ -86,7 +86,7 @@ import pandas as pd
 
 from possession import bench, challenge, idsse, metrica, score
 from possession.decoder import Decoder, _missing_run_dead
-from possession.half import FPS, HOME, NO_TEAM, D, H, X
+from possession.half import FPS, HOME, NO_TEAM, BallGeometry, D, H, X
 
 SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
 NATIVE = ["pff:m0:native", "pff:m2:native"]
@@ -190,6 +190,141 @@ def hold():
     out.insert(0, "share", t.groupby("bin").size() / len(t))
     print(out.round(4).to_string())
     print("all seen", t[t.seen].mean(numeric_only=True).round(4).to_dict())
+
+
+def restart(params, window_s=5.0, exit_s=2.0, edge_m=1.0):
+    """After each labelled stoppage on native PFF A games (m0): the decoder's codes over the first window_s of the
+    restarted possession, the share of all wrong-team live frames that fall there, and how often the restart
+    team differs from the last team before the stoppage, by where the ball was last seen in the exit_s before
+    it (beyond or within edge_m of a touchline or a goal line, inside, or unseen)."""
+    from possession import challenge, pff
+    model, games, rows, wrong = Decoder.load(params), [], [], 0
+    w, e = int(window_s * FPS), int(exit_s * FPS)
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        codes, gt, idx = model.decode(h).codes, c.labels, np.arange(h.n)
+        bad = (gt != D) & (idx >= h.id.kickoff) & (codes != gt) & (codes != D)
+        wrong += int(bad.sum())
+        length, width = c.geometry.pitch_m
+        live_idx = np.flatnonzero(gt != D)
+        for s in np.flatnonzero((gt[1:] != D) & (gt[:-1] == D)) + 1:
+            before = live_idx[live_idx < s]
+            if not len(before) or before[-1] < h.id.kickoff:
+                continue
+            team, last, out = gt[s], gt[before[-1]], before[-1] + 1
+            stop = s + int(np.argmax(np.r_[gt[s:] != team, True]))
+            win = slice(s, min(s + w, stop))
+            xy = ball[max(out - e, 0):out + 1]
+            xy = xy[~np.isnan(xy[:, 0])]
+            if not len(xy):
+                exit = "unseen"
+            else:
+                x, y = xy[-1]
+                exit = ("touchline" if min(y, width - y) < edge_m else
+                        "goal line" if min(x, length - x) < edge_m else "inside")
+            rows.append({"exit": exit, "flip": bool(team != last), "frames": win.stop - win.start,
+                         "right": int((codes[win] == team).sum()), "dead": int((codes[win] == D).sum()),
+                         "wrong": int(bad[win].sum()), "seen": int(seen[win].sum()),
+                         "stoppage_s": (s - out) / FPS})
+    t = pd.DataFrame(rows)
+    print(f"restarts {len(t)}; wrong-team live frames {wrong}, of which in the first {window_s:g} s after a "
+          f"restart {t.wrong.sum()} ({t.wrong.sum() / wrong:.1%})")
+    g = t.groupby(["exit", "flip"])
+    out = g[["frames", "right", "dead", "wrong", "seen"]].sum()
+    out = out[["right", "dead", "wrong", "seen"]].div(out.frames, axis=0).round(3).assign(
+        restarts=g.size(), frames=g.frames.sum(), median_stoppage_s=g.stoppage_s.median().round(1))
+    print(out.to_string())
+    flip = t.groupby("exit").flip.agg(["mean", "size"]).round(3)
+    print("flip rate by exit\n" + flip.to_string())
+
+
+def _team_push(g, kickoff, k=12):
+    """Home push minus away push in m/s: each team's median per-slot x velocity over 2k frames, positive toward
+    the goal it attacks (E16's Half.push_mps, removed in fa14a26)."""
+    push = np.full((g.n, 2), np.nan)
+    for team in (HOME, 1 - HOME):
+        x = g.players_xy[:, g.slot_team == team, 0].astype(np.float64)
+        with np.errstate(all="ignore"):
+            start = float(np.nanmean(x[kickoff:kickoff + FPS]))
+        if np.isnan(start):
+            continue
+        dx = np.full_like(x, np.nan)
+        dx[k:-k] = (x[2 * k:] - x[:-2 * k]) / (2 * k) * FPS
+        some = np.isfinite(dx).any(axis=1)
+        with np.errstate(all="ignore"):
+            push[some, team] = (1.0 if start < g.pitch_m[0] / 2 else -1.0) * np.nanmedian(dx[some], axis=1)
+    return push[:, HOME] - push[:, 1 - HOME]
+
+
+def pushgap(params):
+    """On native PFF A games (m0), live frames after kickoff with the ball unseen and an H or A code: the decoder's
+    accuracy by the push toward the team it calls (E16's push, signed so positive agrees with the code)."""
+    from possession import challenge, pff
+    model, games, rows = Decoder.load(params), [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        codes, gt, idx = model.decode(h).codes, c.labels, np.arange(h.n)
+        push = _team_push(c.geometry, h.id.kickoff)
+        keep = (gt != D) & (idx >= h.id.kickoff) & ~seen & (codes != D) & np.isfinite(push)
+        toward = np.where(codes == HOME, push, -push)
+        rows.append(pd.DataFrame({"toward": toward[keep], "right": (codes == gt)[keep]}))
+    t = pd.concat(rows, ignore_index=True)
+    t["bin"] = pd.cut(t.toward, [-np.inf, -3, -2, -1, -0.5, 0.5, 1, 2, 3, np.inf]).astype(str)
+    out = t.groupby("bin", sort=False).right.agg(["mean", "size"])
+    out["share"] = out["size"] / len(t)
+    order = sorted(out.index, key=lambda b: float(b.split(",")[0].strip("(")))
+    print(out.loc[order].round(3).to_string())
+    print("all", round(t.right.mean(), 4), len(t))
+
+
+PUSH_GAP_LOGITS = (0.0, 0.25, 0.5, 1.0, 2.0)
+
+
+def pushgapgrid(params, out, rhos, items):
+    """E24: the push_gap_logit emission term on PARAMS, each variant decoded in full; B games are not decoded."""
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    variants = {b: base.replace(push_gap_logit=b) for b in PUSH_GAP_LOGITS}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        for b, model in variants.items():
+            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
+            rows.append({"group": group, "world": world, "variant": f"push_gap_logit={b}", "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "n_pred": n})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
+def equiv(shipped, base, *changes):
+    """Frames where SHIPPED decodes differently from BASE.replace(k=v, ...), the variant a grid selected: one
+    world per dev source at dead_bias 2.6, seed 0, A games only for the native sources. 0 means the frozen file
+    is the probe's winner."""
+    import json
+    a = Decoder.load(shipped)
+    b = Decoder.load(base).replace(**{k: json.loads(v) for k, v in (c.split("=", 1) for c in changes)})
+    n = differ = 0
+    for items in (["pff:m0:native"], ["pffsb:m0:native"], ["idsse:m0"], ["m0"]):
+        for group, world, case in itertools.islice(scored_cases(bench.dev_worlds(items, [2.6], seeds=[0])), 1):
+            for h in case.halves:
+                x, y = a.decode(h).codes, b.decode(h).codes
+                n, differ = n + x.size, differ + int((x != y).sum())
+            print(world, flush=True)
+    print(f"{shipped} against {base} with {' '.join(changes)}: {differ} of {n} frames differ")
 
 
 def _held(half, radius):
@@ -526,9 +661,11 @@ def chain_grid(params):
     print(m.sort_values(["min", "mean"], ascending=False).round(4).head(30).to_string())
 
 
-def confirm(path):
+def confirm(path, halves=("all", "A", "B")):
     t = pd.read_csv(path)
     pooled = t[t.case == "dev_pooled"].assign(group=lambda f: f.world.map(bench.group))
+    if "B" not in halves and "all" not in halves:
+        pooled = pooled[~pooled.world.str.endswith("_native")]
     spell = pooled.pivot_table(index=["group", "world"], columns="model", values="spell_f1")
     margin = spell.sub(spell["baseline_smooth50"], axis=0).groupby("group").mean()
     print("seed-mean pooled margin over smooth50 per group")
@@ -543,7 +680,7 @@ def confirm(path):
           "A = odd-indexed games (selection), B = even-indexed (held out)")
     for world, w in wide.groupby(level="world"):
         order = list(dict.fromkeys(games[games.world == world].case))
-        split = {"all": order, "A": order[0::2], "B": order[1::2]}
+        split = {k: v for k, v in {"all": order, "A": order[0::2], "B": order[1::2]}.items() if k in halves}
         for a, b in itertools.permutations(models + ["baseline_smooth50"], 2):
             if a == "baseline_smooth50" or (b != "baseline_smooth50" and a > b):
                 continue
@@ -554,6 +691,34 @@ def confirm(path):
                 cells.append(f"{tag} {d.mean():+.4f} [{d.mean() - h:+.4f}, {d.mean() + h:+.4f}] "
                              f"{(d > 0).sum()}/{len(d)}")
             print(f"  {world} {a} - {b}: " + "; ".join(cells))
+
+
+def jitter(paths, rel=1e-6, seeds=(0, 1, 2), near=1e-5):
+    """BAR-ATH frames whose code changes when every float input of the decoder moves by up to rel, relative
+    (about eight float32 ulps), and frames whose geometry sits within near of a dead-rule threshold: how
+    much another numpy build or CPU could change the submission. Reads only automatic inputs."""
+    halves = challenge.halves("atd")
+    names = [f.name for f in dataclasses.fields(BallGeometry)]
+    for path in paths:
+        model = Decoder.load(path)
+        p = model.params
+        base = [model.decode(h).codes for h in halves]
+        cuts = [("outside_m", p.dead_outside_m), ("speed_mps", p.dead_still_mps)]
+        close = {n: sum(int((np.abs(getattr(h.geometry, n) - t) < near).sum()) for h in halves)
+                 for n, t in cuts if t}
+        if p.dead_pace_still_mps:
+            close["pace_mps"] = sum(int((np.abs(h.pace_mps - p.dead_pace_still_mps) < near).sum()) for h in halves)
+        changed = []
+        for seed in seeds:
+            rng = np.random.default_rng(seed)
+
+            def shake(a):
+                return (a * (1 + rel * rng.uniform(-1, 1, a.shape))).astype(np.float32)
+            moved = [dataclasses.replace(h, geometry=BallGeometry(*(shake(getattr(h.geometry, n)) for n in names)),
+                                         pace_mps=shake(h.pace_mps)) for h in halves]
+            changed.append(sum(int((model.decode(m).codes != b).sum()) for m, b in zip(moved, base)))
+        print(f"{path}: frames changed under {rel:g} relative jitter, seeds {list(seeds)}: {changed} of "
+              f"{sum(len(b) for b in base)}; frames within {near:g} of a threshold: {close}")
 
 
 EDGE_RUNS = (101, 126)
@@ -1297,18 +1462,20 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "pushgapgrid", "equiv"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
+    ap.add_argument("--halves", nargs="+", default=["all", "A", "B"], choices=("all", "A", "B"),
+                    help="confirm: which native game halves to print (A only keeps held-out rows unread)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
     ap.add_argument("--rule", nargs="+", default=SEARCH + NATIVE, help="deadrule: [source:]rule[:mode] items")
     a = ap.parse_args()
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "pushgapgrid": lambda: pushgapgrid(one, a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

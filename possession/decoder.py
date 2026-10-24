@@ -30,6 +30,7 @@ STATE_LABEL = np.array([{State.H: H, State.A: A, State.D_AFTER_H: D, State.D_AFT
 _M_FLOOR, _M_CAP = 1e-6, 0.98
 _MARGIN_CAP_M = 30.0
 _SPEED_CAP_MPS = 40.0
+_PUSH_CAP_MPS = 5.0
 _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mps", "dead_pace_still_mps",
                      "dead_pace_live_mps")
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed")
@@ -60,7 +61,12 @@ class Tier0Emission:
                     d = BallGeometry.nearest_m, m = BallGeometry.margin_m (inf when a team has no slot)
                     and v = min(BallGeometry.speed_mps, 40). A fitted q can fall below 0.5, where a token
                     points away from its own team.
-    Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, finite q_logit terms.
+    push_gap_logit: b, 0 is off. On every frame with no token and a finite Half.push_mps d (clipped to
+                    +-5 m/s) the H row gains log(2 sigmoid(b d)) and the A row log(2 sigmoid(-b d)), the D row
+                    nothing: with the ball unseen, the team in possession pushes toward the goal it attacks.
+                    Seen frames are left alone because push trails a turnover by seconds. Needs Half.push_mps.
+    Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, finite q_logit terms,
+    push_gap_logit >= 0.
     """
     q: float = 0.78
     dead_bias: float = 1.0
@@ -70,6 +76,7 @@ class Tier0Emission:
     q_logit_margin: float = 0.0
     q_logit_speed: float = 0.0
     q_logit_dist_speed: float = 0.0
+    push_gap_logit: float = 0.0
 
     def __post_init__(self) -> None:
         _number("q", self.q, 0, 1)
@@ -77,10 +84,11 @@ class Tier0Emission:
         _number("alive_share", self.alive_share, 0, 1, hi_open=False)
         for name in _LOGIT_FIELDS:
             _number(name, getattr(self, name), -math.inf, math.inf)
+        _number("push_gap_logit", self.push_gap_logit, 0, math.inf, lo_open=False)
 
     @property
     def needs_geometry(self) -> bool:
-        return any(getattr(self, name) for name in _LOGIT_FIELDS)
+        return any(getattr(self, name) for name in _LOGIT_FIELDS) or bool(self.push_gap_logit)
 
     def loglik(self, half: Half) -> NDArray[np.float32]:
         tok = half.nearest_team
@@ -97,8 +105,16 @@ class Tier0Emission:
         out = np.empty((half.n, 3), dtype=np.float64)
         for token, row in row_by_token.items():
             out[tok == token] = row
-        if self.needs_geometry:
+        if any(getattr(self, name) for name in _LOGIT_FIELDS):
             self._add_geometry(out, half, seen)
+        if self.push_gap_logit:
+            if half.push_mps is None:
+                raise ValueError(f"{half.id}: push_gap_logit reads Half.push_mps and the Half has none; observe "
+                                 "it from a Geometry (challenge.halves('atd')), not from baseline_raw")
+            d = np.clip(half.push_mps.astype(np.float64), -_PUSH_CAP_MPS, _PUSH_CAP_MPS)
+            where = (tok == NO_TEAM) & np.isfinite(d)
+            out[where, 0] += math.log(2) - np.logaddexp(0.0, -self.push_gap_logit * d[where])
+            out[where, 1] += math.log(2) - np.logaddexp(0.0, self.push_gap_logit * d[where])
         return out.astype(np.float32)
 
     def _add_geometry(self, out: NDArray[np.float64], half: Half, seen: NDArray[np.float64]) -> None:
@@ -238,7 +254,7 @@ class DecoderParams:
 
 
 _EMISSION_FIELDS = frozenset(f.name for f in dataclasses.fields(Tier0Emission))
-_OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
+_OPTIONAL_EMISSION = {**dict.fromkeys(_LOGIT_FIELDS, 0.0), "push_gap_logit": 0.0}
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
                     "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0,
                     "spell_merge_frames": 0, "spell_merge_tails": 0}

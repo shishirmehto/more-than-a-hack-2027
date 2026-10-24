@@ -209,6 +209,11 @@ overstates how independent the B columns are:
 | 40 | nine-agent design fan-out (4 angles, a critic each, a ranker) | the plateau needs ideas from outside one line of thought | top idea: join short possessions to their neighbours, as an 11-point design with control-gated arms; the registered grid (41) kept only the unconditional and tails arms and added 25-frame arms; dropped ideas recorded in workflow wf_f30671ee-485 | direction |
 | 41 | short possessions join their neighbours, `spell_merge_frames` (E22) | short predicted spells inside another team's are mostly wrong | 50 frames: PFF-A m0 +0.1335 against +0.1268, m2 +0.1678 against +0.1548, StatsBomb +0.1611 against +0.1446, 12 of 15 synthetic groups up; IDSSE m0 down 0.0064 to 0.0080. Rule v3 picks no change; rule v4 picks 50 frames, interior only, which passes every held-out test | **tier0_v8** (option, not the default) |
 | 42 | chain constants on v8 under rule v4 (E23): temper {0.07, 0.1, 0.14} x poss {4.5, 6, 9} s, stride 1 and 2 | merged spells might want a different chain | best passing variant (poss 9 s, temper 0.1) ties at +0.1332 against the base's +0.1335 | no change |
+| 43 | tier0_v0, the reference decoder, against v7 and v8 on seeds 0-4 and PFF A games (D1, after the audit) | a reviewer noted v8 was never scored against v0, and DESIGN.md found v0 beats v1 on the controlled conventions | v0 loses every group: its best, h3p3 at dead_bias 1, is +0.103 against v7's +0.147; on PFF-A m0 it is 0.042 below smooth50 and wins 0 of 32 games against v7; h2p3 and h5p3 were not scored | diagnostic; v7 and v8 beat v0 on every convention scored |
+| 44 | PathCRF (KDD 2026) ball-carrier team where the ball is unseen (separate session, PFF A games, rerun here) | it infers the carrier from player tracking alone | on unseen live frames 67.5% against tier0_v7's 80.8%; right on 33.9% of disagreements; 62.2% against 56.1% only on frames the decoder calls D | rejected |
+| 45 | restart team from where the ball left the pitch (probe) | BAR-ATH's ball is missing 61% of the 5 s after a restart | only 9.9% of wrong-team live frames fall in the first 5 s after a stoppage, and there the loss is mostly D; the restart team flips 39% to 66% of the time by exit, too weak a cue | dropped |
+| 46 | push against the decoder's team on unseen frames (probe) | E16 failed on every frame; the information may sit where tokens give none | on unseen live PFF-A frames tier0_v7 is right 80.8%; where push is 3 m/s or more against its call (10.3% of frames) only 46.6%, where push agrees that strongly 93.0% | tested as 47 |
+| 47 | push as evidence on ball-missing frames only, `push_gap_logit` b in {0.25, 0.5, 1, 2} on tier0_v7, rule v2 (E24) | probe 46 | every weight lowers PFF-A m0 (+0.102 at b 0.25 against +0.127) and fails the veto on h3p3; predicted possessions on PFF-A rise from 8,165 to 9,802 | rejected; code removed |
 
 ## What did not work, and why
 
@@ -238,9 +243,12 @@ overstates how independent the B columns are:
   lowered spellF1. My reading, not measured directly: one wrong control frame now holds the wrong team until
   the next control, so errors come in runs long enough to cut spells, where the nearest-team token's errors
   are brief.
-- **Not tried.** The push probe found the cue strongest when the ball is missing (P(home) 0.82 against
-  0.17), on the 41% of frames with no other team evidence. After E16 failed on all frames, a push term
-  limited to ball-missing frames was considered and dropped without a test.
+- **Frame-level team evidence fragments possessions.** E16 (push on every frame), E20 (the held team) and
+  E24 (push on ball-missing frames only) all carry real information: on unseen frames where push strongly
+  contradicts tier0_v7, v7 is right only 46.6% of the time. All three lowered spellF1, and E24 raised the
+  predicted possession count by 20%. The decoder takes each frame's marginal posterior, so evidence that
+  wavers from frame to frame flips frames one at a time and cuts possessions. The cue is not the problem;
+  where it enters is.
 
 ## What the literature does
 
@@ -316,9 +324,12 @@ can show that the read did not steer the search, which is one more reason tier0_
   sources' player slots, and the docstring says so.
 - Score runs peaked at 2.7 to 4.0 GB, above the 2 GB the laptop guideline asks for, after the user had asked
   for lighter jobs.
-- Byte-for-byte reproduction was checked only by rebuilding on this laptop, with the numpy and Python in
-  `.venv`. From v3 on, float32 geometry is compared against hard thresholds (`outside_m > 0.5`, the speed and
-  pace cutoffs), so another numpy build or CPU could flip a frame that sits on a threshold.
+- Byte-for-byte reproduction was checked only on this laptop, with the numpy and Python in `.venv`, most
+  recently from a fresh clone of commit 804406f (`data/derived/verify/20261024-clean-804406f/`). From v3 on,
+  float32 geometry meets hard thresholds (`outside_m > 0.5`, the speed and pace cutoffs). `probes.py jitter`
+  moves every float decoder input by up to 1e-6, 1e-5 and 1e-4 relative: 0 of 158,857 BAR-ATH frames change
+  for v7 or v8 at any level, although up to 103 frames sit within 1e-3 of a threshold, because the run rules
+  need 50 frames to act. The test covers drift in the derived features, not a different ATD parse.
 - The checks that each shipped decoder matches its selecting probe frame for frame (`equiv*.py`) ran from a
   scratch folder and are not committed. For tier0_v8 the probe calls the shipped `decoder._rules`, so that
   check cannot catch a bug in `_merge_spells`; only selfcheck's `spell_merge_known_answer` tests it
