@@ -289,27 +289,6 @@ def pushgap(params):
     print("all", round(t.right.mean(), 4), len(t))
 
 
-PUSH_GAP_LOGITS = (0.0, 0.25, 0.5, 1.0, 2.0)
-
-
-def pushgapgrid(params, out, rhos, items):
-    """E24: the push_gap_logit emission term on PARAMS, each variant decoded in full; B games are not decoded."""
-    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
-    variants = {b: base.replace(push_gap_logit=b) for b in PUSH_GAP_LOGITS}
-    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
-        if world.endswith("_B"):
-            continue
-        runs = score.valid_runs(case.gt)
-        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
-        for b, model in variants.items():
-            f1, n = score.spell_f1(case.layout, case.gt, [model.decode(h).codes for h in case.halves], runs)
-            rows.append({"group": group, "world": world, "variant": f"push_gap_logit={b}", "spell_f1": f1,
-                         "floor": floor, "margin": f1 - floor, "n_pred": n})
-        print(world, flush=True)
-    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
-    print(out)
-
-
 def equiv(shipped, base, *changes):
     """Frames where SHIPPED decodes differently from BASE.replace(k=v, ...), the variant a grid selected: one
     world per dev source at dead_bias 2.6, seed 0, A games only for the native sources. 0 means the frozen file
@@ -1462,7 +1441,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "pushgapgrid", "equiv"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
@@ -1475,7 +1454,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "pushgapgrid": lambda: pushgapgrid(one, a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
