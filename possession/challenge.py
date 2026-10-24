@@ -29,6 +29,7 @@ _TAG_HALF = {"1st half": 1, "2nd half": 2}
 
 _CHUNK = 20_000
 _SPEED_STEP = 2
+_PACE_STEP = 12
 
 _NORM_LIMIT = 2.0
 
@@ -117,6 +118,17 @@ def _nearest(g: Geometry) -> tuple[NDArray[np.int8], BallGeometry]:
     return out, BallGeometry(*arrays)
 
 
+def _player_pace(g: Geometry) -> NDArray[np.float32]:
+    k, out = _PACE_STEP, np.full(g.n, np.nan, np.float32)
+    for lo in range(k, g.n - k, _CHUNK):
+        hi = min(lo + _CHUNK, g.n - k)
+        step = g.players_xy[lo + k:hi + k].astype(np.float64) - g.players_xy[lo - k:hi - k].astype(np.float64)
+        speed = np.hypot(step[..., 0], step[..., 1]) / (2 * k) * FPS
+        some = np.isfinite(speed).any(axis=1)
+        out[lo:hi][some] = np.nanmedian(speed[some], axis=1)
+    return out
+
+
 def _ball_speed(ball: NDArray[np.float64]) -> NDArray[np.float64]:
     k = _SPEED_STEP
     pad = np.full((k, 2), np.nan)
@@ -133,7 +145,7 @@ def observe(g: Geometry, id: HalfId) -> Half:
     first slot.
     """
     token, geometry = _nearest(g)
-    return Half(id=id, nearest_team=token, geometry=geometry)
+    return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g))
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",

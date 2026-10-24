@@ -43,6 +43,12 @@ stillgrid PARAMS --out CSV
                      not decoded
 dead6 PARAMS --out CSV
                      E12: dead_min_run x dead_trim x dead_close on PARAMS's other fields, as stillgrid does
+motion               P(dead) by the median player speed on the PFF A games, overall and inside ball-missing runs by
+                     run length, and the same speed on BAR-ATH (no labels)
+pacegrid PARAMS --out CSV
+                     E13: the median-player-speed knobs of the dead-run stage on PARAMS, as stillgrid does
+restart PARAMS --out CSV
+                     E14: dead_restart_delay on PARAMS, as stillgrid does
 select CSV...        apply the pre-registered final rule (decision log, rule v2) to deadrule tables
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -760,6 +766,9 @@ def still_probe():
 
 
 STILL_GRID = [{}] + [{"dead_still_mps": v, "dead_still_frames": f} for v in (0.5, 1.0) for f in (25, 50, 100)]
+PACE_GRID = [{"dead_pace_live_mps": lv, "dead_pace_still_mps": sv} for lv in (0.0, 1.5, 2.0, 2.5, 3.0)
+             for sv in (0.0, 0.5, 0.75)]
+RESTART_GRID = [{"dead_restart_delay": r} for r in (0, 12, 25, 37, 50)]
 DEAD6_GRID = [{"dead_min_run": r, "dead_trim": t, "dead_close": c}
               for r in (101, 126) for t in (12, 25, 37, 50) for c in (100, 150, 200)]
 
@@ -770,7 +779,8 @@ def rulegrid(params, out, rhos, items, grid):
     from possession.decoder import _lag_handovers
     base, s50, rows = Decoder.load(params), bench.Smoother(50), []
     chain = base.replace(dead_min_run=0, dead_trim=0, dead_close=0, dead_outside_m=0.0, dead_still_mps=0.0,
-                         dead_still_frames=0, handover_lag=0)
+                         dead_still_frames=0, dead_pace_still_mps=0.0, dead_pace_live_mps=0.0, dead_restart_delay=0,
+                         handover_lag=0)
     rules = {" ".join(f"{k}={v}" for k, v in g.items()) or "base": dataclasses.replace(base.params, **g) for g in grid}
     for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
         if world.endswith("_B"):
@@ -788,6 +798,67 @@ def rulegrid(params, out, rhos, items, grid):
         print(world, flush=True)
     pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
     print(out)
+
+
+MOTION_K = 12
+MOTION_BINS = [0, 0.5, 1, 1.5, 2, 3, 1e9]
+
+
+def centroid_speed(g):
+    """Mean over the two teams of each team centroid's speed in m/s, from frames t-K to t+K; NaN at the edges."""
+    out = np.zeros(g.n)
+    for team in (0, 1):
+        c = np.nanmean(g.players_xy[:, g.slot_team == team].astype(np.float64), axis=1)
+        k = MOTION_K
+        v = np.full(g.n, np.nan)
+        v[k:-k] = np.hypot(*(c[2 * k:] - c[:-2 * k]).T) / (2 * k) * FPS
+        out += v / 2
+    return out
+
+
+def player_pace(g):
+    """Median over slots present at both t-K and t+K of the slot's speed in m/s; NaN where no slot is."""
+    k, out = MOTION_K, np.full(g.n, np.nan)
+    for lo in range(k, g.n - k, CHUNK):
+        hi = min(lo + CHUNK, g.n - k)
+        a = g.players_xy[lo - k:hi - k].astype(np.float64)
+        b = g.players_xy[lo + k:hi + k].astype(np.float64)
+        v = np.hypot(*(b - a).transpose(2, 0, 1)) / (2 * k) * FPS
+        with np.errstate(all="ignore"):
+            out[lo:hi] = np.nanmedian(np.where(np.isfinite(v), v, np.nan), axis=1)
+    return out
+
+
+def motion_probe():
+    from possession import pff
+    games, parts = [], []
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        run_len = np.zeros(c.geometry.n)
+        for a, b in zip(*_runs(~seen)):
+            run_len[a:b] = b - a
+        keep = np.arange(c.geometry.n) >= c.id.kickoff
+        parts.append(pd.DataFrame({"cv": player_pace(c.geometry)[keep], "miss_run": run_len[keep],
+                                   "dead": c.labels[keep] == D}))
+    t = pd.concat(parts, ignore_index=True).dropna()
+    print(f"{len(t)} frames after kick-off in the A games, P(dead) {t.dead.mean():.3f}")
+    g = t.groupby(pd.cut(t.cv, MOTION_BINS, include_lowest=True), observed=False)
+    print(pd.DataFrame({"share": g.size() / len(t), "p_dead": g.dead.mean()}).round(3).T.to_string())
+    m = t[t.miss_run > 0]
+    g = m.groupby([pd.cut(m.miss_run, [0, 25, 50, 126, 250, 1e9]), pd.cut(m.cv, [0, 0.75, 1.5, 1e9], include_lowest=True)],
+                  observed=False)
+    print("ball-missing frames by missing-run length and centroid speed:")
+    print(pd.DataFrame({"share": g.size() / len(t), "p_dead": g.dead.mean()}).round(3).unstack(1).to_string())
+    for g_, hid in zip(challenge.load_geometry(), challenge._half_ids()):
+        cv = player_pace(g_)[hid.kickoff:]
+        seen = np.isfinite(g_.ball_xy[hid.kickoff:, 0])
+        print(f"BAR-ATH half {hid.half}: centroid speed percentiles 10/50/90 on seen frames",
+              np.nanpercentile(cv[seen], [10, 50, 90]).round(2).tolist(), "on missing frames",
+              np.nanpercentile(cv[~seen], [10, 50, 90]).round(2).tolist())
 
 
 def lag_grid(params, out, rhos, items):
@@ -840,7 +911,7 @@ def select(paths):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "restart"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--dead-bias", type=float, nargs="+", default=[2.6], help="deadrule: generator dead_bias worlds")
@@ -859,4 +930,6 @@ if __name__ == "__main__":
      "speedlogit": lambda: speedlogit_grid(one, a.out, a.dead_bias, a.rule),
      "masked": lambda: masked_grid(one, a.out, a.dead_bias, a.rule), "still": still_probe,
      "stillgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, STILL_GRID),
-     "dead6": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DEAD6_GRID)}[a.probe]()
+     "dead6": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DEAD6_GRID), "motion": motion_probe,
+     "pacegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PACE_GRID),
+     "restart": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, RESTART_GRID)}[a.probe]()

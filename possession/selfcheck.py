@@ -125,6 +125,13 @@ def permutation_invariance() -> None:
     for have, want in ((geo.margin_m, [1, 0.8, nan, inf, nan, 0]), (geo.nearest_m, [1, 0.1, nan, 5, nan, 1]),
                        (geo.outside_m, [0, 0, nan, 0, nan, 0]), (geo.speed_mps, [0, 26.25, nan, 13.125, nan, 0])):
         assert np.allclose(have, want, atol=1e-5, equal_nan=True), have
+    t = np.arange(40, dtype=np.float32)
+    walkers = np.zeros((40, 3, 2), np.float32)
+    walkers[:, 0, 0], walkers[:, 2, 0] = 0.1 * t, 0.04 * t
+    walkers[30, 2] = np.nan
+    paced = Geometry(np.zeros((40, 2), np.float32), walkers, np.array([HOME, AWAY, HOME], np.int8), (105.3, 68.0))
+    want = [nan] * 12 + [1.0] * 6 + [1.25] + [1.0] * 9 + [nan] * 12
+    assert np.allclose(challenge.observe(paced, HalfId("pace", 1, 0)).pace_mps, want, atol=1e-5, equal_nan=True)
     off = Geometry(np.array([[-3, -4], [106.3, 34], [50, 70]], np.float32), np.zeros((3, 2, 2), np.float32),
                    np.array([HOME, AWAY], np.int8), (105.3, 68.0))
     assert np.allclose(challenge.observe(off, HalfId("off", 1, 0)).geometry.outside_m, [5, 1, 2], atol=1e-5)
@@ -475,6 +482,24 @@ def dead_run_rule_known_answer() -> None:
     _raises(ValueError, decoder._missing_run_dead, np.full(20, H, np.int8), Half(still.id, tok),
             DecoderParams(dead_min_run=10, dead_still_mps=1.0, dead_still_frames=6))
     assert Decoder(Tier0Emission(), DecoderParams(dead_min_run=10, dead_still_mps=1.0, dead_still_frames=6)).needs_geometry
+
+    tok = np.full(20, HOME, np.int8)
+    tok[3:18] = NO_TEAM
+    pace = np.full(20, 0.5, np.float32)
+    pace[8:12] = 2.8
+    paced = Half(HalfId("pace", 1, 0), tok, pace_mps=pace)
+
+    def pace_rule(**params: float) -> str:
+        p = DecoderParams(dead_min_run=10, **params)
+        return "".join(letter[int(c)] for c in decoder._missing_run_dead(np.full(20, H, np.int8), paced, p))
+
+    assert pace_rule() == "HHH" + "D" * 15 + "HH"
+    assert pace_rule(dead_pace_live_mps=2.0) == "H" * 20
+    assert pace_rule(dead_pace_still_mps=0.75) == "D" * 20
+    assert pace_rule(dead_pace_live_mps=2.0, dead_pace_still_mps=0.75) == "D" * 8 + "HHHH" + "D" * 8
+    _raises(ValueError, decoder._missing_run_dead, np.full(20, H, np.int8), Half(paced.id, tok),
+            DecoderParams(dead_min_run=10, dead_pace_still_mps=0.75))
+    _raises(ValueError, DecoderParams, dead_pace_live_mps=2.0)
 
     model = Decoder(Tier0Emission(), DecoderParams(dead_min_run=126, dead_trim=25, dead_close=200, dead_outside_m=0.5))
     with tempfile.TemporaryDirectory() as tmp:

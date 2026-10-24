@@ -111,6 +111,11 @@ class Half:
                   slot present). It is a mask, never a dead-ball marker.
     geometry:     BallGeometry when the Half was observed from a Geometry (challenge.observe); None
                   for a token-only source (baseline_raw.csv).
+    pace_mps:     float32 [n] next to geometry: the median over player slots present at frames t-12 and t+12
+                  of their speed in m/s, NaN where no slot is and within 12 frames of either end. It reads a
+                  slot across 24 frames, so it assumes the slot follows one tracked object over that span,
+                  which holds for the ATD's track slots and the dev sources' player slots; a reused slot is
+                  one outlier the median absorbs.
 
     Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
     NO_TEAM frames.
@@ -118,6 +123,7 @@ class Half:
     id: HalfId
     nearest_team: NDArray[np.int8]
     geometry: BallGeometry | None = None
+    pace_mps: NDArray[np.float32] | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -138,6 +144,12 @@ class Half:
                 if not np.array_equal(np.isnan(a), unseen):
                     raise ValueError(f"geometry.{name} must be NaN exactly where nearest_team is NO_TEAM")
                 _freeze(a)
+        if self.pace_mps is not None:
+            a = self.pace_mps
+            if not isinstance(a, np.ndarray) or a.dtype != np.float32 or a.shape != tok.shape:
+                raise ValueError(f"pace_mps must be float32 [{self.n}], got {getattr(a, 'dtype', None)} "
+                                 f"{getattr(a, 'shape', None)}")
+            _freeze(a)
 
     @property
     def n(self) -> int:
