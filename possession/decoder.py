@@ -204,6 +204,10 @@ class DecoderParams:
     spell_flip_seen:    the token share a possession needs to be judged by spell_flip_p; 0 judges all.
     spell_logit:        {"a": intercept, feature: weight} over SPELL_FEATURES, a feature left out weighing 0;
                         set exactly when spell_flip_p is.
+    spell_flip_adjacent: with spell_flip_p, of the passing possessions that share a boundary only the one with
+                        the highest spell logit goes to the other team, then the next highest touching no kept
+                        one, and so on (ties to the earlier start): flipping both sides of a boundary only moves
+                        it. False flips every passing possession.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -246,6 +250,7 @@ class DecoderParams:
     dead_lead_cut: int = 0
     dead_out_lead_cut: int = 0
     dead_out_min_run: int = 0
+    spell_flip_adjacent: bool = False
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -294,6 +299,10 @@ class DecoderParams:
             raise ValueError("spell_flip_p, spell_flip_frames and spell_logit are set together")
         if self.spell_flip_seen and not self.spell_flip_p:
             raise ValueError("spell_flip_seen acts only with spell_flip_p > 0")
+        if not isinstance(self.spell_flip_adjacent, bool):
+            raise ValueError(f"spell_flip_adjacent must be true or false, got {self.spell_flip_adjacent!r}")
+        if self.spell_flip_adjacent and not self.spell_flip_p:
+            raise ValueError("spell_flip_adjacent acts only with spell_flip_p > 0")
         if self.spell_logit:
             if "a" not in self.spell_logit or not set(self.spell_logit) <= {"a", *SPELL_FEATURES}:
                 raise ValueError(f"spell_logit needs 'a' and takes only {', '.join(SPELL_FEATURES)}")
@@ -327,7 +336,7 @@ _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_ou
                     "spell_merge_frames": 0, "spell_merge_tails": 0, "spell_push_mps": 0.0, "spell_push_frames": 0,
                     "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0, "spell_flip_p": 0.0,
                     "spell_flip_frames": 0, "spell_flip_seen": 0.0, "spell_logit": {}, "dead_lead_cut": 0,
-                    "dead_out_lead_cut": 0, "dead_out_min_run": 0}
+                    "dead_out_lead_cut": 0, "dead_out_min_run": 0, "spell_flip_adjacent": False}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -546,16 +555,26 @@ _SEEN = SPELL_FEATURES.index("seen")
 def _spell_flip(codes: NDArray[np.int8], half: Half, p: DecoderParams,
                 logodds: NDArray[np.float64] | None) -> NDArray[np.int8]:
     """Each _spell_runs run with a token share of at least spell_flip_seen takes the other team when its spell
-    logit reaches logit(spell_flip_p), both rounded to 6 places; judged on the input runs."""
+    logit reaches logit(spell_flip_p), both rounded to 6 places; judged on the input runs. With
+    spell_flip_adjacent, passing runs that share a boundary are kept by descending logit, then start."""
     if not p.spell_flip_p:
         return codes
     if logodds is None:
         raise ValueError("spell_flip_p needs the chain's frame log-odds; only Decoder.decode supplies them")
     cut = round(math.log(p.spell_flip_p / (1 - p.spell_flip_p)), 6)
+    passing = [(a, b, team, z) for a, b, team, x in _spell_runs(codes, half, p.spell_flip_frames, logodds)
+               if x[_SEEN] >= p.spell_flip_seen and (z := _spell_z(x, p.spell_logit)) >= cut]
+    if p.spell_flip_adjacent:
+        kept, starts, stops = [], set(), set()
+        for a, b, team, z in sorted(passing, key=lambda r: (-r[3], r[0])):
+            if a not in stops and b not in starts:
+                kept.append((a, b, team, z))
+                starts.add(a)
+                stops.add(b)
+        passing = kept
     out = codes.copy()
-    for a, b, team, x in _spell_runs(codes, half, p.spell_flip_frames, logodds):
-        if x[_SEEN] >= p.spell_flip_seen and _spell_z(x, p.spell_logit) >= cut:
-            out[a:b] = 1 - team
+    for a, b, team, _ in passing:
+        out[a:b] = 1 - team
     return out
 
 

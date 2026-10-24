@@ -713,9 +713,10 @@ def spell_flip_known_answer() -> None:
                     push_mps=np.zeros(n, np.float32))
 
     def flip(codes: str, cut: float, frames: int = 4, seen: float = 0.0, near: float = 3.0, swap: bool = False,
-             tok_codes: str | None = None) -> str:
+             tok_codes: str | None = None, adjacent: bool = False, len_w: float = 0.0) -> str:
         p = DecoderParams(spell_flip_p=cut, spell_flip_frames=frames, spell_flip_seen=seen,
-                          spell_logit={**zero, "a": -1.0, "closest_own": 1.0})
+                          spell_logit={**zero, "a": -1.0, "closest_own": 1.0, "len": len_w},
+                          spell_flip_adjacent=adjacent)
         h = half(tok_codes or codes, near, swap)
         out = decoder._spell_flip(np.array([code[c] for c in codes], np.int8), h, p, np.zeros(len(codes)))
         return "".join(letter[int(c)] for c in out)
@@ -734,6 +735,11 @@ def spell_flip_known_answer() -> None:
     assert flip("HHHHHAAAHHHHH", 0.5, seen=0.3, tok_codes="HHHHHADDHHHHH") == "HHHHHHHHHHHHH"
     assert flip("HHHHHDDDHHHHH", 0.5) == "HHHHHDDDHHHHH"
     assert flip("AAAAAHHHAAAAA", 0.5, swap=True) == "AAAAAAAAAAAAA"
+    assert flip("HHHHHAAAHHHAAAAA", 0.5) == "HHHHHHHHAAAAAAAA"
+    assert flip("HHHHHAAAHHHAAAAA", 0.5, adjacent=True) == "HHHHHHHHHHHAAAAA"
+    assert flip("HHHHHAAAHHAAAAA", 0.5, len_w=-1.0) == "HHHHHHHHAAAAAAA"
+    assert flip("HHHHHAAAHHAAAAA", 0.5, len_w=-1.0, adjacent=True) == "HHHHHAAAAAAAAAA"
+    assert flip("HHHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHH"
     assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 1.7
     assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), {"a": 0.5, "len": 1.0}) == 1.5
     kick = half("HHHHHAAAHHHHH", near=1.0)
@@ -759,7 +765,9 @@ def spell_flip_known_answer() -> None:
                 {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {"a": 1.0, "nope": 1.0}},
                 {"spell_flip_p": 1.5, "spell_flip_frames": 4, "spell_logit": zero}, {"spell_flip_seen": 0.5},
                 {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": {**zero, "a": math.inf}},
-                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": zero, "decode_rule": "map"}):
+                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": zero, "decode_rule": "map"},
+                {"spell_flip_adjacent": True},
+                {"spell_flip_p": 0.5, "spell_flip_frames": 4, "spell_logit": zero, "spell_flip_adjacent": 1}):
         try:
             DecoderParams(**bad)
         except ValueError:
@@ -770,6 +778,10 @@ def spell_flip_known_answer() -> None:
         assert (saved["spell_flip_p"], saved["spell_flip_frames"], saved["spell_logit"]["closest_own"]) == (0.5, 4, 1.0)
         assert "spell_logit" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
         assert Decoder.load(Path(tmp) / "flip.json") == on
+        assert "spell_flip_adjacent" not in saved
+        adj = on.replace(spell_flip_adjacent=True)
+        assert json.loads(adj.save(Path(tmp) / "adj.json", {}).read_text())["params"]["spell_flip_adjacent"] is True
+        assert Decoder.load(Path(tmp) / "adj.json") == adj
 
 
 def team_push_known_answer() -> None:
