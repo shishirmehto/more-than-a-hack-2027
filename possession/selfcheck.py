@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import traceback
+import warnings
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
@@ -628,6 +629,65 @@ def spell_push_known_answer() -> None:
         assert Decoder.load(Path(tmp) / "push.json") == model
 
 
+def switch_penalty_known_answer() -> None:
+    """decoder._penalized_path: a team run survives only when its summed log-odds reach 2 * lam, a hand-over
+    through D is charged once, a D blip inside a team run is free, H/A mirror; decode, guards and save."""
+    def path(g: list, lam: float) -> list:
+        return decoder._penalized_path(np.array(g, np.float64), lam).tolist()
+
+    h, a = [0.9, 0.05, 0.05], [0.05, 0.9, 0.05]
+    island = [h] * 4 + [[0.4, 0.6, 0.0]] * 3 + [h] * 4
+    assert path(island, 1.0) == [H] * 11
+    assert path(island, 0.5) == [H] * 4 + [A] * 3 + [H] * 4
+    assert path([[r[1], r[0], r[2]] for r in island], 1.0) == [A] * 11
+    assert path([h] * 3 + [[0.3, 0.3, 0.4]] * 2 + [a] * 3, 5.0) == [H] * 3 + [D] * 2 + [A] * 3
+    assert path([h] * 3 + [[0.2, 0.2, 0.6]] * 2 + [h] * 3, 5.0) == [H] * 3 + [D] * 2 + [H] * 3
+    tok = np.array([HOME] * 10 + [AWAY] * 2 + [HOME] * 10, np.int8)
+    half = Half(HalfId("switch", 1, 0), tok)
+    base = Decoder(Tier0Emission(q=0.99), DecoderParams(temper=1.0, poss_mean_s=0.2, stride=1))
+    assert base.decode(half).codes.tolist() == [H] * 10 + [A] * 2 + [H] * 10
+    kept, gone = base.replace(switch_penalty=3.0).decode(half), base.replace(switch_penalty=4.0).decode(half)
+    assert kept.posterior is None and kept.codes.tolist() == [H] * 10 + [A] * 2 + [H] * 10
+    assert gone.codes.tolist() == [H] * 10 + [D] * 2 + [H] * 10
+    for bad in ({"switch_penalty": -1.0}, {"switch_penalty": 1.0, "decode_rule": "map"}):
+        try:
+            DecoderParams(**bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad} was accepted")
+    model = base.replace(switch_penalty=1.0)
+    with tempfile.TemporaryDirectory() as tmp:
+        assert json.loads(model.save(Path(tmp) / "sw.json", {}).read_text())["params"]["switch_penalty"] == 1.0
+        assert "switch_penalty" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(Path(tmp) / "sw.json") == model
+
+
+def team_push_known_answer() -> None:
+    """challenge._team_push: each team's median slot x velocity, signed toward the goal its kick-off side faces,
+    home minus away; NaN at the half's ends and when a team has no slot at kick-off; slot order does not matter."""
+    n, t = 60, np.arange(60, dtype=np.float64)[:, None]
+
+    def geometry(home_x0: float, away_x0: float, home_v: list, away_v: list, order: slice = slice(None)) -> Geometry:
+        x = np.hstack([home_x0 + t * v for v in home_v] + [away_x0 + t * v for v in away_v])[:, order]
+        team = np.array([HOME] * len(home_v) + [AWAY] * len(away_v), np.int8)[order]
+        xy = np.stack([x, np.full_like(x, 30.0)], axis=2).astype(np.float32)
+        return Geometry(np.full((n, 2), np.nan, np.float32), xy, team, (100.0, 60.0))
+
+    left = challenge._team_push(geometry(30.0, 70.0, [0.1, 0.1, -0.3], [0.1, 0.1]), 0)
+    assert np.isnan(left[:12]).all() and np.isnan(left[48:]).all()
+    assert np.allclose(left[12:48], 5.0, atol=1e-4), left[12:48]
+    right = challenge._team_push(geometry(70.0, 30.0, [0.1, 0.1, -0.3], [0.1, 0.1]), 0)
+    assert np.allclose(right[12:48], -5.0, atol=1e-4), right[12:48]
+    shuffled = challenge._team_push(geometry(30.0, 70.0, [0.1, 0.1, -0.3], [0.1, 0.1], slice(None, None, -1)), 0)
+    assert np.array_equal(shuffled, left, equal_nan=True)
+    late = geometry(30.0, 70.0, [0.1, 0.1, -0.3], [0.1, 0.1])
+    xy = late.players_xy.copy()
+    xy[:25, 3:] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        assert np.isnan(challenge._team_push(Geometry(late.ball_xy, xy, late.slot_team, late.pitch_m), 0)).all()
+
+
 def _expanded_hmm(p: DecoderParams):
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
@@ -1088,6 +1148,8 @@ CHECKS: tuple[Callable[[], None], ...] = (
     handover_lag_known_answer,
     spell_merge_known_answer,
     spell_push_known_answer,
+    team_push_known_answer,
+    switch_penalty_known_answer,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
     tags_and_rates_known_answer,

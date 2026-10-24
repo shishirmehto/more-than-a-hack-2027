@@ -1,6 +1,6 @@
 # Decoder hillclimb, 2026-10-24
 
-A six-hour autonomous run (05:58 to about 12:00 IST) to improve the possession decoder's spellF1, measured on
+An autonomous run from 05:58 IST (the six-hour report was written at about 12:00 IST; experiments 43 on came after) to improve the possession decoder's spellF1, measured on
 other games' labels. Every step, its reason, its evidence and its outcome is a row in
 `.audit/hillclimb-2026-10-24.tsv`. The log is append-only: a wrong row stays and a later row supersedes it.
 The probes behind the numbers are in `probes.py` in this folder, and the final params are written by
@@ -10,7 +10,7 @@ their findings; the log's last rows list each one.
 
 ## Result
 
-Eight new params files, each one confirmed on held-out data before the next was built:
+Nine new params files, each one confirmed on held-out data before the next was built:
 
 | params | adds to the previous file | builds from | sha256 of the CSV |
 |---|---|---|---|
@@ -22,6 +22,7 @@ Eight new params files, each one confirmed on held-out data before the next was 
 | `params/tier0_v7.json` | `dead_pace_still_mps` 0.5: frames where players walk count as missing | the gated ATD | `554e4e5b06f3328b…` |
 | `params/tier0_v8.json` | `spell_merge_frames` 50: a possession under 2 s inside another team's spell joins its neighbours (rule v4) | the gated ATD | `abb0ed9c2b8c2921…` |
 | `params/tier0_v9.json` | to tier0_v7, not v8: `spell_push_*` 2.0 / 250 / 0.5: a possession under 10 s, at least half without a ball sighting, whose players push 2 m/s or more against its team goes to the other team | the gated ATD | `36d911031fcb7a0f…` |
+| `params/tier0_v10.json` | `switch_penalty` 1.0: the decode charges 1 nat per change of team, so a run of one team inside the other survives only with 2 nats of log-odds behind it | the gated ATD | `d137e9e61c7a9b3e…` |
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
 the held-out half is"). The numbers are spellF1 margins over `baseline_smooth50`; the PFF columns are the 32
@@ -37,7 +38,8 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 | tier0_v6 | +0.132 [+0.123, +0.141] | +0.161 [+0.151, +0.170] | +0.005 [+0.004, +0.006] / +0.006 [+0.005, +0.007], 32/32 each | +0.106 |
 | tier0_v7 | +0.134 [+0.125, +0.144] | +0.163 [+0.153, +0.173] | +0.002 [+0.002, +0.003] / +0.003 [+0.002, +0.003], 31/32 each | +0.106 |
 | tier0_v8 | +0.139 [+0.131, +0.148] | +0.175 [+0.166, +0.184] | +0.005 [+0.002, +0.008] 23/32 / +0.011 [+0.009, +0.014] 29/32; StatsBomb +0.016 [+0.014, +0.019] 32/32 | +0.099 (IDSSE m0) |
-| **tier0_v9** | +0.139 [+0.130, +0.149] | +0.172 [+0.161, +0.182] | over v7: +0.005 [+0.003, +0.007] 25/32 / +0.009 [+0.006, +0.012] 27/32 | +0.107 (IDSSE m0) |
+| tier0_v9 | +0.139 [+0.130, +0.149] | +0.172 [+0.161, +0.182] | over v7: +0.005 [+0.003, +0.007] 25/32 / +0.009 [+0.006, +0.012] 27/32 | +0.107 (IDSSE m0) |
+| **tier0_v10** | +0.143 [+0.134, +0.153] | +0.179 [+0.168, +0.189] | over v9: +0.004 [+0.002, +0.005] 25/32 / +0.007 [+0.005, +0.009] 29/32 | +0.105 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
   about half again on top of v2's margin. tier0_v8's margin is +0.049 and +0.060 above v2's (a difference of
@@ -47,17 +49,20 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   IDSSE m0 groups (0.0993 against 0.1063, 0.1022 against 0.1108, 0.1031 against 0.1109). It is the first
   step where the worst synthetic group went down. tier0_v9 beat v7 on PFF-B and sat above it in all 15
   synthetic groups. Its IDSSE m0 gains (+0.0003 to +0.0006) are close to zero because its no-token gate
-  rarely fires in the synthetic worlds, so they show no harm there, not a gain.
+  rarely fires in the synthetic worlds, so they show no harm there, not a gain. tier0_v10 beat v9 on PFF-B and
+  in 12 of 15 synthetic groups (h3p3 +0.012 to +0.016, IDSSE m2 +0.005 to +0.008), and gave up 0.0007 to
+  0.0016 on IDSSE m0, as it did on the selection seeds (0.0009 to 0.0015). Its held-out gain is about three
+  quarters of its selection gain (A: m0 +0.0050, m2 +0.0087).
 - The synthetic confirmation is weak. Its bar is every group above smooth50, which v6 onward clear by about
-  0.10, so the binding test of each step was the paired PFF-B bound. That bound used the same 32 games ten
-  times in sequence (nine confirmations and E19's rejection), with 90% intervals and no correction for
+  0.10, so the binding test of each step was the paired PFF-B bound. That bound used the same 32 games eleven
+  times in sequence (ten confirmations and E19's rejection), with 90% intervals and no correction for
   repeated use. A crude ten-way widening still leaves v9's lower bounds above zero (about +0.001 on m0 and
   +0.004 on m2, fable's review).
 - The synthetic column for v6 and v7 is inflated. Dev sources hold a lost ball at its last position, so a
   "ball at rest" rule partly restores the native gaps the generator hid. The PFF columns are the cleaner test.
 - On BAR-ATH the steps change few frames. Against the previous file, v3 changes 1,311 frames, v4 6,503, v5
   4,604, v6 2,270, v7 322 and v8 1,105; v9 changes 373 against v7 (home possessions 211 to 207, away 224 to
-  222, dead runs unchanged). All of v2 to v7 together change 12,615 of the 158,857 graded frames
+  222, dead runs unchanged), and v10 changes 329 against v9 (home 207 to 195, away 222 to 211). All of v2 to v7 together change 12,615 of the 158,857 graded frames
   (8%): dead runs 122 to 131, away possessions 218 to 224, home 210 to 211, D frames 55,326 to 59,223. These
   comparisons read our own automatic CSVs and no labels. The PFF margins say how the steps behave on PFF's
   labels and gaps (58% of frames without a ball against BAR-ATH's 41%), not how much they move BAR-ATH's score.
@@ -68,12 +73,25 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
   a lower bound of +0.002 on 23 of 32 games. Under StatsBomb's convention on the held-out PFF games its margin
   is +0.171 against v7's +0.154.
 
-My recommendation is tier0_v9, if the team is comfortable that building the CSV needs the gated ATD files on
-disk, and otherwise tier0_v2, the best file that builds from committed inputs alone. tier0_v9 was selected and
-confirmed under the pre-registered rule v2 on the v7 line, with no StatsBomb data. Its held-out gain over v7
-(PFF-B m0 +0.0050, m2 +0.0087) equals its gain on the selection games (+0.0049, +0.0090), so the pick shows
-no winner's curse. The stakes are small: it changes 373 of 158,857 graded BAR-ATH frames, and its gain is
-about a tenth of the ±0.04 single-match noise. tier0_v7 forfeits little. Three caveats:
+My recommendation is tier0_v10, if the team is comfortable that building the CSV needs the gated ATD files on
+disk, and otherwise tier0_v2, the best file that builds from committed inputs alone. tier0_v10 is tier0_v9 plus
+a decode that charges each change of team (E27). Both steps were selected and confirmed under the
+pre-registered rule v2 on the v7 line, with no StatsBomb data.
+
+- v10's held-out gain over v9 (PFF-B m0 +0.0037, m2 +0.0068) is about three quarters of its selection gain. It
+  changes 329 of 158,857 graded BAR-ATH frames and removes 23 of v9's 429 possessions.
+- Its cost is a small loss on the per-touch IDSSE m0 groups (0.0007 to 0.0016 on seeds 15-24), the trade every
+  short-possession cut in this run made. Of the cuts tried, v10's is the smallest, and the only one that
+  passed the veto.
+- The registered diagnostic says the penalty acts mostly as a cut of the shortest weak islands. Within a length
+  band, posterior confidence separates matched from unmatched short possessions by only 0.04 to 0.06
+  (`probes.py spellmass`), so the confidence story the design was built on is not what makes it work.
+- The design came from a fan-out whose ranker saw dfa8e68's commit message, which holds v9's PFF-B figures,
+  while orienting. It said it used none, and E27's candidates and tie order were logged before any result.
+
+The stakes are small at each step: v9's gain over v7 and v10's over v9 are each about a tenth of the ±0.04
+single-match noise. v9's held-out gain over v7 (PFF-B m0 +0.0050, m2 +0.0087) equals its gain on the
+selection games (+0.0049, +0.0090). v10 keeps v9's push stage, so v9's three caveats carry over:
 
 - E26's no-token gate was added after E25 failed the veto, and it makes the push stage fire far less in the
   worlds the veto uses than on PFF. On IDSSE m0 at dead_bias 2.6, E25's 2 m/s over 250 frames removed 418
@@ -90,11 +108,11 @@ about a tenth of the ±0.04 single-match noise. tier0_v7 forfeits little. Three 
   not at all (0.552 at 3 m/s and over against a mean near 0.58). 148 of the 373 changed frames are half-1
   flips from away to home, which rest on that weak tail (`probes.py barath-push`, `pff-push-tokens`, `subs`).
 
-tier0_v7 is the fallback without the push stage. tier0_v8 is an option,
+tier0_v9 is the fallback without the penalty, and tier0_v7 the fallback without the push stage. tier0_v8 is an option,
 not the default. Its rule was fitted to the result it admits, both reviewers flagged that, and more selection
 on the same data cannot undo it. Choose v8 only if the team believes BAR-ATH's ground truth follows
-controlled possession rather than per-touch ownership. The selections of tier0_v7 and tier0_v9 used no
-StatsBomb data, and tier0_v8's did. Every file from v2 on was ranked on PFF-A labels, so none is free of PFF-informed choices (see
+controlled possession rather than per-touch ownership. The selections of tier0_v7, tier0_v9 and tier0_v10 used
+no StatsBomb data, and tier0_v8's did. Every file from v2 on was ranked on PFF-A labels, so none is free of PFF-informed choices (see
 "Rules this run kept"). The choice of submission decoder is the team's, so no file is wired into anything yet.
 
 ## Rules this run kept
@@ -189,7 +207,7 @@ overstates how independent the B columns are:
 - The probes' B-game skip never fired until commit 2364fb9. Until then the oracles (experiment 1, the rerun
   on v5 that motivated E9, and the headroom table below), the census and the oracle split pooled all 64
   games. Only the census was rerun on A games.
-- B served as the pass/fail test for nine sequential confirmations and E19's rejection.
+- B served as the pass/fail test for ten sequential confirmations and E19's rejection.
 - The push cue has had 16 non-base candidates on the same A games: E24's four weights, E25's six arms and
   E26's six. E26's (speed, length) points were E25's top three on PFF-A, and E26's tie between 2 and 3 m/s
   over 250 frames went to 2 m/s on the higher PFF-A minimum, by 0.00004.
@@ -248,6 +266,7 @@ overstates how independent the B columns are:
 | 48 | per-spell push probe, then `_push_flip` (E25): a possession under 5 or 10 s whose mean push runs 1.5 to 3 m/s against its team goes to the other team, judged once per spell on tier0_v7, rule v2 | per-frame push fragments; spells with push of 2 m/s or more against their team are mostly wrong (other-team share minus own +0.21, +0.48 under 2 s) | the largest PFF-A gains of the run (m0 +0.139 at 3 m/s over 10 s, m2 +0.177 at 2 m/s over 10 s, against +0.127 and +0.155) and h3p3 up 0.02 to 0.05, but every variant loses 0.0095 to 0.0293 on the IDSSE m0 groups | rejected by the veto; rule v4's allowance would not admit it either |
 | 49 | `_push_flip` judged only on possessions at least half without a token, `spell_push_unseen` {0.5, 0.8} (E26), rule v2 | inferred, never measured: push trails a turnover, so it should not overrule a seen ball; designed after E25 failed the veto | two of the three 0.5 arms lift every synthetic group (3 m/s over 250 frames loses 0.0002 on idsse_m0_r4); IDSSE m0 moves +0.0002 to +0.0013 because the gate rarely fires there (40 possessions removed against E25's 418); PFF-A m0 +0.132 and m2 +0.164 against +0.127 and +0.155; the tie rule picks 2 m/s over 250 frames, by 0.00004 over 3 m/s | **tier0_v9**: confirmed on PFF-B (m0 +0.0050 [+0.0026, +0.0074], 25 of 32 games; m2 +0.0087 [+0.0056, +0.0117], 27 of 32) and above v7 in all 15 synthetic groups of seeds 15-24 |
 | 50 | label-free check of the shipped push signal on BAR-ATH (`probes.py barath-push`), against the same statistic on PFF-A m0 (`pff-push-tokens`) | review flag: v9 was never checked on BAR-ATH itself | the sign is right in both halves; at push of -3 m/s or less the home-token share falls 0.10 below the half mean (PFF-A 0.11); at +3 m/s and over it rises less, and in half 1 not at all; 148 of v9's 373 changed frames are half-1 away-to-home flips | v9 kept; the weak tail is a disclosed limitation |
+| 51 | switch-penalized decode path (E27): the block posterior decoded by a Viterbi that charges `switch_penalty` per change of team, D blips free, then v9's rules; lambda {1, 2, 4, 8, 16, 32}, 8 and 16 also with no charge into dead frames; base tier0_v9, rule v2, PFF-A first | design fan-out 2's top design: fewer predicted possessions is the one lever that cleared the tie band (E22), and posterior mass might spare confident per-touch possessions | PFF-A minimum 0.1316 at base; lambda 2 0.1390, 8 no-charge 0.1378, 4 0.1377, 1 0.1365; only lambda 1 passes the veto (IDSSE m0 -0.0009 to -0.0015; lambda 2 misses by 0.0010); lambda 1 removes 169 possessions, 5.3% of them matched; confidence separates matched from unmatched short possessions by only 0.04 to 0.06 within a length band | **tier0_v10**: confirmed on PFF-B (m0 +0.0037 [+0.0020, +0.0054], 25 of 32 games; m2 +0.0068 [+0.0047, +0.0088], 29 of 32), above smooth50 in all 15 groups of seeds 15-24, above v9 in 12; equivpath 0 of 6,237,132 frames |
 
 ## What did not work, and why
 
@@ -365,11 +384,13 @@ can show that the read did not steer the search, which is one more reason tier0_
   hashes (`data/derived/verify/20261024-1315-hashes/`). From v3 on,
   float32 geometry meets hard thresholds (`outside_m > 0.5`, the speed and pace cutoffs). `probes.py jitter`
   moves every float decoder input by up to 1e-6, 1e-5 and 1e-4 relative: 0 of 158,857 BAR-ATH frames change
-  for v7, v8 or v9 at any level (v9's run also moves push_mps), although up to 103 frames sit within 1e-3 of a
+  for v7, v8, v9 or v10 at any level (v9's and v10's runs also move push_mps), although up to 103 frames sit within 1e-3 of a
   threshold, because the run rules need 50 frames to act. The test covers drift in the derived features, not a
   different ATD parse, and it does not test push's orientation, which `probes.py barath-push` checks.
 - The checks that v2 to v7 match their selecting probes frame for frame ran from a scratch folder and are not
-  committed. v8's and v9's use the committed `probes.py equiv` (0 of 11,050,892 frames differ). That probe
+  committed. v8's and v9's use the committed `probes.py equiv` (0 of 11,050,892 frames differ). v10's uses
+  `probes.py equivpath`, which checks the decoder's `_penalized_path` against the probe's own copy (0 of
+  6,237,132 frames), and selfcheck's `switch_penalty_known_answer` tests it on hand-worked arrays. That probe
   calls the shipped `decoder._rules`, so it cannot catch a bug in `_merge_spells` or `_push_flip`; only
   selfcheck's `spell_merge_known_answer` and `spell_push_known_answer` test them independently. Nothing tests
   the production `challenge._team_push` against a known answer; `barath-push` checks its sign on BAR-ATH.
@@ -401,7 +422,8 @@ can show that the read did not steer the search, which is one more reason tier0_
   are in every params file from v4 on.
 - **The cues.** Nearest-team token with a fitted reliability, a 15-frame hand-over lag, a dead-ball stage
   built from ball gaps, an off-pitch ball, a ball at rest and walking players, and (tier0_v9) the teams' push
-  toward goal, used to overrule short possessions the ball mostly did not see.
+  toward goal, used to overrule short possessions the ball mostly did not see, and (tier0_v10) a decode that
+  charges each change of team, so the weakest short islands disappear.
 - **The AI assistant.** Claude ran this search and its subagents. It read BAR-ATH only as the aggregates
   listed above, and it never produced or scored a BAR-ATH label.
 
@@ -422,7 +444,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --out params/tier0_v7.json
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-merge 50 --out params/tier0_v8.json
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --out params/tier0_v9.json
-python -m possession make-submission --params params/tier0_v9.json --out tier0_v9.csv
+python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --out params/tier0_v10.json
+python -m possession make-submission --params params/tier0_v10.json --out tier0_v10.csv
 ```
 
 Each selection reruns from its probe, for example `python experiments/hillclimb-2026-10-24/probes.py logit

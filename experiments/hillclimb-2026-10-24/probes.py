@@ -73,6 +73,14 @@ select CSV...        apply the pre-registered final rule (decision log, rule v2)
 barath-push          label-free: the shipped push signal's attack sign, quantiles and home-token share by push bin on
                      BAR-ATH's ATD
 pff-push-tokens      barath-push's home-token share by push bin on native PFF A games (m0), for comparison
+switchpen PARAMS --out CSV
+                     E27: PARAMS's block posterior decoded by a path that charges each change of team, then PARAMS's
+                     rules; held-out B games are not decoded
+spellmass PARAMS --only V...
+                     E27 diagnostic: match rate of PARAMS's short possessions by length and by posterior log-odds
+                     tercile on PFF-A m0, and the matched share of the possessions each variant removes
+equivpath SHIPPED BASE
+                     frames where SHIPPED (BASE + switch_penalty) differs from switchpen's probe path on BASE
 subs CSV...          label-free: label shares, H, A and D runs and differing frames of our own submission CSVs
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
@@ -90,7 +98,7 @@ import pandas as pd
 
 from possession import bench, challenge, idsse, metrica, score
 from possession.decoder import Decoder, _missing_run_dead
-from possession.half import FPS, HOME, NO_TEAM, BallGeometry, D, H, X
+from possession.half import FPS, HOME, NO_TEAM, A, BallGeometry, D, H, X
 
 SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
 NATIVE = ["pff:m0:native", "pff:m2:native"]
@@ -351,6 +359,24 @@ def equiv(shipped, base, *changes):
                 n, differ = n + x.size, differ + int((x != y).sum())
             print(world, flush=True)
     print(f"{shipped} against {base} with {' '.join(changes)}: {differ} of {n} frames differ")
+
+
+def equivpath(shipped, base):
+    """Frames where SHIPPED, which is BASE plus switch_penalty, decodes differently from switchpen's probe path on
+    BASE: one world per dev source at dead_bias 2.6, seed 0, A games only for PFF. 0 means the decoder's
+    _penalized_path and its place in decode reproduce the selected arm."""
+    a, b = Decoder.load(shipped), Decoder.load(base)
+    assert a.replace(switch_penalty=0.0) == b
+    n = differ = 0
+    for items in (["pff:m0:native"], ["idsse:m0"], ["m0"]):
+        for group, world, case in itertools.islice(scored_cases(bench.dev_worlds(items, [2.6], seeds=[0])), 1):
+            for h in case.halves:
+                g, m = _block_posterior(b, h)
+                x = a.decode(h).codes
+                y = _path_codes(b, h, g, m, a.params.switch_penalty, np.zeros(len(g), bool))
+                n, differ = n + x.size, differ + int((x != y).sum())
+            print(world, flush=True)
+    print(f"{shipped} against switchpen's path on {base}: {differ} of {n} frames differ")
 
 
 def _held(half, radius):
@@ -1305,6 +1331,173 @@ def rulegrid(params, out, rhos, items, grid):
     print(out)
 
 
+SWITCH_GRID = [{}] + [{"switch_penalty": lam} for lam in (1, 2, 4, 8)] + \
+    [{"switch_penalty": 8, "switch_free_at_dead": 1}, {"switch_penalty": 16},
+     {"switch_penalty": 16, "switch_free_at_dead": 1}, {"switch_penalty": 32}]
+
+
+def penalized_path(l, lam, free):
+    """E27: the block labels maximising the summed log-posterior l (nb x 3: H, A, D) minus lam per change of team.
+    States H, A, D after H, D after A; a team change into a block where free is True costs nothing. Ties keep the
+    current state, then the lower index."""
+    rows, free, nb = l.tolist(), free.tolist(), len(l)
+    h, a, dh, da = rows[0][0], rows[0][1], rows[0][2], rows[0][2]
+    back = [bytearray(nb) for _ in range(4)]
+    bh, ba, bdh, bda = back
+    for t in range(1, nb):
+        lh, la, ld = rows[t]
+        c = 0.0 if free[t] else lam
+        best, arg = h, 0
+        if a - c > best:
+            best, arg = a - c, 1
+        if dh > best:
+            best, arg = dh, 2
+        if da - c > best:
+            best, arg = da - c, 3
+        nh, bh[t] = best + lh, arg
+        best, arg = a, 1
+        if h - c > best:
+            best, arg = h - c, 0
+        if dh - c > best:
+            best, arg = dh - c, 2
+        if da > best:
+            best, arg = da, 3
+        na, ba[t] = best + la, arg
+        ndh, bdh[t] = (h + ld, 0) if h > dh else (dh + ld, 2)
+        nda, bda[t] = (a + ld, 1) if a > da else (da + ld, 3)
+        h, a, dh, da = nh, na, ndh, nda
+    final = [h, a, dh, da]
+    s, out = final.index(max(final)), bytearray(nb)
+    for t in range(nb - 1, 0, -1):
+        out[t] = s
+        s = back[s][t]
+    out[0] = s
+    return np.array([H, A, D, D], np.int8)[np.frombuffer(out, np.uint8)]
+
+
+def _block_posterior(model, h):
+    """The chain's block posterior P(H, A, D) over [kickoff, n) and that span's frame count, as decode builds them."""
+    from possession.decoder import _chain, _forward_backward
+    p, k0 = model.params, h.id.kickoff
+    ev = model.emission.loglik(h)[k0:].astype(np.float64)
+    m = ev.shape[0]
+    return _forward_backward(p.temper * np.add.reduceat(ev, np.arange(0, m, p.stride), axis=0), _chain(p)), m
+
+
+def _path_codes(model, h, g, m, lam, free):
+    """penalized_path over g at lam, repeated by stride after a D head, then MODEL's rules."""
+    from possession.decoder import _rules
+    p, k0 = model.params, h.id.kickoff
+    l = np.round(np.log(np.maximum(np.round(g, 9), 1e-12)), 12)
+    path = penalized_path(l, lam, free)
+    return _rules(np.concatenate([np.full(k0, D, np.int8), np.repeat(path, p.stride)[:m]]), h, p)
+
+
+def _removed(base, codes):
+    """Base H/A runs that carry another code on more than half their frames."""
+    edges = np.flatnonzero(np.diff(base)) + 1
+    return sum(1 for a, b in zip(np.r_[0, edges], np.r_[edges, len(base)])
+               if base[a] != D and (codes[a:b] != base[a]).mean() > 0.5)
+
+
+def switchpen(params, out, rhos, items, only=()):
+    """E27: PARAMS's block posterior decoded by penalized_path at each SWITCH_GRID entry, then PARAMS's rules;
+    ONLY keeps base and the named variants; held-out B games are not decoded."""
+    from possession.decoder import _rules
+    base, s50, rows = Decoder.load(params), bench.Smoother(50), []
+    p = base.params
+    grid = {" ".join(f"{k}={v}" for k, v in g.items()) or "base": g for g in SWITCH_GRID}
+    grid = {name: g for name, g in grid.items() if name == "base" or not only or name in only}
+    for group, world, case in scored_cases(bench.dev_worlds(items, rhos, seeds=SEEDS)):
+        if world.endswith("_B"):
+            continue
+        runs = score.valid_runs(case.gt)
+        floor, _ = score.spell_f1(case.layout, case.gt, [s50.decode(h).codes for h in case.halves], runs)
+        codes, removed = {name: [] for name in grid}, dict.fromkeys(grid, 0)
+        for h in case.halves:
+            k0 = h.id.kickoff
+            g, m = _block_posterior(base, h)
+            chained = np.concatenate([np.full(k0, D, np.int8),
+                                      np.repeat(np.round(g, 9).argmax(axis=1).astype(np.int8), p.stride)[:m]])
+            shipped = _rules(chained, h, p)
+            assert np.array_equal(shipped, base.decode(h).codes), h.id
+            dead = _missing_run_dead(np.zeros(h.n, np.int8), h, p) == D
+            assert np.array_equal(dead, _missing_run_dead(chained, h, p) == D), h.id
+            free = np.add.reduceat(dead[k0:].astype(np.int64), np.arange(0, m, p.stride)) > 0
+            for name, gi in grid.items():
+                if not gi:
+                    codes[name].append(shipped)
+                    continue
+                c = _path_codes(base, h, g, m, float(gi["switch_penalty"]),
+                                free if gi.get("switch_free_at_dead") else np.zeros_like(free))
+                codes[name].append(c)
+                removed[name] += _removed(shipped, c)
+        for name in grid:
+            f1, n = score.spell_f1(case.layout, case.gt, codes[name], runs)
+            rows.append({"group": group, "world": world, "variant": name, "spell_f1": f1,
+                         "floor": floor, "margin": f1 - floor, "n_pred": n, "removed": removed[name]})
+        print(world, flush=True)
+    pd.DataFrame(rows).to_csv(out, index=False, float_format="%.6f")
+    print(out)
+
+
+def _team_runs(codes, k0):
+    edges = np.flatnonzero(np.diff(codes[k0:])) + 1 + k0
+    return [(int(a), int(b), int(codes[a])) for a, b in zip(np.r_[k0, edges], np.r_[edges, len(codes)])
+            if codes[a] != D]
+
+
+def spellmass(params, variants):
+    """E27 diagnostic on PFF-A m0, not a gate: PARAMS's predicted possessions under 125 frames, matched when a
+    labelled run of the same team overlaps at IoU >= 0.5, by length band and by tercile within the band of S, the
+    summed log-odds of the possession's team over the other in the chain posterior; then, per variant, how many
+    PARAMS possessions it removes and what share of those were matched."""
+    from possession import pff
+    base, games, rows = Decoder.load(params), [], []
+    p = base.params
+    for c in pff.load(metrica.RuleV2.parse("m0")):
+        if c.id.match not in games:
+            games.append(c.id.match)
+        if games.index(c.id.match) % 2:
+            continue
+        seen = pff.native_seen(c)
+        ball = np.where(seen[:, None], c.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+        h = challenge.observe(dataclasses.replace(c.geometry, ball_xy=ball), c.id)
+        k0 = h.id.kickoff
+        g, m = _block_posterior(base, h)
+        post = np.vstack([np.tile([0.0, 0.0, 1.0], (k0, 1)), np.repeat(g, p.stride, axis=0)[:m]])
+        logodds = np.log(np.maximum(post[:, 0], 1e-12)) - np.log(np.maximum(post[:, 1], 1e-12))
+        shipped = base.decode(h).codes
+        dead = _missing_run_dead(np.zeros(h.n, np.int8), h, p) == D
+        free = np.add.reduceat(dead[k0:].astype(np.int64), np.arange(0, m, p.stride)) > 0
+        arms = {}
+        for v in variants:
+            kv = dict(x.split("=") for x in v.split())
+            arms[v] = _path_codes(base, h, g, m, float(kv["switch_penalty"]),
+                                  free if kv.get("switch_free_at_dead") else np.zeros_like(free))
+        gt = [(a, b, t) for a, b, t in _team_runs(c.labels, k0)]
+        starts = np.array([a for a, _, _ in gt])
+        for a, b, team in _team_runs(shipped, k0):
+            near = gt[max(np.searchsorted(starts, a, "right") - 1, 0):np.searchsorted(starts, b)]
+            iou = max(((min(b, y) - max(a, x)) / (max(b, y) - min(a, x)) for x, y, t in near if t == team and x < b
+                       and y > a), default=0.0)
+            s = float(logodds[a:b].sum() / p.stride) * (1 if team == HOME else -1)
+            rows.append({"frames": b - a, "S": s, "matched": iou >= 0.5,
+                         **{v: bool((arms[v][a:b] != team).mean() > 0.5) for v in variants}})
+    t = pd.DataFrame(rows)
+    short = t[t.frames < 125].copy()
+    short["band"] = pd.cut(short.frames, [0, 30, 60, 125], right=False).astype(str)
+    short["tercile"] = short.groupby("band").S.transform(lambda s: pd.qcut(s.rank(method="first"), 3,
+                                                                              labels=["low", "mid", "high"]))
+    print(f"{len(t)} predicted possessions, {t.matched.mean():.3f} matched; {len(short)} under 125 frames")
+    print(short.groupby(["band", "tercile"], observed=True).agg(spells=("S", "size"), S_median=("S", "median"),
+                                                                matched=("matched", "mean")).round(3).to_string())
+    for v in variants:
+        gone = t[t[v]]
+        print(f"{v}: removes {len(gone)}, of which matched {gone.matched.mean():.3f}; "
+              f"median length {gone.frames.median():.0f} frames")
+
+
 MOTION_K = 12
 MOTION_BINS = [0, 0.5, 1, 1.5, 2, 3, 1e9]
 
@@ -1562,9 +1755,10 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
+    ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
     ap.add_argument("--wide", nargs="+", default=[], help="pick: group prefixes that veto at WIDE_SLACK (rule v4: idsse_m0)")
     ap.add_argument("--out", help="deadrule: where to write the full grid table (CSV)")
     ap.add_argument("--halves", nargs="+", default=["all", "A", "B"], choices=("all", "A", "B"),
@@ -1575,7 +1769,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

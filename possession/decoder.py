@@ -176,6 +176,11 @@ class DecoderParams:
     spell_push_unseen:  0 is off. Otherwise only a possession whose share of frames with no token is at least
                         this is judged, on the inference (not measured) that push trails a turnover, so where
                         the ball was seen the token decides. Needs spell_push_mps.
+    switch_penalty:     0 is off. Otherwise "marginal" takes the block labels that maximise the summed
+                        log posterior minus switch_penalty per change of team (_penalized_path) instead of
+                        each block's argmax, so a run of one team inside the other survives only when its
+                        summed log-odds over that team reach 2 * switch_penalty. A pass through D between
+                        the teams is charged once. "marginal" only.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -210,6 +215,7 @@ class DecoderParams:
     spell_push_frames: int = 0
     spell_push_between: int = 0
     spell_push_unseen: float = 0.0
+    switch_penalty: float = 0.0
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -241,6 +247,9 @@ class DecoderParams:
         _number("spell_push_unseen", self.spell_push_unseen, 0, 1, lo_open=False, hi_open=False)
         if (self.spell_push_between or self.spell_push_unseen) and not self.spell_push_mps:
             raise ValueError("spell_push_between and spell_push_unseen act only with spell_push_mps > 0")
+        _number("switch_penalty", self.switch_penalty, 0, math.inf, lo_open=False)
+        if self.switch_penalty and self.decode_rule != "marginal":
+            raise ValueError("switch_penalty acts only with decode_rule 'marginal'")
         if bool(self.dead_still_mps) != bool(self.dead_still_frames):
             raise ValueError("dead_still_mps and dead_still_frames are set together")
         if self.dead_min_run and 2 * self.dead_trim >= self.dead_min_run:
@@ -265,7 +274,7 @@ _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
                     "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0,
                     "spell_merge_frames": 0, "spell_merge_tails": 0, "spell_push_mps": 0.0, "spell_push_frames": 0,
-                    "spell_push_between": 0, "spell_push_unseen": 0.0}
+                    "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -294,13 +303,15 @@ class Decoder:
              as D; an X head would be back-filled with the first label and become a false 117 s spell).
           2. decode [kickoff, n) from a uniform start over {H, A}.
           3. "map": codes are the labels of the MAP path. "marginal": codes = argmax over
-             round(posterior, 9). The rounding makes exact symmetric ties (a flat block at the start of
-             a half) resolve to the lower label on every machine instead of on 1-ulp noise.
+             round(posterior, 9), or with switch_penalty the penalized path over it. The rounding makes
+             exact symmetric ties (a flat block at the start of a half) resolve to the lower label on
+             every machine instead of on 1-ulp noise.
           4. dead_min_run > 0 replaces the chain's D by the missing-run rule (see DecoderParams).
           5. spell_push_mps gives short possessions that push contradicts to the other team.
           6. spell_merge_frames joins short possessions to their neighbours (see DecoderParams).
           7. handover_lag moves the hand-overs between the teams later (see DecoderParams).
-          After 4 to 7 the posterior is dropped, because it no longer describes the codes.
+          With switch_penalty, or after 4 to 7, the posterior is dropped, because it no longer describes the
+          codes.
         """
         p, kickoff = self.params, half.id.kickoff
         ev = self.emission.loglik(half)[kickoff:].astype(np.float64)
@@ -310,9 +321,14 @@ class Decoder:
             codes = np.full(half.n, D, dtype=np.int8)
             codes[kickoff:] = np.repeat(_map(E, p), p.stride)[:m]
             return Decoded(codes=_rules(codes, half, p), posterior=None)
+        g = _forward_backward(E, _chain(p))
+        if p.switch_penalty:
+            codes = np.full(half.n, D, dtype=np.int8)
+            codes[kickoff:] = np.repeat(_penalized_path(g, p.switch_penalty), p.stride)[:m]
+            return Decoded(codes=_rules(codes, half, p), posterior=None)
         post = np.empty((half.n, 3), dtype=np.float64)
         post[:kickoff] = (0.0, 0.0, 1.0)
-        post[kickoff:] = np.repeat(_forward_backward(E, _chain(p)), p.stride, axis=0)[:m]
+        post[kickoff:] = np.repeat(g, p.stride, axis=0)[:m]
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
         if p.dead_min_run or p.handover_lag or p.spell_merge_frames or p.spell_push_mps:
             return Decoded(codes=_rules(codes, half, p), posterior=None)
@@ -591,6 +607,46 @@ def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float
     g = np.array(alpha).reshape(nb, 4) * np.array(beta_last_block_first).reshape(nb, 4)[::-1]
     g /= (g[:, 0] + g[:, 1] + g[:, 2] + g[:, 3])[:, None]
     return np.stack([g[:, State.H], g[:, State.A], g[:, State.D_AFTER_H] + g[:, State.D_AFTER_A]], axis=1)
+
+
+def _penalized_path(g: NDArray[np.float64], lam: float) -> NDArray[np.int8]:
+    """Labels over blocks maximising sum log(round(g, 9)) - lam * (changes of team), by Viterbi over H, A, D
+    after H and D after A, where D after H may only go back to H or on to A at cost lam (and the mirror).
+    Logs are rounded to 1e-12, as in _map; ties keep the current state, then the lower index.
+    """
+    rows = np.round(np.log(np.maximum(np.round(g, 9), 1e-12)), 12).tolist()
+    nb = len(rows)
+    h, a, dh, da = rows[0][0], rows[0][1], rows[0][2], rows[0][2]
+    back = [bytearray(nb) for _ in range(4)]
+    bh, ba, bdh, bda = back
+    for t in range(1, nb):
+        lh, la, ld = rows[t]
+        best, arg = h, 0
+        if a - lam > best:
+            best, arg = a - lam, 1
+        if dh > best:
+            best, arg = dh, 2
+        if da - lam > best:
+            best, arg = da - lam, 3
+        nh, bh[t] = best + lh, arg
+        best, arg = a, 1
+        if h - lam > best:
+            best, arg = h - lam, 0
+        if dh - lam > best:
+            best, arg = dh - lam, 2
+        if da > best:
+            best, arg = da, 3
+        na, ba[t] = best + la, arg
+        ndh, bdh[t] = (h + ld, 0) if h > dh else (dh + ld, 2)
+        nda, bda[t] = (a + ld, 1) if a > da else (da + ld, 3)
+        h, a, dh, da = nh, na, ndh, nda
+    final = [h, a, dh, da]
+    s, out = final.index(max(final)), bytearray(nb)
+    for t in range(nb - 1, 0, -1):
+        out[t] = s
+        s = back[s][t]
+    out[0] = s
+    return np.array([H, A, D, D], np.int8)[np.frombuffer(out, np.uint8)]
 
 
 def _map(E: NDArray[np.float64], p: DecoderParams) -> NDArray[np.int8]:
