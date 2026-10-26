@@ -183,15 +183,14 @@ def _team_shape(g: Geometry, kickoff: int) -> NDArray[np.float32]:
         ox, oy = xp.copy(), xy[..., 1].copy()
         ox[rows, keeper] = oy[rows, keeper] = np.nan
         k = _PACE_STEP
-        with np.errstate(all="ignore"):
+        with np.errstate(all="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
             cx, cy = np.nanmean(ox, 1), np.nanmean(oy, 1)
             f = np.stack([cx, np.nanmean(np.sort(ox, 1)[:, :4], 1), np.nanmax(ox, 1) - np.nanmin(ox, 1),
                           np.nanmax(oy, 1) - np.nanmin(oy, 1),
                           np.nanmean(np.hypot(ox - cx[:, None], oy - cy[:, None]), 1), np.full(g.n, np.nan)], 1)
             if g.n > 2 * k:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)
-                    f[k:-k, 5] = np.nanmedian((ox[2 * k:] - ox[:-2 * k]) / (2 * k) * FPS, 1)
+                f[k:-k, 5] = np.nanmedian((ox[2 * k:] - ox[:-2 * k]) / (2 * k) * FPS, 1)
         f[present.sum(1) < _SHAPE_MIN_PLAYERS] = np.nan
         out.append(f)
     return np.clip((out[0] - out[1]) @ np.asarray(_SHAPE_W), -_SHAPE_CAP, _SHAPE_CAP).astype(np.float32)

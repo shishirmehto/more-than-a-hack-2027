@@ -512,6 +512,18 @@ def dead_run_rule_known_answer() -> None:
     assert line(dead_line_m=2.0, dead_line_min_run=8, dead_line_lead_cut=2) == "HHHHHHDDDDDDHHHHHHHH"
     assert line(-0.5, dead_line_m=1.0, dead_line_min_run=8) == "HHHHHHHHDDDDHHHHHHHH"
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_lead_cut=2)
+
+    pace = np.ones(20, np.float32)
+    pace[13] = 3.0
+    ends = Half(HalfId("end", 1, 0), tok, BallGeometry(seen, seen, inside, seen), pace_mps=pace)
+
+    def end(**params: float) -> str:
+        p = DecoderParams(dead_min_run=5, dead_trim=2, **params)
+        return "".join(letter[int(c)] for c in decoder._missing_run_dead(np.full(20, H, np.int8), ends, p))
+
+    assert end() == "HHHHHHHHDDDDHHHHHHHH" and end(dead_end_lead=3, dead_end_live_mps=3.0) == end()
+    assert end(dead_end_lead=3, dead_end_live_mps=2.0) == "HHHHHHHHDDHHHHHHHHHH"
+    _raises(ValueError, DecoderParams, dead_min_run=5, dead_trim=2, dead_end_lead=3)
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_m=2.0)
     _raises(ValueError, DecoderParams, dead_min_run=12, dead_trim=2, dead_line_m=2.0, dead_line_min_run=13)
     no_line = Half(HalfId("line", 1, 0), tok, BallGeometry(seen, seen, inside, seen))
