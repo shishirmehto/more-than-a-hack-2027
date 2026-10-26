@@ -37,8 +37,9 @@ _END_WINDOW = 250
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed", "q_logit_rel")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
                   "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other",
-                  "rel_own", "shape_own")
+                  "rel_own", "shape_own", "held_own")
 _SHAPE_LAG = 50
+_HELD_RADIUS_M = 1.0
 _TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
 
 
@@ -565,7 +566,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     ln(1 + median ball speed relative to the nearest player on own-token frames, capped at 40 m/s); 0 when there
     is none or the geometry has no rel_mps. shape_own: mean Half.shape_lo toward the run's team over frames
     [start + 50, stop + 50), because team shape trails a change of possession by 2 to 4 s; 0 when none is
-    present or the Half has no shape_lo.
+    present or the Half has no shape_lo. held_own: share of the run's frames whose held team is the run's team,
+    the held team being the token at the latest frame up to then with the nearest player within 1 m of the ball
+    (experiment 35's last team within 1 m); a frame with no such earlier frame counts as not own.
     """
     g = half.geometry
     if g is None or half.push_mps is None:
@@ -578,6 +581,10 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     if half.n > 2 * s:
         dv[s:-s] = np.abs(v[2 * s:] - v[:-2 * s])
     touch = np.where(g.nearest_m <= _TOUCH_RADIUS_M, np.minimum(dv, _SPEED_CAP_MPS), np.nan)
+    with np.errstate(invalid="ignore"):
+        close = (g.nearest_m <= _HELD_RADIUS_M) & (half.nearest_team != NO_TEAM)
+    last = np.maximum.accumulate(np.where(close, np.arange(half.n), -1))
+    held = np.where(last >= 0, half.nearest_team[np.maximum(last, 0)], NO_TEAM)
     out = []
     for k, (a, b) in enumerate(zip(starts, stops)):
         team = int(codes[a])
@@ -620,7 +627,8 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
              float(D in (prev[0], nxt[0])), math.log1p(float(hit.max())) if len(hit) else 0.0,
              math.log1p(float(miss.max())) if len(miss) else 0.0,
              math.log1p(float(np.median(rel))) if len(rel) else 0.0,
-             sign * math.fsum(shape.tolist()) / len(shape) if len(shape) else 0.0)
+             sign * math.fsum(shape.tolist()) / len(shape) if len(shape) else 0.0,
+             int((held[a:b] == team).sum()) / (b - a))
         out.append((a, b, team, tuple(round(v, 9) for v in x)))
     return out
 
