@@ -16,14 +16,16 @@ StatsBomb's free World Cup 2022 event data. Data source: StatsBomb
 
 ## Result
 
-Fourteen new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed
+Fifteen new params files, each one confirmed on held-out data before the next was built. tier0_v11 passed
 every held-out test and was then stopped by its registered BAR-ATH transfer check; tier0_v12 is its refit without
 the feature that tripped the check. tier0_v13 is v12 with a stoppage start dated by a ball seen leaving the pitch.
 It is the recommendation. tier0_v15 (25 October) is v13 plus a shorter, untrimmed dead run where the ball
 vanishes next to a line. It cleared the selection rule and its held-out confirmation; the user kept tier0_v13
 and recorded v15 as a confirmed alternative (experiment 84). tier0_v14, v13 with a spell flip that never flips both sides of a boundary and a cut
 of 0.75, confirmed on the held-out games but is a near-tie that the selection rule, applied as registered for
-E32, does not ship (experiment 79):
+E32, does not ship (experiment 79). tier0_v16 (26 October) is v15 with each hand-over moved 20 frames later
+instead of 15. It cleared rule v2b and its held-out confirmation in both PFF gap modes (experiment 100), and waits
+for the user's decision; until then tier0_v13 stays the recommendation:
 
 | params | adds to the previous file | builds from | sha256 of the CSV |
 |---|---|---|---|
@@ -40,6 +42,7 @@ E32, does not ship (experiment 79):
 | `params/tier0_v12.json` | to tier0_v10: v11's spell flip refitted without the token-share feature (its weight 0) | the gated ATD | `002da6a32d63f03c…` |
 | `params/tier0_v13.json` | `dead_out_lead_cut` 25: a dead run whose ball is seen leaving the pitch near its start loses 25 frames there instead of 50 | the gated ATD | `8d980307e73c50e4…` |
 | `params/tier0_v15.json` | to tier0_v13: `dead_line_m` 1, `dead_line_min_run` 75, `dead_line_lead_cut` 50: a ball-missing run that starts within 1 m of a touchline or goal line counts as dead from 75 frames and loses no frames at its start | the gated ATD | `64fdd81649720ae8…` |
+| `params/tier0_v16.json` (pending the user) | to tier0_v15: `handover_lag` 20 instead of 15 | the gated ATD | `d103c79c4878c87b…` |
 | `params/tier0_v14.json` (near-tie) | `spell_flip_adjacent` and `spell_flip_p` 0.75: of short possessions that pass the flip and share a boundary, only the highest-scoring one flips, at a cut of 0.75 instead of 0.8 | the gated ATD | `0463708e9a525e3d…` |
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
@@ -63,6 +66,7 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 | **tier0_v13** | +0.154 [+0.145, +0.163] | +0.192 [+0.182, +0.202] | over v12: +0.0031 [+0.0022, +0.0041] 29/32 / +0.0033 [+0.0023, +0.0044] 27/32 | +0.111 (IDSSE m0) |
 | tier0_v15 (confirmed alternative) | +0.157 [+0.148, +0.167] | +0.196 [+0.186, +0.206] | over v13: +0.0035 [+0.0026, +0.0044] 28/32 / +0.0038 [+0.0028, +0.0047] 29/32 | +0.121 (IDSSE m0) |
 | tier0_v14 (near-tie) | +0.157 [+0.148, +0.166] | +0.196 [+0.187, +0.206] | over v13: +0.0028 [+0.0009, +0.0047] 26/32 / +0.0042 [+0.0024, +0.0061] 29/32 | +0.110 (IDSSE m0) |
+| tier0_v16 (confirmed, pending the user) | +0.159 [+0.149, +0.168] | +0.198 [+0.187, +0.208] | over v13: +0.0046 [+0.0034, +0.0057] 27/32 / +0.0055 [+0.0042, +0.0067] 29/32; bridged +0.0044 [+0.0034, +0.0054] 29/32 / +0.0056 [+0.0044, +0.0068] 29/32 | +0.123 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
   about half again on top of v2's margin. tier0_v8's margin is +0.049 and +0.060 above v2's (a difference of
@@ -497,6 +501,14 @@ overstates how independent the B columns are:
 | 90 | bridged PFF mode and rule v2b: native PFF with unseen runs under 125 frames counted as seen at PFF's own ball position; future experiments rank on the minimum over native and bridged | community session, label-free: BAR-ATH's ATD has 1 missing run between 1 and 5 s against about 211 per PFF game | re-rank: the v2 < v10 < v12 < v13 order holds in both modes; v15's edge over v13 shrinks from +0.0037 to +0.0021 bridged, v14's grows from +0.0024 to +0.0079 | recorded; no recommendation changed |
 | 91 | E47: `dead_return_m` {20, 10} x `dead_return_min_run` {375, 250}: a missing run whose ball reappears far from where it vanished needs a longer dead length; rule v2b | community session: on 5-10 s PFF gaps the return distance has AUC 0.846 for majority-dead; BAR-ATH has 53 such gaps | all pass the veto; m0 bridged falls (0.1317 to 0.1093-0.1280), m2 rises slightly | **no change**, as E28: the team fill across an un-deaded gap is wrong on m0 |
 | 92 | E48: E30's spell-flip logistic refitted on bridged PFF-A and frozen into v13's flip; rule v2b | a competitor's external result (+1.10 pts on held-out matches when trained on realistic long gaps) and experiment 90 | OOF lift +0.0283 on bridged; full decode: bridged m0 +0.0047, m2 +0.0085, native m0 flat; fails the veto on IDSSE m0 (-0.0047) and Metrica m0 (-0.0032) | **no change** |
+| 93 | E49: post-goal stoppages forced dead, from a goal tag to the next kick-off tag; dev tags simulated from labelled dead runs of 20 s or more ending at a centre-spot restart, goal tag noise ±10 s, kick-off tag 0 to 5 s early; leads 0, 2, 5 s; rule v2b | community-forks scan 10 (a competitor's Smart Tagging rule); BAR-ATH's 4 goal tags each pair with a kick-off tag, and v13 leaves live runs inside them | every arm ties base (PFF-A minimum 0.1317 to 0.1318 against 0.1317); synthetic within ±0.001; v13 already calls nearly every dev goal stoppage dead, and PFF's labels leave many goal stoppages live (35 found in 64 games) | **no change** |
+| 94 | E50: `switch_contact_penalty`, a cheaper change of team into a block where both teams are within 1.0 or 1.6 m of the ball or the ball is fast; 6 arms around switch_penalty 1, 2, 4; rule v2b | fork survey idea 2: E27's lambda 2 missed the IDSSE veto by 0.001 | 3 of 7 pass the veto and tie base (0.1318, 0.1313); every gated arm loses on native PFF; v13's later flips already remove what a larger penalty would | **no change**; the field stays at 0 |
+| 95 | E51: `p_flip_after_dead` 0.5, 0.6, 0.8 against 0.7319 (counted on Metrica); rule v2b | never re-scored on PFF or IDSSE | flat from 0.6 to 0.8 (0.1316 to 0.1318); 0.5 fails the Metrica m0 veto | **no change** |
+| 96 | E52 and E53: `handover_lag` 8, 22, 30, then 18, 20, 25 against 15; rule v2b | the lag was chosen before bridged mode existed | 18 to 22 form a plateau at 0.1331 to 0.1339 against 0.1317, inside E32's clause; 8 and 30 fail the veto, 25 by 0.0003 | **no change** alone; lag 20 enters E54 |
+| 97 | P2, label-reading, never a candidate: v13's hand-over offsets on PFF-A with the lag off, split by whether the ball is seen at the switch | is a visibility-dependent lag worth registering? | median 16 frames native, 18 to 19 bridged, seen and unseen alike; spread about 35 frames | no experiment |
+| 98 | P3, label-reading, never a candidate: the error oracle on v13 over native and bridged PFF, Metrica and IDSSE, plus a split of the team headroom by distance to a labelled hand-over | where the remaining headroom sits after E41 to E53 | perfect team with v13's D gives 0.71 to 0.74 against 0.37 to 0.55, perfect D with v13's team 0.46 to 0.64; on bridged PFF the seen-frame team fix carries the gain, and frames more than 25 from a hand-over lift m0 to 0.598 and m2 to 0.653 | points at team calls with the ball seen |
+| 99 | the ball detector's linked-track gate on 15 tactical-video stretches (video session, linker constants committed before any detection was read) | the line with headroom after E43 to E48 | edge precision 0.786 (gate 0.90), gap fill 0.132 (gate 0.25), 0 of 30 passes crossed a gap; a candidate within 2 m of the true ball exists on only 0.656 of edge frames | **closed**; see `reports/ball-detector-feasibility.md` |
+| 100 | E54: the near-misses crossed, as experiment 33 did: lag 20, the dead_line fields, E44's shape_own refit, alone and together (6 arms); rule v2b with E32's clause | each component gained inside the clause and acts on a different stage | dead line + lag 20 picked: 0.1359 against 0.1317 (+0.0042); with shape_own 0.1371, tied; PFF-B over v13 m0 native +0.0046 [+0.0034, +0.0057] 27/32, bridged +0.0044 [+0.0034, +0.0054] 29/32, m2 native +0.0055 [+0.0042, +0.0067] 29/32, bridged +0.0056 [+0.0044, +0.0068] 29/32, each within 0.0005 of PFF-A; seeds 15-24 worst group 0.1227 against 0.1110, above v13 in 13 of 15 groups | **tier0_v16**, pending the user |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames (overlapping slots, or officials in a team's slots) are untraced |
 
 ## What did not work, and why
@@ -728,6 +740,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-
 python -m possession make-submission --params params/tier0_v14.json --out tier0_v14.csv
 python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 15 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.8 250 0.5 --spell-logit $S2 --dead-lead-cut 0 25 --dead-line 1.0 75 50 --out params/tier0_v15.json
 python -m possession make-submission --params params/tier0_v15.json --out tier0_v15.csv
+python $F 126 50 150 --dead-outside-m 0.5 --q-logit $W --handover-lag 20 --dead-still 1.0 50 --dead-pace-still 0.5 --spell-push 2.0 250 0.5 --switch-penalty 1.0 --spell-flip 0.8 250 0.5 --spell-logit $S2 --dead-lead-cut 0 25 --dead-line 1.0 75 50 --out params/tier0_v16.json
+python -m possession make-submission --params params/tier0_v16.json --out tier0_v16.csv
 python experiments/hillclimb-2026-10-24/pfffree.py --out params/tier0_v13_pfffree.json
 python -m possession make-submission --params params/tier0_v13_pfffree.json --out tier0_v13_pfffree.csv
 ```

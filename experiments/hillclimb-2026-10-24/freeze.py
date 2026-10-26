@@ -138,7 +138,27 @@ LINE = ("dead_line_m, dead_line_min_run and dead_line_lead_cut come from pre-reg
         "games m0 +0.0035 [+0.0026, +0.0044] 28 of 32 won, m2 +0.0038 [+0.0028, +0.0047] 29 of 32; seeds 15-24 "
         "above tier0_v13 in all 15 groups (+0.0008 to +0.0171, largest on IDSSE) and the worst-group margin over "
         "baseline_smooth50 0.1211 against 0.1110. No BAR-ATH statistic was read. No StatsBomb data entered this "
-        "selection. A confirmed alternative, not the recommendation: the user kept tier0_v13 on 2026-10-25.")
+        "selection.")
+LINE_ALT = " A confirmed alternative, not the recommendation: the user kept tier0_v13 on 2026-10-25."
+E54 = ("handover_lag 20 with the dead_line fields comes from pre-registered experiment E54 on tier0_v13 under rule "
+       "v2b, whose PFF-A minimum is over m0 and m2 in native and bridged modes (bridged: unseen runs under 125 "
+       "frames count as seen, since BAR-ATH's ATD has about one such gap where PFF has about 211 per game). E52 "
+       "(lag 8, 22, 30) and E53 (lag 18, 20, 25) found a plateau at 18 to 22 frames, +0.0014 to +0.0022 on that "
+       "minimum, inside E32's clause. A label-reading oracle on PFF-A (scratch probe P3) put most of the remaining "
+       "headroom in team calls with the ball seen, away from the labelled hand-overs. E54's arms, registered before "
+       "it ran, crossed the near-misses: lag 20, the dead_line fields, E44's shape_own spell-logit refit, alone and "
+       "together (6 arms). Every component had been read on PFF-A in an earlier experiment, so the combination "
+       "reuses the selection half. Rule v2b with E32's clause (synthetic veto at tier0_v13 minus 0.003 in every "
+       "group; ties within 0.003 of the best to the base, then the fewest fields changed; no change unless the "
+       "pick clears the base by more than 0.003) chose the dead_line fields with lag 20: 0.1359 against 0.1317. "
+       "The arm with shape_own as well scored 0.1371 and tied. Confirmation, never used to choose, paired per "
+       "game over tier0_v13 on the even-indexed PFF games with 90% t intervals: m0 native +0.0046 [+0.0034, "
+       "+0.0057] 27 of 32 won, m0 bridged +0.0044 [+0.0034, +0.0054] 29 of 32, m2 native +0.0055 [+0.0042, "
+       "+0.0067] 29 of 32, m2 bridged +0.0056 [+0.0044, +0.0068] 29 of 32, each matching the odd-indexed games "
+       "within 0.0005; seeds 15-24: the worst-group margin over baseline_smooth50 0.1227 against 0.1110, above "
+       "tier0_v13 in 13 of 15 groups (h1p3 r1 -0.0005, m0 r1 -0.0006). No BAR-ATH statistic was read. No "
+       "StatsBomb data entered this selection. Frozen on 2026-10-26 for the user's decision; tier0_v13 stays the "
+       "recommendation until then.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -169,6 +189,7 @@ def main(argv):
                          "features left out weigh 0 and are not written")
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
+    e54 = bool(a.dead_line[0]) and a.handover_lag == 20
     if a.spell_logit and len(a.spell_logit) > 1 + len(SPELL_FEATURES):
         ap.error(f"--spell-logit takes at most {1 + len(SPELL_FEATURES)} values")
     v1_doc = json.loads(V1.read_text())
@@ -222,7 +243,8 @@ def main(argv):
                      (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
                      (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else "") +
                      (" " + LEAD if lead else "") + (" " + ADJ if a.spell_flip_adjacent else "") +
-                     (" " + LINE if a.dead_line[0] else ""),
+                     (" " + LINE if a.dead_line[0] else "") + (LINE_ALT if a.dead_line[0] and not e54 else "") +
+                     (" " + E54 if e54 else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -242,6 +264,8 @@ def main(argv):
                      if a.spell_flip_adjacent else "") +
                     (", e42-*.csv, e42b-*.csv, e42c-*.csv, hc-confirm-e42c-pff.csv and hc-confirm-e42c-synth.csv"
                      if a.dead_line[0] else "") +
+                    (", p3-oracle.out, e52-*.csv, e53-*.csv, e54-*.csv, e54-pick.out, e54-confirm.out, "
+                     "hc-confirm-e54-pff.csv and hc-confirm-e54-synth.csv" if e54 else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
@@ -249,7 +273,9 @@ def main(argv):
                          "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
                          "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Every experiment from E17 on, "
                          "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and " +
-                         ("the spell_flip, dead_lead and dead_line fields came after the " if a.dead_line[0] else
+                         ("the spell_flip, dead_lead and dead_line fields and handover_lag 20 came after the "
+                          if e54 else
+                          "the spell_flip, dead_lead and dead_line fields came after the " if a.dead_line[0] else
                           "the spell_flip and dead_lead fields came after the ") +
                          "first read. Inherited from "
                          "tier0_v1: " + v1_doc["provenance"]["public_window"],
