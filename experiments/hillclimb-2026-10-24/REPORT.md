@@ -26,7 +26,7 @@ of 0.75, confirmed on the held-out games but is a near-tie that the selection ru
 E32, does not ship (experiment 79). tier0_v16 (26 October) is v15 with each hand-over moved 20 frames later
 instead of 15. It cleared rule v2b over v13 (experiment 100), but most of that gain is v15's: over v15 the lag adds
 only +0.0011 and +0.0017 on the held-out games and loses on all six Metrica groups, so it is a near-tie over v15
-(experiment 101). tier0_v17 (27 October) is v13 with the emission's logistic refitted with a goalward-ball term: when the ball travels fast toward the goal the nearest player's team defends, that player's team is less often the possessor. Its selection gain under rule v2b, +0.024, is the largest since v12, but it missed the rule's confirmation clause, which needs both held-out lower bounds above 0 in each mode: native m2 gains +0.0027 [-0.0013, +0.0068]. Native PFF (+0.0046 and +0.0027 held out) is the floor. Bridged PFF (+0.019 and +0.022) is the ceiling, because about two thirds of its gain sits on PFF's estimated in-flight ball, which BAR-ATH may not share. On transplant worlds, whose ball mask does not follow the labels, it gains +0.021 to +0.043 (experiments 107 to 110). tier0_v18 is v15 with the same emission (E61, experiment 111). Over v15 it misses the same native m2 leg, and over v17 it passes all four, so the dead line and the goalward term add up. Which file is recommended is the user's decision. Until then tier0_v13 stays the recommendation:
+(experiment 101). tier0_v17 (27 October) is v13 with the emission's logistic refitted with a goalward-ball term: when the ball travels fast toward the goal the nearest player's team defends, that player's team is less often the possessor. Its selection gain under rule v2b, +0.024, is the largest since v12, but it missed the rule's confirmation clause, which needs both held-out lower bounds above 0 in each mode: native m2 gains +0.0027 [-0.0013, +0.0068]. Native PFF (+0.0046 and +0.0027 held out) is the floor. Bridged PFF (+0.019 and +0.022) is the ceiling, because about two thirds of its gain sits on PFF's estimated in-flight ball, which BAR-ATH may not share. On transplant worlds, whose ball mask does not follow the labels, it gains +0.021 to +0.043 (experiments 107 to 110). tier0_v18 is v15 with the same emission (E61, experiment 111). Over v15 it misses the same native m2 leg, and over v17 it passes all four, so the dead line and the goalward term add up. Later on 27 October the PFF loader was fixed. PFF's 29.97 fps tracking repeats every position for two frames, so the old nearest-frame resample made ball velocity jitter (experiment 113). On the fixed data the goalward weight barely moves (-0.360 against -0.352). The refit again wins selection by +0.026 and again misses native held-out confirmation, and v17 and v18 rescored still miss native m2 (experiment 114). Reshaping the term (one weight per direction, a distance interaction, or a one-sided interaction) and refitting the spell flip on the new emission gain at most +0.0018 at selection, so none ships (experiments 116 and 117). Which file is recommended is the user's decision. Until then tier0_v13 stays the recommendation:
 
 | params | adds to the previous file | builds from | sha256 of the CSV |
 |---|---|---|---|
@@ -50,7 +50,8 @@ only +0.0011 and +0.0017 on the held-out games and loses on all six Metrica grou
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
 the held-out half is"). The numbers are spellF1 margins over `baseline_smooth50`; the PFF columns are the 32
-held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
+held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals. Every row uses PFF resampled by nearest
+frame, as it was when the file was confirmed; experiment 114 rescored v13, v15, v17 and v18 on the fixed loader.
 
 | params | PFF native m0 | PFF native m2 | gain over the previous file, m0 / m2 (paired, held-out games won) | worst synthetic group, seeds 15-24 |
 |---|---|---|---|---|
@@ -179,6 +180,13 @@ no rule picked it: it was scored once, after the refit.
 - Every other value is v13's and was chosen by ranking on PFF-A, so the file removes PFF-fitted weights, not
   PFF-informed selection. On BAR-ATH it changes 3,066 of v13's frames, and home possessions go from 178 to 174.
   Its CSV hashes to `2b4467fac2d3ea0f…`.
+
+`params/tier0_v18_pfffree.json` (27 October) is the same refit on tier0_v15 with the goalward term, a PFF-free
+twin of tier0_v18. IDSSE and Metrica fit a goal weight of -0.584 against PFF-A's -0.360. On held-out PFF it is
+below v18 in all four legs (native m0 -0.0196, m2 -0.0242, bridged -0.0173, -0.0217) and below tier0_v13_pfffree
+on native m2 (-0.0115 [-0.0181, -0.0048]), while ahead of it in bridged mode. On synthetic seeds 15-24 its worst
+group, 0.1682, is above v18's 0.1568: it leads on the IDSSE groups and trails on all nine Metrica groups. Its CSV
+hashes to `792f0dc1156c6c83…`.
 
 What follows describes tier0_v13.
 
@@ -527,6 +535,11 @@ overstates how independent the B columns are:
 | 110 | E60 confirmation (PFF-B in both modes, seeds 15-24 at dead_bias 1, 2.6 and 4) and realism (crisp, E58's blur, E58's blur plus E59's dropout, transplant worlds included); frozen as `params/tier0_v17.json` | the registered confirmation, and the two dev-realism gaps experiments 103 to 105 measured | PFF-B over v13: native m0 +0.0046 [+0.0010, +0.0082] 19/32, m2 +0.0027 [-0.0013, +0.0068] 17/32 (PFF-A was +0.0083 and +0.0058), so rule v2b's clause (both lower bounds above 0 in each mode) fails on native m2; bridged m0 +0.0192 [+0.0152, +0.0232] 29/32, m2 +0.0221 [+0.0173, +0.0269] 29/32, about two thirds of it on frames where PFF's ball is ESTIMATED (review, 24 games). Seeds 15-24 (renewal worlds, the weak test): above v13 in all 15 groups (+0.025 to +0.055) and on all 150 worlds (smallest +0.015); worst-group margin 0.1470 against 0.1110. Over v13 crisp / blurred / blurred with dropout: IDSSE and Metrica +0.021 to +0.052, PFF bridged and transplant +0.022 to +0.029, PFF native +0.005 to +0.008, so the blur barely changes the gain; transplant proxy 0.36-0.45 against v13's 0.34-0.41. On BAR-ATH it changes 6,198 of 158,857 graded frames, all H and A swaps, none to or from D | **tier0_v17**, frozen, but it misses rule v2b's confirmation on native m2; native is the floor, bridged the ceiling; the recommendation is the user's call |
 | 111 | E61: tier0_v15 with E60's frozen emission, no refit (`probes.py e61grid`); arms base v15 and v15 plus the emission; rule v2b with E32's clause on base v15; confirmation on PFF-B and seeds 15-24 over v15, with v17 scored beside it | v17 against v15 on PFF-B native was +0.0011 and -0.0010, so v15's dead line and E60's term looked like separate gains | PFF-A minimum 0.1582 against 0.1338, synthetic minimum 0.1553 against 0.1203 (v17 0.1446). Over v15 on PFF-B: the same pattern as v17 over v13 (bridged +0.019 and +0.022, native +0.0045 and +0.0026 [-0.0015, +0.0066]), so rule v2b's clause fails on native m2 here too. Over v17 on PFF-B: m0 bridged +0.0021 [+0.0012, +0.0030] 27/32, m2 bridged +0.0023 [+0.0014, +0.0033] 27/32, m0 native +0.0034 [+0.0025, +0.0043] 27/32, m2 native +0.0036 [+0.0026, +0.0046] 28/32. Seeds 15-24: above v15 on all 150 worlds and above v17 in all 15 groups and on 146 of 150 worlds; worst-group margin 0.1568. On BAR-ATH it differs from v13 on 6,966 frames (6,158 H and A swaps, 808 to D, which are v15's), from v15 on 6,138 swaps and from v17 on 823 frames (808 to D) | **tier0_v18**, frozen: the best file on every dev measure, but it misses rule v2b's confirmation over v15 on native m2; over v17 it passes; the recommendation is the user's call |
 | 112 | orientation hardening after the review: one `challenge._attack_signs` for `push_mps`, `shape_lo` and `goal_mps`; with both teams placed in the first second after kickoff, the lower mean x attacks +x, so the teams always attack opposite ways (before, each team was judged against the midline alone) | review flag L1: BAR-ATH's away team in half 1 sat 1.5 m from the midline; a scan of all 148 dev halves found one where both teams stood right of it (pff_3818 half 2, an A game), so both were given the same direction | BAR-ATH unchanged (all 20 params files rebuild to their pinned hashes); on PFF only pff_3818 moves, v13 +0.018 to +0.021 and v17 and v18 +0.021 to +0.055 there, pooled +0.0002 to +0.0009; no B game, so no held-out number changes; selfcheck gains mirrored, both-right and late-kickoff cases (33 ok) | **fix**, output-neutral on BAR-ATH |
+| 113 | PFF resampling fix (`pff.undouble`, `pff.at_ticks`): a position equal to the frame before it, between two that differ, becomes the midpoint of its neighbours, then positions are interpolated linearly to the 25 Hz ticks (the nearest frame where a neighbour is missing); labels and ball visibility stay nearest-frame | the open `pff.ticks` limitation; a source scan found PFF updates every second frame of its 29.97 fps stream (99.7% of moving-ball steps are 2 frames apart, half of all player steps repeat), so plain interpolation only moved the ball's vx-change autocorrelation from -0.653 to -0.524 | undoubled: +0.664 (BAR-ATH +0.994); every pinned file rebuilds unchanged, label and visibility counts unchanged, selfcheck 34 ok | **fix**, output-neutral on BAR-ATH |
+| 114 | E62: E60 rerun on the fixed loader, bases v13 and v15; arms base, refit, E60's own weights, refit with `handover_lag` 10 and 5 (`probes.py e62grid`); rule v2b with E32's clause; written before the run: a confirmed refit would be frozen as v19 and v20 | the fit and the native worlds both read PFF velocity | refit goal -0.3604 (was -0.3522), PFF-A minimum +0.0259 over v13 and +0.0257 over v15, E60's weights within 0.0003; held out over v13: bridged +0.020 and +0.023, native m0 +0.0034 [-0.0001, +0.0069], m2 +0.0011 [-0.0030, +0.0052]; seeds 15-24 above in 150 of 150 worlds; v17 over v13 rescored: native m2 +0.0014 [-0.0026, +0.0053] | **not confirmed**; nothing frozen |
+| 115 | `params/tier0_v18_pfffree.json`: tier0_v15 with the goalward emission and the spell flip fitted on IDSSE and Metrica only (`pfffree.py --base params/tier0_v15.json --goal`); `pfffree.py` also gets E30's full drop list back, so it rebuilds tier0_v13_pfffree again | the PFF-free twin of v18 for the licence question | IDSSE and Metrica fit a stronger goal weight (-0.584), a source effect (by source: PFF-A -0.360, Metrica -0.517, IDSSE -0.621, no interval overlap); scored once: below v18 on held-out PFF by 0.017 to 0.024, below tier0_v13_pfffree on native m2 (-0.0115 [-0.0181, -0.0048]) | **fallback**, not a candidate |
+| 116 | E64 on v15 plus E62's refit: arms base, spell flip refitted on the new emission (E30's recipe on PFF-A), goalward term split by direction, goalward term with a distance interaction (`probes.py e64grid`, `GoalFormEmission`) | v13's spell weights were fitted before the goalward term; a census over all three sources found the cue one-sided (a ball moving toward the token team's own goal) and fading with distance | PFF-A minimum +0.0012 (split), +0.0012 (spell refit); the interaction fails the synthetic veto (-0.0029) | **no change** |
+| 117 | E65: the one-sided interaction, ln(1 + max(u, 0)) and its product with ln(1 + d) (`probes.py e65grid`); the form came from the census on the same PFF-A labels | the best-fitting of the four forms (log loss 0.32547 against 0.33217) | PFF-A minimum +0.0018; native m0 and m2 both -0.0010 | **no change**; the goalward-form line closes |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames (overlapping slots, or officials in a team's slots) are untraced |
 
 ## What did not work, and why
@@ -700,12 +713,18 @@ penalty lowers the predicted count too, and I had read that ratio when I added �
   games). BAR-ATH's ball is smoothed and loses airborne balls; whether its fast frames follow PFF's accuracy
   curve, or include tracker spikes the odd-signed term would read, cannot be checked without labels. The term's
   odd form also raises confidence for fast balls toward the token team's attacking goal, where P7 measured
-  q 0.78 (about 2.5% of frames); a one-sided form was not tried.
-- tier0_v17's goalward term was fitted on PFF resampled to 25 Hz by nearest frame (`pff.ticks`), whose ball x
-  velocity carries frame-level jitter (lag-1 autocorrelation of its first difference -0.65, against -0.04 at
-  PFF's native 29.97 fps and +0.99 on BAR-ATH; community-forks scan). A noisier fitting input usually pulls a
-  fitted weight toward 0 (inferred). Fixing the resampling would change the fit, so it needs E60 rerun under
-  the rule, not only a refreeze.
+  q 0.78 (about 2.5% of frames). One-sided forms fit better but decode no better (experiments 116 and 117).
+- Experiments up to 112 selected and confirmed on PFF resampled by nearest frame, which stepped one or two of
+  PFF's 15 Hz updates per 25 Hz tick. Positions barely care, but every velocity feature jittered: ball speed,
+  `push_mps` and `goal_mps`. The loader now undoubles and interpolates (experiment 113). Only the goalward term
+  was rerun on it (experiment 114): its weight moved by 0.008 and its native held-out gain stayed small. The
+  older velocity-based constants (the push flip, the still-ball dead cue, the spell flip's speed features) were
+  not reselected.
+- The goalward weight depends on the source: PFF-A -0.360, Metrica -0.517, IDSSE -0.621, and blurring the
+  Metrica and IDSSE ball does not move them toward PFF. PFF's event-derived owner holding through long balls is
+  a likely cause (inferred). The rules do not say how BAR-ATH's labels were made. If they follow a frame-level
+  convention like Metrica's or DFL's, its true weight may be stronger than the shipped -0.352 (a guess). The
+  PFF-free twin fitted at -0.584 loses on PFF's native gaps (experiment 115).
 - dead_bias 2.6, the generator's run pool, and E59's per-team track deficit are match-wide statistics of
   BAR-ATH's automatic inputs. The organisers have not confirmed that such statistics are allowed. The track
   deficit was used only to score dev worlds and chose no constant.
@@ -787,6 +806,8 @@ python $F 126 50 150 --dead-outside-m 0.5 --q-logit 1.794214 -1.27255 1.088767 -
 python -m possession make-submission --params params/tier0_v18.json --out tier0_v18.csv
 python experiments/hillclimb-2026-10-24/pfffree.py --out params/tier0_v13_pfffree.json
 python -m possession make-submission --params params/tier0_v13_pfffree.json --out tier0_v13_pfffree.csv
+python experiments/hillclimb-2026-10-24/pfffree.py --base params/tier0_v15.json --goal --out params/tier0_v18_pfffree.json
+python -m possession make-submission --params params/tier0_v18_pfffree.json --out tier0_v18_pfffree.csv
 ```
 
 Each selection reruns from its probe, for example `python experiments/hillclimb-2026-10-24/probes.py logit
