@@ -35,7 +35,8 @@ _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mp
 _OUT_BEFORE, _OUT_AFTER = 25, 75
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed", "q_logit_rel")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
-                  "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other")
+                  "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other",
+                  "rel_own")
 _TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
 
 
@@ -517,7 +518,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     when both neighbouring runs are the other team. prev_len, next_len: ln(1 + neighbour length). next_to_d: 1
     when a neighbour is D (the half's edges count as D). touch_own, touch_other: ln(1 + the largest change of ball
     speed between frames t - 5 and t + 5, capped at 40 m/s, over frames t within 1.5 m of a player whose token is
-    the run's team inside the run, the other team's within 25 frames of it); 0 when there is none.
+    the run's team inside the run, the other team's within 25 frames of it); 0 when there is none. rel_own:
+    ln(1 + median ball speed relative to the nearest player on own-token frames, capped at 40 m/s); 0 when there
+    is none or the geometry has no rel_mps.
     """
     g = half.geometry
     if g is None or half.push_mps is None:
@@ -546,6 +549,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
         margin = margin[~np.isnan(margin)]
         push = half.push_mps[a:b].astype(np.float64)
         push = push[np.isfinite(push)]
+        rel = (np.minimum(g.rel_mps[a:b][own].astype(np.float64), _SPEED_CAP_MPS) if g.rel_mps is not None
+               else np.empty(0))
+        rel = rel[~np.isnan(rel)]
         hit = touch[a:b][own]
         hit = hit[~np.isnan(hit)]
         lo, hi = max(a - _TOUCH_SLACK, 0), min(b + _TOUCH_SLACK, half.n)
@@ -564,7 +570,8 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
              min(max(sign * math.fsum(logodds[a:b].tolist()) / (b - a), -20.0), 20.0),
              float(prev[0] == nxt[0] == 1 - team), math.log1p(prev[1]), math.log1p(nxt[1]),
              float(D in (prev[0], nxt[0])), math.log1p(float(hit.max())) if len(hit) else 0.0,
-             math.log1p(float(miss.max())) if len(miss) else 0.0)
+             math.log1p(float(miss.max())) if len(miss) else 0.0,
+             math.log1p(float(np.median(rel))) if len(rel) else 0.0)
         out.append((a, b, team, tuple(round(v, 9) for v in x)))
     return out
 
