@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 import warnings
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable, Literal
 
@@ -143,6 +143,24 @@ def _relative_speed(g: Geometry, slot: NDArray[np.intp], speed: NDArray[np.float
     return rel
 
 
+def _goal_velocity(g: Geometry, kickoff: int, token: NDArray[np.int8]) -> NDArray[np.float32]:
+    """BallGeometry.goal_mps: the ball's x velocity from frames t-2 and t+2, else between t and whichever of
+    them has a ball, 0 when neither, signed toward the goal the token's team defends. That team attacks +x
+    when its slots' mean x over the first second after kickoff is in the left half, as in _team_push."""
+    k, x = _SPEED_STEP, g.ball_xy[:, 0].astype(np.float64)
+    pad = np.full(k, np.nan)
+    back, fwd = np.r_[pad, x[:-k]][:g.n], np.r_[x[k:], pad][-g.n:]
+    one = np.where(np.isnan(fwd), x - back, fwd - x) / k
+    vx = np.nan_to_num(np.where(np.isnan(fwd - back), one, (fwd - back) / (2 * k)), nan=0.0) * FPS
+    out = np.full(g.n, np.nan)
+    for team in (HOME, AWAY):
+        with np.errstate(all="ignore"):
+            start = float(np.nanmean(g.players_xy[kickoff:kickoff + FPS, g.slot_team == team, 0]))
+        sign = 0.0 if np.isnan(start) else 1.0 if start < g.pitch_m[0] / 2 else -1.0
+        out[token == team] = -sign * vx[token == team]
+    return out.astype(np.float32)
+
+
 def _player_pace(g: Geometry) -> NDArray[np.float32]:
     k, out = _PACE_STEP, np.full(g.n, np.nan, np.float32)
     for lo in range(k, g.n - k, _CHUNK):
@@ -224,6 +242,7 @@ def observe(g: Geometry, id: HalfId) -> Half:
     first slot.
     """
     token, geometry = _nearest(g)
+    geometry = replace(geometry, goal_mps=_goal_velocity(g, id.kickoff, token))
     return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
                 push_mps=_team_push(g, id.kickoff), shape_lo=_team_shape(g, id.kickoff),
                 return_m=_gap_return(g.ball_xy.astype(np.float64)))

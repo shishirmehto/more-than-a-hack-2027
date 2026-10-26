@@ -931,6 +931,42 @@ def team_push_known_answer() -> None:
         assert np.isnan(challenge._team_push(Geometry(late.ball_xy, xy, late.slot_team, late.pitch_m), 0)).all()
 
 
+def goal_velocity_known_answer() -> None:
+    """challenge._goal_velocity: the ball's x velocity signed toward the goal the token's team defends (home
+    starts left, so it defends x = 0), one-sided at a ball gap's edge (frame 4), 0 where neither side has a
+    ball (frame 8) and for a team with no slot at kick-off;
+    and Tier0Emission's q_logit_goal term, which needs it."""
+    n = 10
+    x = np.arange(n, dtype=np.float64)
+    ball = np.stack([40.0 + x, np.full(n, 30.0)], 1)
+    ball[6] = np.nan
+    players = np.array([[[30.0, 30.0], [70.0, 30.0]]] * n)
+    g = Geometry(ball.astype(np.float32), players.astype(np.float32), np.array([HOME, AWAY], np.int8), (100.0, 60.0))
+    tok = np.array([HOME, AWAY, HOME, AWAY, HOME, AWAY, NO_TEAM, AWAY, HOME, AWAY], np.int8)
+    u = challenge._goal_velocity(g, 0, tok)
+    want = np.array([-25, 25, -25, 25, -25, 25, np.nan, 25, 0, 25], np.float64)
+    assert np.allclose(u, want, equal_nan=True), u
+    gone = players.copy()
+    gone[:, 1] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        u = challenge._goal_velocity(Geometry(g.ball_xy, gone.astype(np.float32), g.slot_team, g.pitch_m), 0, tok)
+    assert np.allclose(u[tok == AWAY], 0.0) and np.allclose(u[tok == HOME], [-25, -25, -25, 0]), u
+
+    zero = np.zeros(2, np.float32)
+    goal = np.array([0.0, math.e - 1], np.float32)
+    two = Half(HalfId("goal", 1, 0), np.array([HOME, HOME], np.int8),
+               BallGeometry(zero, zero, zero, zero, goal_mps=goal))
+    ll = Tier0Emission(q_logit_a=1.0, q_logit_goal=-1.0).loglik(two).astype(np.float64)
+    assert abs((ll[0, 0] - ll[1, 0]) - (-math.log1p(math.exp(-1.0)) - math.log(0.5))) < 1e-5
+    back = Half(HalfId("goal", 1, 0), np.array([HOME, HOME], np.int8),
+                BallGeometry(zero, zero, zero, zero, goal_mps=-goal))
+    lb = Tier0Emission(q_logit_a=1.0, q_logit_goal=-1.0).loglik(back).astype(np.float64)
+    assert abs((lb[1, 0] - lb[0, 0]) - (-math.log1p(math.exp(-2.0)) + math.log1p(math.exp(-1.0)))) < 1e-5
+    _raises(ValueError, Tier0Emission(q_logit_a=1.0, q_logit_goal=-1.0).loglik,
+            Half(HalfId("goal", 1, 0), np.array([HOME, HOME], np.int8), BallGeometry(zero, zero, zero, zero)))
+
+
 def _expanded_hmm(p: DecoderParams):
     trans = decoder._chain(p).trans
     mean, k = decoder._blocks(p)
@@ -1392,6 +1428,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     spell_merge_known_answer,
     spell_push_known_answer,
     team_push_known_answer,
+    goal_velocity_known_answer,
     switch_penalty_known_answer,
     switch_contact_known_answer,
     spell_flip_known_answer,

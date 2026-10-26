@@ -34,7 +34,8 @@ _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mp
                      "dead_pace_live_mps", "dead_lead_cut", "dead_out_lead_cut", "dead_out_min_run")
 _OUT_BEFORE, _OUT_AFTER = 25, 75
 _END_WINDOW = 250
-_LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed", "q_logit_rel")
+_LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed", "q_logit_rel",
+                 "q_logit_goal")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
                   "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other",
                   "rel_own", "shape_own", "held_own")
@@ -70,6 +71,9 @@ class Tier0Emission:
                     points away from its own team.
     q_logit_rel:    adds g ln(1 + min(r, 40)) to z, r = BallGeometry.rel_mps, the ball's speed relative to the
                     nearest player: a ball moving with its player makes the token more reliable.
+    q_logit_goal:   adds h sign(u) ln(1 + min(|u|, 40)) to z, u = BallGeometry.goal_mps, the ball's x velocity
+                    toward the goal the token's team defends: when the ball travels fast at the token team's
+                    own goal the token is less often right, so a negative h lowers q there.
     Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, finite q_logit terms.
     """
     q: float = 0.78
@@ -81,6 +85,7 @@ class Tier0Emission:
     q_logit_speed: float = 0.0
     q_logit_dist_speed: float = 0.0
     q_logit_rel: float = 0.0
+    q_logit_goal: float = 0.0
 
     def __post_init__(self) -> None:
         _number("q", self.q, 0, 1)
@@ -127,6 +132,11 @@ class Tier0Emission:
             if g.rel_mps is None:
                 raise ValueError(f"{half.id}: q_logit_rel reads BallGeometry.rel_mps and this Half has none")
             z = z + self.q_logit_rel * np.log1p(np.minimum(g.rel_mps[where].astype(np.float64), _SPEED_CAP_MPS))
+        if self.q_logit_goal:
+            if g.goal_mps is None:
+                raise ValueError(f"{half.id}: q_logit_goal reads BallGeometry.goal_mps and this Half has none")
+            u = np.clip(g.goal_mps[where].astype(np.float64), -_SPEED_CAP_MPS, _SPEED_CAP_MPS)
+            z = z + self.q_logit_goal * np.sign(u) * np.log1p(np.abs(u))
         hit, miss = -np.logaddexp(0.0, -z), -np.logaddexp(0.0, z)
         home = half.nearest_team[where] == HOME
         out[where, 0] = np.where(home, hit, miss) + seen[0]
