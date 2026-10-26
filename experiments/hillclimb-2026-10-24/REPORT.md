@@ -667,6 +667,11 @@ penalty lowers the predicted count too, and I had read that ratio when I added Î
   the same PFF games (`possession/pff/statsbomb.py`), fetched by the data session under the StatsBomb Public
   Data User Agreement for local research. None is about BAR-ATH. The providers made these labels, not us; to
   our knowledge all four come from analysts tagging events (inferred, not stated in the files).
+- **IDSSE's citation.** The organisers answered in upstream issue 16 that training on IDSSE is allowed and
+  that CC BY 4.0 requires the dataset's citation in both the technical document and the README. The
+  reference is Bassek, Rein, Weber and Memmert (2025), "An integrated dataset of spatiotemporal and event
+  data in elite soccer", Scientific Data 12, 195, doi:10.1038/s41597-025-04505-y. The README carries it under
+  "Licence and citation". The same answer repeats that every constant must be chosen on other games.
 - **The training-data list SUBMISSION.md now asks for.** Since upstream f8f2629 the document must list every
   labelled dataset, its source, who labelled it and how much, none from the provided game. The bullet above
   is the draft. Add the amounts: Metrica 3 games, IDSSE 7 matches, PFF 64 games split 32 selection and 32

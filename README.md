@@ -184,6 +184,29 @@ The code and documentation in this repository are released under the MIT Licence
 [LICENSE](LICENSE). **The match data is not covered by it**: it is separately licensed for this
 competition only, under the terms you accept at enrolment.
 
+### Other-game data this fork trains and selects on
+
+The possession labeller in `possession/` fits and checks its constants on other games, never on the
+provided match. One of those sources is the IDSSE dataset, released under CC BY 4.0, which asks to be
+cited:
+
+> Bassek, M., Rein, R., Weber, H. and Memmert, D. (2025). An integrated dataset of spatiotemporal and
+> event data in elite soccer. *Scientific Data* 12, 195. https://doi.org/10.1038/s41597-025-04505-y
+
+```bibtex
+@article{bassek2025idsse,
+  title   = {An integrated dataset of spatiotemporal and event data in elite soccer},
+  author  = {Bassek, Manuel and Rein, Robert and Weber, Hendrik and Memmert, Daniel},
+  journal = {Scientific Data},
+  volume  = {12},
+  pages   = {195},
+  year    = {2025},
+  doi     = {10.1038/s41597-025-04505-y}
+}
+```
+
+No file from it is committed. `possession/idsse/` reads a local copy fetched from the pysport mirror on Hugging Face (`pysport/idsse-data`).
+
 ```bibtex
 @misc{mtah2027,
   title  = {More than a Hack 2027: Phase 1 - Ball Possession},
