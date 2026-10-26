@@ -24,8 +24,9 @@ vanishes next to a line. It cleared the selection rule and its held-out confirma
 and recorded v15 as a confirmed alternative (experiment 84). tier0_v14, v13 with a spell flip that never flips both sides of a boundary and a cut
 of 0.75, confirmed on the held-out games but is a near-tie that the selection rule, applied as registered for
 E32, does not ship (experiment 79). tier0_v16 (26 October) is v15 with each hand-over moved 20 frames later
-instead of 15. It cleared rule v2b and its held-out confirmation in both PFF gap modes (experiment 100), and waits
-for the user's decision; until then tier0_v13 stays the recommendation:
+instead of 15. It cleared rule v2b over v13 (experiment 100), but most of that gain is v15's: over v15 the lag adds
+only +0.0011 and +0.0017 on the held-out games and loses on all six Metrica groups, so it is a near-tie over v15
+(experiment 101). tier0_v13 stays the recommendation:
 
 | params | adds to the previous file | builds from | sha256 of the CSV |
 |---|---|---|---|
@@ -42,7 +43,7 @@ for the user's decision; until then tier0_v13 stays the recommendation:
 | `params/tier0_v12.json` | to tier0_v10: v11's spell flip refitted without the token-share feature (its weight 0) | the gated ATD | `002da6a32d63f03c…` |
 | `params/tier0_v13.json` | `dead_out_lead_cut` 25: a dead run whose ball is seen leaving the pitch near its start loses 25 frames there instead of 50 | the gated ATD | `8d980307e73c50e4…` |
 | `params/tier0_v15.json` | to tier0_v13: `dead_line_m` 1, `dead_line_min_run` 75, `dead_line_lead_cut` 50: a ball-missing run that starts within 1 m of a touchline or goal line counts as dead from 75 frames and loses no frames at its start | the gated ATD | `64fdd81649720ae8…` |
-| `params/tier0_v16.json` (pending the user) | to tier0_v15: `handover_lag` 20 instead of 15 | the gated ATD | `d103c79c4878c87b…` |
+| `params/tier0_v16.json` (near-tie over v15) | to tier0_v15: `handover_lag` 20 instead of 15 | the gated ATD | `d103c79c4878c87b…` |
 | `params/tier0_v14.json` (near-tie) | `spell_flip_adjacent` and `spell_flip_p` 0.75: of short possessions that pass the flip and share a boundary, only the highest-scoring one flips, at a cut of 0.75 instead of 0.8 | the gated ATD | `0463708e9a525e3d…` |
 
 Held-out results. No selection rule read these numbers, but the held-out half was not clean (see "How clean
@@ -66,7 +67,7 @@ held-out games (B, `pff.GAMES[1::2]`) with 90% per-game t intervals.
 | **tier0_v13** | +0.154 [+0.145, +0.163] | +0.192 [+0.182, +0.202] | over v12: +0.0031 [+0.0022, +0.0041] 29/32 / +0.0033 [+0.0023, +0.0044] 27/32 | +0.111 (IDSSE m0) |
 | tier0_v15 (confirmed alternative) | +0.157 [+0.148, +0.167] | +0.196 [+0.186, +0.206] | over v13: +0.0035 [+0.0026, +0.0044] 28/32 / +0.0038 [+0.0028, +0.0047] 29/32 | +0.121 (IDSSE m0) |
 | tier0_v14 (near-tie) | +0.157 [+0.148, +0.166] | +0.196 [+0.187, +0.206] | over v13: +0.0028 [+0.0009, +0.0047] 26/32 / +0.0042 [+0.0024, +0.0061] 29/32 | +0.110 (IDSSE m0) |
-| tier0_v16 (confirmed, pending the user) | +0.159 [+0.149, +0.168] | +0.198 [+0.187, +0.208] | over v13: +0.0046 [+0.0034, +0.0057] 27/32 / +0.0055 [+0.0042, +0.0067] 29/32; bridged +0.0044 [+0.0034, +0.0054] 29/32 / +0.0056 [+0.0044, +0.0068] 29/32 | +0.123 (IDSSE m0) |
+| tier0_v16 (near-tie over v15) | +0.159 [+0.149, +0.168] | +0.198 [+0.187, +0.208] | over v13: +0.0046 [+0.0034, +0.0057] 27/32 / +0.0055 [+0.0042, +0.0067] 29/32; bridged +0.0044 [+0.0034, +0.0054] 29/32 / +0.0056 [+0.0044, +0.0068] 29/32 | +0.123 (IDSSE m0) |
 
 - From tier0_v2 to tier0_v7 the held-out margin over smooth50 grows by +0.044 on m0 and +0.048 on m2. That is
   about half again on top of v2's margin. tier0_v8's margin is +0.049 and +0.060 above v2's (a difference of
@@ -401,7 +402,8 @@ overstates how independent the B columns are:
   on v5 that motivated E9, and the headroom table below), the census and the oracle split pooled all 64
   games. Only the census was rerun on A games.
 - B served as the pass/fail test for about fifteen sequential confirmations (through tier0_v14) and E19's
-  rejection.
+  rejection, then for tier0_v15 (E42c) and tier0_v16 (E54). v16's lag 20 was a hypothesis already formed with
+  B rows printed (above), and its bundle with v15's dead line reused a B result read in E42c.
 - The push cue has had 16 non-base candidates on the same A games: E24's four weights, E25's six arms and
   E26's six. E26's (speed, length) points were E25's top three on PFF-A, and E26's tie between 2 and 3 m/s
   over 250 frames went to 2 m/s on the higher PFF-A minimum, by 0.00004.
@@ -508,7 +510,8 @@ overstates how independent the B columns are:
 | 97 | P2, label-reading, never a candidate: v13's hand-over offsets on PFF-A with the lag off, split by whether the ball is seen at the switch | is a visibility-dependent lag worth registering? | median 16 frames native, 18 to 19 bridged, seen and unseen alike; spread about 35 frames | no experiment |
 | 98 | P3, label-reading, never a candidate: the error oracle on v13 over native and bridged PFF, Metrica and IDSSE, plus a split of the team headroom by distance to a labelled hand-over | where the remaining headroom sits after E41 to E53 | perfect team with v13's D gives 0.71 to 0.74 against 0.37 to 0.55, perfect D with v13's team 0.46 to 0.64; on bridged PFF the seen-frame team fix carries the gain, and frames more than 25 from a hand-over lift m0 to 0.598 and m2 to 0.653 | points at team calls with the ball seen |
 | 99 | the ball detector's linked-track gate on 15 tactical-video stretches (video session, linker constants committed before any detection was read) | the line with headroom after E43 to E48 | edge precision 0.786 (gate 0.90), gap fill 0.132 (gate 0.25), 0 of 30 passes crossed a gap; a candidate within 2 m of the true ball exists on only 0.656 of edge frames | **closed**; see `reports/ball-detector-feasibility.md` |
-| 100 | E54: the near-misses crossed, as experiment 33 did: lag 20, the dead_line fields, E44's shape_own refit, alone and together (6 arms); rule v2b with E32's clause | each component gained inside the clause and acts on a different stage | dead line + lag 20 picked: 0.1359 against 0.1317 (+0.0042); with shape_own 0.1371, tied; PFF-B over v13 m0 native +0.0046 [+0.0034, +0.0057] 27/32, bridged +0.0044 [+0.0034, +0.0054] 29/32, m2 native +0.0055 [+0.0042, +0.0067] 29/32, bridged +0.0056 [+0.0044, +0.0068] 29/32, each within 0.0005 of PFF-A; seeds 15-24 worst group 0.1227 against 0.1110, above v13 in 13 of 15 groups | **tier0_v16**, pending the user |
+| 100 | E54: the near-misses crossed, as experiment 33 did: lag 20, the dead_line fields, E44's shape_own refit, alone and together (6 arms); rule v2b with E32's clause | each component gained inside the clause and acts on a different stage | dead line + lag 20 picked: 0.1359 against 0.1317 (+0.0042); with shape_own 0.1371, tied; PFF-B over v13 m0 native +0.0046 [+0.0034, +0.0057] 27/32, bridged +0.0044 [+0.0034, +0.0054] 29/32, m2 native +0.0055 [+0.0042, +0.0067] 29/32, bridged +0.0056 [+0.0044, +0.0068] 29/32, each within 0.0005 of PFF-A; seeds 15-24 worst group 0.1227 against 0.1110, above v13 in 13 of 15 groups | **tier0_v16**, then judged a near-tie in experiment 101 |
+| 101 | cross-model review (sonnet) of experiments 93 to 100 and the correction it led to | the run's review step | picks and confirmation numbers reproduce; but the lag's own effect over v15 on the even-indexed games is m0 native +0.0011 [+0.0004, +0.0017] 20/32 and m2 native +0.0017 [+0.0009, +0.0024] 23/32, inside the clause; on seeds 15-24 v16 is below v15 in all six Metrica groups (-0.0012 to -0.0019); v13 and v15 were confirmed only when above their predecessor in all 15 groups, and v16 is above v13 in 13; E54 also reused components read on PFF-A and lag 20 missed PFF-B in experiment 33 | **tier0_v16 is a near-tie over v15**, not a recommendation; its provenance, this report and the log were corrected |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames (overlapping slots, or officials in a team's slots) are untraced |
 
 ## What did not work, and why
