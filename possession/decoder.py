@@ -218,6 +218,13 @@ class DecoderParams:
                         each block's argmax, so a run of one team inside the other survives only when its
                         summed log-odds over that team reach 2 * switch_penalty. A pass through D between
                         the teams is charged once. "marginal" only.
+    switch_contact_penalty: 0 is off. Otherwise a change of team into a block where some frame has contact costs
+                        this instead of switch_penalty. Contact is both teams' nearest players within
+                        switch_contact_m of the ball, or the ball faster than switch_contact_mps, so a turnover
+                        the tracking can see is cheap and a change inside a ball gap is not. Needs switch_penalty
+                        and switch_contact_m, and a Half with geometry.
+    switch_contact_m:   see switch_contact_penalty.
+    switch_contact_mps: see switch_contact_penalty; 0 leaves the speed cue off.
     spell_flip_p:       0 is off. Otherwise, after the merge and before the lag, a possession shorter than
                         spell_flip_frames whose share of frames with a token is at least spell_flip_seen goes to
                         the other team when the logistic spell_logit over its SPELL_FEATURES (_spell_runs) gives
@@ -267,6 +274,9 @@ class DecoderParams:
     spell_push_between: int = 0
     spell_push_unseen: float = 0.0
     switch_penalty: float = 0.0
+    switch_contact_penalty: float = 0.0
+    switch_contact_m: float = 0.0
+    switch_contact_mps: float = 0.0
     spell_flip_p: float = 0.0
     spell_flip_frames: int = 0
     spell_flip_seen: float = 0.0
@@ -340,6 +350,13 @@ class DecoderParams:
         _number("switch_penalty", self.switch_penalty, 0, math.inf, lo_open=False)
         if self.switch_penalty and self.decode_rule != "marginal":
             raise ValueError("switch_penalty acts only with decode_rule 'marginal'")
+        _number("switch_contact_penalty", self.switch_contact_penalty, 0, math.inf, lo_open=False)
+        _number("switch_contact_m", self.switch_contact_m, 0, math.inf, lo_open=False)
+        _number("switch_contact_mps", self.switch_contact_mps, 0, math.inf, lo_open=False)
+        if bool(self.switch_contact_penalty) != bool(self.switch_contact_m):
+            raise ValueError("switch_contact_penalty and switch_contact_m are set together")
+        if (self.switch_contact_penalty or self.switch_contact_mps) and not (self.switch_penalty and self.switch_contact_m):
+            raise ValueError("switch_contact_penalty and switch_contact_mps act only with switch_penalty > 0 and switch_contact_m > 0")
         _number("spell_flip_p", self.spell_flip_p, 0, 1, lo_open=False)
         _number("spell_flip_frames", self.spell_flip_frames, 0, math.inf, integer=True, lo_open=False)
         _number("spell_flip_seen", self.spell_flip_seen, 0, 1, lo_open=False, hi_open=False)
@@ -382,7 +399,8 @@ _OPTIONAL_EMISSION = dict.fromkeys(_LOGIT_FIELDS, 0.0)
 _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_outside_m": 0.0, "dead_still_mps": 0.0,
                     "dead_still_frames": 0, "dead_pace_still_mps": 0.0, "dead_pace_live_mps": 0.0, "handover_lag": 0,
                     "spell_merge_frames": 0, "spell_merge_tails": 0, "spell_push_mps": 0.0, "spell_push_frames": 0,
-                    "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0, "spell_flip_p": 0.0,
+                    "spell_push_between": 0, "spell_push_unseen": 0.0, "switch_penalty": 0.0, "switch_contact_penalty": 0.0,
+                    "switch_contact_m": 0.0, "switch_contact_mps": 0.0, "spell_flip_p": 0.0,
                     "spell_flip_frames": 0, "spell_flip_seen": 0.0, "spell_logit": {}, "dead_lead_cut": 0,
                     "dead_out_lead_cut": 0, "dead_out_min_run": 0, "spell_flip_adjacent": False,
                     "dead_line_m": 0.0, "dead_line_min_run": 0, "dead_line_lead_cut": 0, "dead_end_lead": 0,
@@ -439,7 +457,8 @@ class Decoder:
         logodds = _frame_logodds(g, half, p.stride, m) if p.spell_flip_p else None
         if p.switch_penalty:
             codes = np.full(half.n, D, dtype=np.int8)
-            codes[kickoff:] = np.repeat(_penalized_path(g, p.switch_penalty), p.stride)[:m]
+            lam = _switch_costs(half, p, kickoff, m) if p.switch_contact_penalty else p.switch_penalty
+            codes[kickoff:] = np.repeat(_penalized_path(g, lam), p.stride)[:m]
             return Decoded(codes=_rules(codes, half, p, logodds), posterior=None)
         post = np.empty((half.n, 3), dtype=np.float64)
         post[:kickoff] = (0.0, 0.0, 1.0)
@@ -876,18 +895,35 @@ def _forward_backward(E: NDArray[np.float64], chain: _Chain) -> NDArray[np.float
     return np.stack([g[:, State.H], g[:, State.A], g[:, State.D_AFTER_H] + g[:, State.D_AFTER_A]], axis=1)
 
 
-def _penalized_path(g: NDArray[np.float64], lam: float) -> NDArray[np.int8]:
-    """Labels over blocks maximising sum log(round(g, 9)) - lam * (changes of team), by Viterbi over H, A, D
-    after H and D after A, where D after H may only go back to H or on to A at cost lam (and the mirror).
-    Logs are rounded to 1e-12, as in _map; ties keep the current state, then the lower index.
+def _switch_costs(half: Half, p: DecoderParams, kickoff: int, m: int) -> list[float]:
+    """Per block from kickoff, the cost of a change of team into it: switch_contact_penalty where some frame of
+    the block has contact (see DecoderParams), else switch_penalty."""
+    if half.geometry is None:
+        raise ValueError("switch_contact_penalty needs a Half with geometry")
+    g = half.geometry
+    with np.errstate(invalid="ignore"):
+        contact = (g.nearest_m + g.margin_m <= p.switch_contact_m)
+        if p.switch_contact_mps:
+            contact |= g.speed_mps > p.switch_contact_mps
+    hit = np.logical_or.reduceat(contact[kickoff:kickoff + m], np.arange(0, m, p.stride))
+    return np.where(hit, p.switch_contact_penalty, p.switch_penalty).tolist()
+
+
+def _penalized_path(g: NDArray[np.float64], lam: float | list[float]) -> NDArray[np.int8]:
+    """Labels over blocks maximising sum log(round(g, 9)) - (cost of each change of team), by Viterbi over H, A,
+    D after H and D after A, where D after H may only go back to H or on to A (and the mirror). lam is the cost
+    of every change, or a list with the cost of a change into each block. Logs are rounded to 1e-12, as in
+    _map; ties keep the current state, then the lower index.
     """
     rows = np.round(np.log(np.maximum(np.round(g, 9), 1e-12)), 12).tolist()
     nb = len(rows)
+    costs = lam if isinstance(lam, list) else [lam] * nb
     h, a, dh, da = rows[0][0], rows[0][1], rows[0][2], rows[0][2]
     back = [bytearray(nb) for _ in range(4)]
     bh, ba, bdh, bda = back
     for t in range(1, nb):
         lh, la, ld = rows[t]
+        lam = costs[t]
         best, arg = h, 0
         if a - lam > best:
             best, arg = a - lam, 1

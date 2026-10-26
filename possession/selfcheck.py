@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -747,6 +748,51 @@ def switch_penalty_known_answer() -> None:
         assert Decoder.load(Path(tmp) / "sw.json") == model
 
 
+def switch_contact_known_answer() -> None:
+    """decoder._switch_costs: a change of team into a block with contact (both teams within switch_contact_m,
+    or a fast ball) costs switch_contact_penalty, any other change switch_penalty; per-block costs in
+    _penalized_path, the guards, and a saved file without the fields when they are off."""
+    h = [0.9, 0.05, 0.05]
+    island = np.array([h] * 4 + [[0.4, 0.6, 0.0]] * 3 + [h] * 4, np.float64)
+    cheap = [1.0] * 4 + [0.5] + [1.0] * 2 + [0.5] + [1.0] * 3
+    assert decoder._penalized_path(island, cheap).tolist() == [H] * 4 + [A] * 3 + [H] * 4
+    assert decoder._penalized_path(island, [1.0] * 11).tolist() == [H] * 11
+    tok = np.array([HOME] * 10 + [AWAY] * 2 + [HOME] * 10, np.int8)
+    near, margin, speed = np.full(22, 5.0, np.float32), np.full(22, 5.0, np.float32), np.full(22, 1.0, np.float32)
+    margin[[10, 12]] = 0.5
+    geo = BallGeometry(margin_m=margin, nearest_m=np.full(22, 0.5, np.float32), outside_m=np.zeros(22, np.float32),
+                       speed_mps=speed)
+    half = Half(HalfId("contact", 1, 0), tok, geometry=geo)
+    base = Decoder(Tier0Emission(q=0.99), DecoderParams(temper=1.0, poss_mean_s=0.2, stride=1, switch_penalty=4.0))
+    assert base.decode(half).codes.tolist() == [H] * 10 + [D] * 2 + [H] * 10
+    gated = base.replace(switch_contact_penalty=3.0, switch_contact_m=1.6)
+    assert gated.decode(half).codes.tolist() == [H] * 10 + [A] * 2 + [H] * 10
+    assert base.replace(switch_contact_penalty=3.0, switch_contact_m=0.9).decode(half).codes.tolist() == \
+        [H] * 10 + [D] * 2 + [H] * 10
+    fast = dataclasses.replace(geo, speed_mps=np.where(np.isin(np.arange(22), [10, 12]), 6.0, 1.0).astype(np.float32))
+    fast = dataclasses.replace(fast, margin_m=np.full(22, 5.0, np.float32))
+    by_speed = base.replace(switch_contact_penalty=3.0, switch_contact_m=0.9, switch_contact_mps=3.0)
+    assert by_speed.decode(Half(HalfId("contact", 1, 0), tok, geometry=fast)).codes.tolist() == \
+        [H] * 10 + [A] * 2 + [H] * 10
+    for bad in ({"switch_contact_penalty": 1.0}, {"switch_contact_penalty": 1.0, "switch_contact_m": 1.6},
+                {"switch_penalty": 2.0, "switch_contact_penalty": 1.0},
+                {"switch_penalty": 2.0, "switch_contact_mps": 3.0}):
+        try:
+            DecoderParams(**bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad} was accepted")
+    try:
+        gated.decode(Half(HalfId("contact", 1, 0), tok))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a Half without geometry was decoded with switch_contact_penalty")
+    with tempfile.TemporaryDirectory() as tmp:
+        assert "switch_contact_m" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(gated.save(Path(tmp) / "on.json", {})) == gated
+
+
 def spell_flip_known_answer() -> None:
     """decoder._spell_flip: a short run takes the other team when the spell logit over its features reaches
     logit(spell_flip_p); feature values, the length limit, the token-share gate, D runs, mirroring, the
@@ -1339,6 +1385,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     spell_push_known_answer,
     team_push_known_answer,
     switch_penalty_known_answer,
+    switch_contact_known_answer,
     spell_flip_known_answer,
     map_equals_expanded_viterbi,
     dropout_hits_both_constraints,
