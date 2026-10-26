@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import warnings
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,11 @@ _TAG_HALF = {"1st half": 1, "2nd half": 2}
 _CHUNK = 20_000
 _SPEED_STEP = 2
 _PACE_STEP = 12
+# Logistic weights of P(home in possession) on _team_shape's columns (adv, line, length, width, spread, push; metres
+# and m/s), no intercept so the score is team-symmetric, fitted on IDSSE m0 live frames at 5 Hz by the
+# player-position session (in-sample accuracy 0.827). No PFF or BAR-ATH data entered them.
+_SHAPE_W = (0.0453, -0.0656, 0.0253, 0.0926, 0.15, 0.2108)
+_SHAPE_MIN_PLAYERS, _SHAPE_CAP = 8, 10.0
 
 _NORM_LIMIT = 2.0
 
@@ -165,6 +171,32 @@ def _team_push(g: Geometry, kickoff: int) -> NDArray[np.float32]:
     return (push[:, HOME] - push[:, AWAY]).astype(np.float32)
 
 
+def _team_shape(g: Geometry, kickoff: int) -> NDArray[np.float32]:
+    rows, out = np.arange(g.n), []
+    for team in (HOME, AWAY):
+        xy = g.players_xy[:, g.slot_team == team].astype(np.float64)
+        with np.errstate(all="ignore"):
+            start = float(np.nanmean(xy[kickoff:kickoff + FPS, :, 0]))
+        xp = (1.0 if start < g.pitch_m[0] / 2 else -1.0) * (xy[..., 0] - g.pitch_m[0] / 2)
+        present = ~np.isnan(xp)
+        keeper = np.argmin(np.where(present, xp, np.inf), axis=1)
+        ox, oy = xp.copy(), xy[..., 1].copy()
+        ox[rows, keeper] = oy[rows, keeper] = np.nan
+        k = _PACE_STEP
+        with np.errstate(all="ignore"):
+            cx, cy = np.nanmean(ox, 1), np.nanmean(oy, 1)
+            f = np.stack([cx, np.nanmean(np.sort(ox, 1)[:, :4], 1), np.nanmax(ox, 1) - np.nanmin(ox, 1),
+                          np.nanmax(oy, 1) - np.nanmin(oy, 1),
+                          np.nanmean(np.hypot(ox - cx[:, None], oy - cy[:, None]), 1), np.full(g.n, np.nan)], 1)
+            if g.n > 2 * k:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    f[k:-k, 5] = np.nanmedian((ox[2 * k:] - ox[:-2 * k]) / (2 * k) * FPS, 1)
+        f[present.sum(1) < _SHAPE_MIN_PLAYERS] = np.nan
+        out.append(f)
+    return np.clip((out[0] - out[1]) @ np.asarray(_SHAPE_W), -_SHAPE_CAP, _SHAPE_CAP).astype(np.float32)
+
+
 def _ball_speed(ball: NDArray[np.float64]) -> NDArray[np.float64]:
     k = _SPEED_STEP
     pad = np.full((k, 2), np.nan)
@@ -182,7 +214,7 @@ def observe(g: Geometry, id: HalfId) -> Half:
     """
     token, geometry = _nearest(g)
     return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
-                push_mps=_team_push(g, id.kickoff))
+                push_mps=_team_push(g, id.kickoff), shape_lo=_team_shape(g, id.kickoff))
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",

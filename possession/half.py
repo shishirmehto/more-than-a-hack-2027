@@ -126,6 +126,10 @@ class Half:
                   over its slots present at t-12 and t+12 of the x velocity in m/s, positive toward the goal
                   the team attacks (it starts the half in the other half). NaN where either team has no such
                   slot.
+    shape_lo:     float32 [n] next to push_mps: ln P(H) - ln P(A) from team shape alone (challenge._team_shape),
+                  each team's outfield centroid, back line, length, width, spread and push in its own attacking
+                  direction, home minus away, through fixed logistic weights; clipped to +-10, NaN where either team
+                  has fewer than 8 players present.
 
     Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
     NO_TEAM frames.
@@ -135,6 +139,7 @@ class Half:
     geometry: BallGeometry | None = None
     pace_mps: NDArray[np.float32] | None = None
     push_mps: NDArray[np.float32] | None = None
+    shape_lo: NDArray[np.float32] | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -157,7 +162,7 @@ class Half:
                 if not np.array_equal(np.isnan(a), unseen):
                     raise ValueError(f"geometry.{name} must be NaN exactly where nearest_team is NO_TEAM")
                 _freeze(a)
-        for name in ("pace_mps", "push_mps"):
+        for name in ("pace_mps", "push_mps", "shape_lo"):
             a = getattr(self, name)
             if a is None:
                 continue
