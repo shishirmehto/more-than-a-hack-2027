@@ -196,6 +196,18 @@ def _team_shape(g: Geometry, kickoff: int) -> NDArray[np.float32]:
     return np.clip((out[0] - out[1]) @ np.asarray(_SHAPE_W), -_SHAPE_CAP, _SHAPE_CAP).astype(np.float32)
 
 
+def _gap_return(ball: NDArray[np.float64]) -> NDArray[np.float32]:
+    """float32 [n]: on each frame of a ball gap that has a seen ball on both sides, the distance in metres
+    between the last seen ball before the gap and the first seen ball after it; NaN elsewhere."""
+    out = np.full(len(ball), np.nan, np.float32)
+    gap = np.concatenate(([False], np.isnan(ball[:, 0]), [False]))
+    edges = np.flatnonzero(np.diff(gap.view(np.int8)))
+    for start, stop in zip(edges[::2], edges[1::2]):
+        if start > 0 and stop < len(ball):
+            out[start:stop] = np.hypot(*(ball[stop] - ball[start - 1]))
+    return out
+
+
 def _ball_speed(ball: NDArray[np.float64]) -> NDArray[np.float64]:
     k = _SPEED_STEP
     pad = np.full((k, 2), np.nan)
@@ -213,7 +225,8 @@ def observe(g: Geometry, id: HalfId) -> Half:
     """
     token, geometry = _nearest(g)
     return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
-                push_mps=_team_push(g, id.kickoff), shape_lo=_team_shape(g, id.kickoff))
+                push_mps=_team_push(g, id.kickoff), shape_lo=_team_shape(g, id.kickoff),
+                return_m=_gap_return(g.ball_xy.astype(np.float64)))
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",

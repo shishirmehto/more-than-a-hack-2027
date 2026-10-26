@@ -115,6 +115,7 @@ linegrid PARAMS      E42 arms: a shorter dead length for missing runs that start
 linelead PARAMS      E42b arms: E42 plus a 25-frame lead cut for those runs (full decode per arm)
 linefull PARAMS      E42c arms: E42 with the whole 50-frame start trim removed for those runs
 endlead PARAMS       E46 arms: a dead run ends where players are fast 2 or 4 s later (full decode per arm)
+returngrid PARAMS    E47 arms: a run whose ball reappears far from where it vanished needs a longer dead length
 flippairs PARAMS     adjacent co-flips: label-free share of paired flips, and the independent oracle resolved per pair
 flipindep PARAMS     spell flip ceiling with the per-run target applied at once (indep) against the greedy oracle (seq)
 insertfit PARAMS --out PREFIX
@@ -759,7 +760,7 @@ def scored_cases(worlds):
     the selection half) and its even-indexed games ("_B", held out)."""
     for world, cases in worlds.items():
         case = bench.pooled(cases)
-        if not world.endswith("_native"):
+        if not world.endswith(("_native", "_bridged")):
             yield bench.group(world), world, case
             continue
         games = list(dict.fromkeys(h.id.match for h in case.halves))
@@ -831,13 +832,13 @@ def confirm(path, halves=("all", "A", "B")):
     t = pd.read_csv(path)
     pooled = t[t.case == "dev_pooled"].assign(group=lambda f: f.world.map(bench.group))
     if "B" not in halves and "all" not in halves:
-        pooled = pooled[~pooled.world.str.endswith("_native")]
+        pooled = pooled[~pooled.world.str.endswith(("_native", "_bridged"))]
     spell = pooled.pivot_table(index=["group", "world"], columns="model", values="spell_f1")
     margin = spell.sub(spell["baseline_smooth50"], axis=0).groupby("group").mean()
     print("seed-mean pooled margin over smooth50 per group")
     print(margin.T.assign(min=margin.T.min(1), mean=margin.T.mean(1)).sort_values("min", ascending=False)
           .round(4).to_string())
-    games = t[(t.case != "dev_pooled") & t.world.str.endswith("_native")]
+    games = t[(t.case != "dev_pooled") & t.world.str.endswith(("_native", "_bridged"))]
     if games.empty:
         return
     wide = games.pivot_table(index=["world", "case"], columns="model", values="spell_f1")
@@ -1423,6 +1424,7 @@ LINE_LEAD_GRID = [{}] + [{"dead_line_m": m, "dead_line_min_run": r, "dead_line_l
 LINE_FULL_GRID = [{}] + [{"dead_line_m": m, "dead_line_min_run": r, "dead_line_lead_cut": 50}
                          for r in (75, 50) for m in (1.0, 2.0)]
 END_LEAD_GRID = [{}] + [{"dead_end_lead": f, "dead_end_live_mps": v} for v in (2.5, 2.0, 1.5) for f in (100, 50)]
+RETURN_GRID = [{}] + [{"dead_return_m": m, "dead_return_min_run": r} for r in (375, 250) for m in (20.0, 10.0)]
 
 SWITCH_GRID = [{}] + [{"switch_penalty": lam} for lam in (1, 2, 4, 8)] + \
     [{"switch_penalty": 8, "switch_free_at_dead": 1}, {"switch_penalty": 16},
@@ -3769,8 +3771,8 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
     pm = pd.read_csv(pff_csv).groupby(["group", "variant"]).margin.mean().unstack("group")
     allowed = pd.Series([WIDE_SLACK if g.startswith(tuple(wide)) else VETO_SLACK for g in sm.columns], sm.columns)
     slack = sm.sub(sm.loc[base] - allowed, axis=1)
-    t = pd.DataFrame({"synth_min": sm.min(axis=1), "pff_a_min": pm.min(axis=1), "pff_m0_A": pm.iloc[:, 0],
-                      "pff_m2_A": pm.iloc[:, 1], "worst_group": slack.idxmin(axis=1), "veto_slack": slack.min(axis=1)})
+    t = pd.DataFrame({"synth_min": sm.min(axis=1), "pff_a_min": pm.min(axis=1),
+                      **{g.replace("pff_", "").replace("_A", ""): pm[g] for g in pm.columns}, "worst_group": slack.idxmin(axis=1), "veto_slack": slack.min(axis=1)})
     t["passes"] = t.veto_slack >= 0
     print(t.sort_values("pff_a_min", ascending=False).round(4).to_string())
     ok = t[t.passes]
@@ -3788,7 +3790,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "linegrid", "linelead", "linefull", "endlead"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "linegrid", "linelead", "linefull", "endlead", "returngrid"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -3804,7 +3806,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop, a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),

@@ -164,6 +164,10 @@ class DecoderParams:
                         ball is seen within dead_line_m metres of a touchline or goal line (BallGeometry.line_m,
                         outside counts) in the 25 frames before its start counts as dead from dead_line_min_run
                         frames instead of dead_min_run: a ball lost next to a line is often out of play.
+    dead_return_m, dead_return_min_run: 0 is off; set both or neither. A run whose ball reappears at least
+                        dead_return_m metres from where it vanished (the largest Half.return_m inside the run)
+                        counts as dead only from dead_return_min_run frames: a ball that travelled far while
+                        unseen was mostly in play. Needs dead_min_run.
     dead_end_lead, dead_end_live_mps: 0 is off; set both or neither. A dead run's end moves back to the first
                         frame t of its last 250 frames whose median player speed dead_end_lead frames later
                         (Half.pace_mps at t + dead_end_lead) is above dead_end_live_mps: players speed up 1 to 4 s
@@ -275,6 +279,8 @@ class DecoderParams:
     dead_line_min_run: int = 0
     dead_line_lead_cut: int = 0
     dead_end_lead: int = 0
+    dead_return_m: float = 0.0
+    dead_return_min_run: int = 0
     dead_end_live_mps: float = 0.0
 
     def __post_init__(self) -> None:
@@ -303,6 +309,10 @@ class DecoderParams:
                 hi_open=False)
         _number("dead_end_lead", self.dead_end_lead, 0, math.inf, integer=True, lo_open=False)
         _number("dead_end_live_mps", self.dead_end_live_mps, 0, math.inf, lo_open=False)
+        _number("dead_return_m", self.dead_return_m, 0, math.inf, lo_open=False)
+        _number("dead_return_min_run", self.dead_return_min_run, 0, math.inf, integer=True, lo_open=False)
+        if bool(self.dead_return_m) != bool(self.dead_return_min_run):
+            raise ValueError("dead_return_m and dead_return_min_run act together: set both or neither")
         if bool(self.dead_end_lead) != bool(self.dead_end_live_mps):
             raise ValueError("dead_end_lead and dead_end_live_mps act together: set both or neither")
         if self.dead_line_lead_cut and not self.dead_line_m:
@@ -376,7 +386,8 @@ _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_ou
                     "spell_flip_frames": 0, "spell_flip_seen": 0.0, "spell_logit": {}, "dead_lead_cut": 0,
                     "dead_out_lead_cut": 0, "dead_out_min_run": 0, "spell_flip_adjacent": False,
                     "dead_line_m": 0.0, "dead_line_min_run": 0, "dead_line_lead_cut": 0, "dead_end_lead": 0,
-                    "dead_end_live_mps": 0.0}
+                    "dead_end_live_mps": 0.0, "dead_return_m": 0.0,
+                    "dead_return_min_run": 0}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -730,6 +741,8 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
         if half.geometry is None or half.geometry.line_m is None:
             raise ValueError(f"{half.id}: dead_line_m reads BallGeometry.line_m and this Half has none")
         near = half.geometry.line_m <= p.dead_line_m
+    if p.dead_return_m and half.return_m is None:
+        raise ValueError(f"{half.id}: dead_return_m reads Half.return_m and this Half has none")
     if p.dead_end_lead and half.pace_mps is None:
         raise ValueError(f"{half.id}: dead_end_lead reads Half.pace_mps and this Half has none")
     missing = np.concatenate(([False], unseen, [False]))
@@ -741,6 +754,10 @@ def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> 
             lead, need = max(lead - p.dead_out_lead_cut, 0), p.dead_out_min_run or need
         elif near is not None and near[max(start - _OUT_BEFORE, 0):start].any():
             lead, need = max(lead - p.dead_line_lead_cut, 0), p.dead_line_min_run
+        if p.dead_return_m:
+            far = half.return_m[start:stop]
+            if (far >= p.dead_return_m).any():
+                need = max(need, p.dead_return_min_run)
         lo = start + lead if start > 0 else -p.dead_min_run
         hi = stop - p.dead_trim if stop < n else n + p.dead_min_run
         if hi - lo >= need - lead - p.dead_trim and min(hi, n) > max(lo, 0):

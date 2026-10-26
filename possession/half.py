@@ -130,6 +130,8 @@ class Half:
                   each team's outfield centroid, back line, length, width, spread and push in its own attacking
                   direction, home minus away, through fixed logistic weights; clipped to +-10, NaN where either team
                   has fewer than 8 players present.
+    return_m:     float32 [n] next to shape_lo: on each frame of a ball gap with a seen ball on both sides, the
+                  distance in metres from the last seen ball before the gap to the first after it; NaN elsewhere.
 
     Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
     NO_TEAM frames.
@@ -140,6 +142,7 @@ class Half:
     pace_mps: NDArray[np.float32] | None = None
     push_mps: NDArray[np.float32] | None = None
     shape_lo: NDArray[np.float32] | None = None
+    return_m: NDArray[np.float32] | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -162,7 +165,7 @@ class Half:
                 if not np.array_equal(np.isnan(a), unseen):
                     raise ValueError(f"geometry.{name} must be NaN exactly where nearest_team is NO_TEAM")
                 _freeze(a)
-        for name in ("pace_mps", "push_mps", "shape_lo"):
+        for name in ("pace_mps", "push_mps", "shape_lo", "return_m"):
             a = getattr(self, name)
             if a is None:
                 continue
