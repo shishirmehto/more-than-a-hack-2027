@@ -186,27 +186,31 @@ SOURCES: Mapping[str, DevSource] = {
 
 
 def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
-           mode: Literal["renewal", "transplant", "native"] = "renewal",
+           mode: Literal["renewal", "transplant", "native", "bridged"] = "renewal",
            source: str = "metrica") -> dict[str, list[Case]]:
     """dev_cases for every (rule, dead_bias, seed), keyed "{rule.key}_r{dead_bias:g}" ("m2_r1"), plus
     "_s{seed}" for a seed other than 0 ("h3p3_r1_s2"). Rule-major, seed innermost. "transplant"
     ignores dead_bias, so it builds one world per (rule, seed), keyed
     "{rule.key}_transplant[_s{seed}]". "native" ignores dead_bias and seeds: one world per rule, keyed
     "{rule.key}_native", whose ball is NaN wherever the source's tracker did not see it
-    (DevSource.native_seen; ValueError for a source without one). source names a SOURCES entry:
+    (DevSource.native_seen; ValueError for a source without one). "bridged" is "native" with every unseen
+    run shorter than BRIDGE_FRAMES counted as seen at the source's own ball position, because BAR-ATH's
+    ATD bridges short occlusions (measured: 1 missing run between 1 and 5 s in the match against about 211
+    per PFF game), keyed "{rule.key}_bridged". source names a SOURCES entry:
     "idsse" builds them from the seven DFL matches and "pff" from the 64 World Cup 2022 games instead
     of the three Metrica games (merge rules only), and every key gets the source's prefix ("idsse_m0_r1").
     Each world's halves are observed as the loader yields a half, so a streaming loader (pff) never
     holds more than one game's geometry."""
     dev, out = SOURCES[source], {}
-    if mode == "native" and dev.native_seen is None:
-        raise ValueError(f"source {source!r} has no native ball mask, so mode 'native' needs another source (pff)")
-    pool = None if mode == "native" else dropout.RunPool.from_halves(challenge.halves("baseline_raw"))
+    if mode in ("native", "bridged") and dev.native_seen is None:
+        raise ValueError(f"source {source!r} has no native ball mask, so mode {mode!r} needs another source (pff)")
+    pool = None if mode in ("native", "bridged") else dropout.RunPool.from_halves(challenge.halves("baseline_raw"))
     for rule in rules:
         prefix = f"{dev.key_prefix}{rule.key}_"
         observers: dict[str, Callable[[CleanHalf], Half]]
-        if mode == "native":
-            observers = {prefix + "native": functools.partial(_observe_native, seen=dev.native_seen)}
+        if mode in ("native", "bridged"):
+            seen = dev.native_seen if mode == "native" else functools.partial(_bridged, seen=dev.native_seen)
+            observers = {prefix + mode: functools.partial(_observe_native, seen=seen)}
         else:
             generators = ({"transplant": DropoutParams(mode="transplant")} if mode == "transplant"
                           else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
@@ -222,11 +226,12 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
     return out
 
 
-MODES = ("renewal", "transplant", "native")
+MODES = ("renewal", "transplant", "native", "bridged")
+BRIDGE_FRAMES = 125
 
 
 def dev_worlds(items: Sequence[str], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
-               mode: Literal["renewal", "transplant", "native"] = "renewal",
+               mode: Literal["renewal", "transplant", "native", "bridged"] = "renewal",
                source: str = "metrica") -> dict[str, list[Case]]:
     """worlds() for "[source:]rule[:mode]" items, so one call mixes sources and ball-gap modes ("m0",
     "idsse:m0", "pff:m0:native"). An item without a source uses `source`, one without a mode uses `mode`.
@@ -276,6 +281,15 @@ def _observe_dropout(clean: CleanHalf, *, params: DropoutParams, seed: int, pool
     """dropout.challengeify of one half. Its masks are seeded per half, so this equals that half's
     entry in a call on every half."""
     return dropout.challengeify([clean], params, seed, pool)[0]
+
+
+def _bridged(clean: CleanHalf, *, seen: Callable[[CleanHalf], NDArray[np.bool_]]) -> NDArray[np.bool_]:
+    out = seen(clean).copy()
+    edges = np.flatnonzero(np.diff(np.concatenate(([True], out, [True])).view(np.int8)))
+    for start, stop in zip(edges[::2], edges[1::2]):
+        if stop - start < BRIDGE_FRAMES:
+            out[start:stop] = True
+    return out
 
 
 def _observe_native(clean: CleanHalf, *, seen: Callable[[CleanHalf], NDArray[np.bool_]]) -> Half:
