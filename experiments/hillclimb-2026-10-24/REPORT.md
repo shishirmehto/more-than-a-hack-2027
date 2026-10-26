@@ -542,6 +542,7 @@ overstates how independent the B columns are:
 | 115 | `params/tier0_v18_pfffree.json`: tier0_v15 with the goalward emission and the spell flip fitted on IDSSE and Metrica only (`pfffree.py --base params/tier0_v15.json --goal`); `pfffree.py` also gets E30's full drop list back, so it rebuilds tier0_v13_pfffree again | the PFF-free twin of v18 for the licence question | IDSSE and Metrica fit a stronger goal weight (-0.584), a source effect (by source: PFF-A -0.360, Metrica -0.517, IDSSE -0.621, no interval overlap); scored once: below v18 on held-out PFF by 0.017 to 0.024, below tier0_v13_pfffree on native m2 (-0.0115 [-0.0181, -0.0048]) | **fallback**, not a candidate |
 | 116 | E64 on v15 plus E62's refit: arms base, spell flip refitted on the new emission (E30's recipe on PFF-A), goalward term split by direction, goalward term with a distance interaction (`probes.py e64grid`, `GoalFormEmission`) | v13's spell weights were fitted before the goalward term; the two forms were registered before any census, and a census over all three sources, read before E64's results, then found the cue one-sided (a ball moving toward the token team's own goal) and fading with distance | PFF-A minimum +0.0012 (split), +0.0012 (spell refit); the interaction fails the synthetic veto (-0.0029) | **no change** |
 | 117 | E65: the one-sided interaction, ln(1 + max(u, 0)) and its product with ln(1 + d) (`probes.py e65grid`); the form came from the census on the same PFF-A labels | the best-fitting of the four forms (log loss 0.32547 against 0.33217) | PFF-A minimum +0.0018; native m0 and m2 both -0.0010 | **no change**; the goalward-form line closes |
+| 118 | E66: the velocity-reading constants (push flip speed and length, still-ball speed and length, pace cue) one step either side of v13's, re-selected on the fixed loader, bases v13 and v15 (`probes.py velgrid`, `velfield`) | all were selected when PFF velocities jittered (experiment 113) | best arm `dead_pace_still_mps` 0.75: +0.0019 over v13, +0.0015 over v15; push variants -0.0005 to +0.0003 | **no change**; the shipped constants survive the fix |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames (overlapping slots, or officials in a team's slots) are untraced |
 
 ## What did not work, and why
@@ -718,10 +719,10 @@ penalty lowers the predicted count too, and I had read that ratio when I added Î
   q 0.78 (about 2.5% of frames). One-sided forms fit better but decode no better (experiments 116 and 117).
 - Experiments up to 112 selected and confirmed on PFF resampled by nearest frame, which stepped one or two of
   PFF's 15 Hz updates per 25 Hz tick. Position features should barely care (not measured), but every velocity feature jittered: ball speed,
-  `push_mps` and `goal_mps`. The loader now undoubles and interpolates (experiment 113). Only the goalward term
-  was rerun on it (experiment 114): its weight moved by 0.008 and its native held-out gain stayed small. The
-  older velocity-based constants (the push flip, the still-ball dead cue, the spell flip's speed features) were
-  not reselected.
+  `push_mps` and `goal_mps`. The loader now undoubles and interpolates (experiment 113). The goalward term was
+  rerun on it (experiment 114): its weight moved by 0.008 and its native held-out gain stayed small. Re-selecting
+  the push, still-ball and pace constants on it kept every shipped value (experiment 118), and the spell flip's
+  refit gained +0.0012 (experiment 116). Constants that read only positions were not re-selected.
 - In every pick from E62 to E66 the PFF-A minimum is the bridged m0 leg, so rule v2b ranked on the leg this
   report calls the optimistic ceiling. The native legs never decided a pick. E65 gained +0.0018 there while
   native fell by 0.0010; it stayed under the 0.003 bar, but a larger gain of that kind would have shipped.
