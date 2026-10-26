@@ -100,13 +100,15 @@ def _halves(rule: RuleV2, data_dir: str | Path | None) -> Iterator[CleanHalf]:
             labels = period.labels[index]
             if rule.merge_s:
                 labels = merge_short(labels, rule.merge_s * FPS)
-            geometry = Geometry(fill_ball(period.ball_xy[index], "hold"), period.players_xy[index],
-                                period.slot_team, period.pitch_m)
+            geometry = Geometry(fill_ball(at_ticks(undouble(period.ball_xy), period.fps, stop), "hold"),
+                                at_ticks(undouble(period.players_xy), period.fps, stop), period.slot_team, period.pitch_m)
             provenance = {"source": "pff", "rule": rule.key,
                           "labels": "kloppy 3.18 PFF rule: OUT or END dead, kickoff or OTB live, owner the last home_ball",
                           "manifest_sha256": MANIFEST_SHA256, "tracking_sha256": tracking_sha256,
                           "source_frame0": period.frame0, "source_fps": period.fps,
-                          "resample": "source frame nearest each 25 Hz tick", "block_frames": stop,
+                          "resample": ("positions undoubled (undouble), then linear between the two source frames "
+                                       "around each 25 Hz tick, the nearest frame where either is missing; labels and "
+                                       "visibility from the nearest frame"), "block_frames": stop,
                           "ball_fill": "hold", "native_no_ball_frames": int((period.ball_vis[index] == NO_BALL).sum()),
                           "licence": "none granted, PFF proprietary: never commit"}
             yield CleanHalf(HalfId(f"pff_{game}", period.number, kickoff), geometry, labels, provenance)
@@ -131,6 +133,34 @@ def ticks(n: int, fps: float) -> NDArray[np.int64]:
     i / fps. The last tick is the last one at or before the last source frame."""
     k = np.arange(int(np.floor((n - 1) * FPS / fps)) + 1)
     return np.minimum(np.floor(k * fps / FPS + 0.5).astype(np.int64), n - 1)
+
+
+def undouble(a: NDArray[np.float32]) -> NDArray[np.float32]:
+    """a [n, ..., 2] positions with every lone repeat replaced by the midpoint of its neighbours. PFF's
+    tracker updates about every second frame of its 29.97 fps stream (99.7% of moving-ball steps and
+    half of all player steps repeat the frame before), so a position equal to the previous frame's,
+    where the previous differs from the one before it and the next differs from it, is a held copy.
+    Longer repeats (a still ball, a paused track) and repeats next to a NaN stay as they are."""
+    same = np.zeros(a.shape[:-1], bool)
+    same[1:] = (a[1:] == a[:-1]).all(-1)
+    held = np.zeros_like(same)
+    held[2:-1] = same[2:-1] & ~same[1:-2] & ~same[3:] & ~np.isnan(a[3:, ..., 0])
+    out = a.copy()
+    i = np.nonzero(held)
+    out[i] = (a[(i[0] - 1, *i[1:])] + a[(i[0] + 1, *i[1:])]) / 2
+    return out
+
+
+def at_ticks(a: NDArray[np.float32], fps: float, stop: int) -> NDArray[np.float32]:
+    """a [n, ...] at the first stop 25 Hz ticks, linear in time between the two source frames around each
+    tick, and the nearest frame (ticks) wherever either of the two is NaN, so a missing ball or player is
+    never invented. Taking the nearest frame for positions too would step 1 or 2 source frames per tick
+    at 29.97 fps, and a velocity over a few ticks would jitter by up to a sixth of its value."""
+    s = np.arange(stop) * fps / FPS
+    i0 = np.minimum(np.floor(s).astype(np.int64), len(a) - 1)
+    w = (s - i0).reshape(-1, *(1,) * (a.ndim - 1))
+    lin = (1 - w) * a[i0] + w * a[np.minimum(i0 + 1, len(a) - 1)]
+    return np.where(np.isnan(lin), a[ticks(len(a), fps)[:stop]], lin).astype(np.float32)
 
 
 def parse_game(game: str, data_dir: str | Path | None = None) -> tuple[Period, ...]:

@@ -1311,6 +1311,24 @@ def idsse_reproduces_feed_counts() -> None:
     _raises(ValueError, idsse.load, metrica.RuleV2(hold_s=3.0, min_passes=3))
 
 
+def pff_resample_known_answer() -> None:
+    """pff.undouble and pff.at_ticks: a track held for two frames of each update comes back as a straight
+    line, while a longer repeat (a still ball), a repeat before a gap and a slot that never moves stay; at_ticks
+    is linear between the two source frames around a 25 Hz tick (here 30 fps) and takes the nearest frame
+    when either of them is NaN."""
+    x = np.array([0, 0, 2, 2, 4, 4, 6, 6, 6, 6, 8, 8, np.nan, 10, 10, 12], np.float32)
+    a = np.stack([np.stack([x, x], 1), np.full((len(x), 2), 5.0, np.float32)], 1)
+    got = pff.undouble(a)
+    want = np.array([0, 0, 2, 3, 4, 5, 6, 6, 6, 6, 8, 8, np.nan, 10, 11, 12])
+    assert np.allclose(got[:, 0, 0], want, equal_nan=True) and np.allclose(got[:, 0, 1], want, equal_nan=True), got[:, 0]
+    assert (got[:, 1] == 5.0).all() and np.allclose(pff.undouble(a[:, 0])[:, 0], want, equal_nan=True)
+
+    line = np.stack([np.arange(7, dtype=np.float32)] * 2, 1)
+    assert np.allclose(pff.at_ticks(line, 30.0, 5)[:, 0], [0, 1.2, 2.4, 3.6, 4.8])
+    line[3] = np.nan
+    assert np.allclose(pff.at_ticks(line, 30.0, 5)[:, 0], [0, 1.2, 2, 4, 4.8])
+
+
 def pff_reproduces_feed_counts() -> None:
     try:
         for game in pff.GAMES:
@@ -1455,6 +1473,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     controlled_rule_known_answer,
     controlled_rule_measurements,
     idsse_reproduces_feed_counts,
+    pff_resample_known_answer,
     pff_reproduces_feed_counts,
     worlds_seed_axis,
     public_case_predict_equals_submission,
