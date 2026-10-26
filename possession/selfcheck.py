@@ -934,8 +934,9 @@ def team_push_known_answer() -> None:
 def goal_velocity_known_answer() -> None:
     """challenge._goal_velocity: the ball's x velocity signed toward the goal the token's team defends (home
     starts left, so it defends x = 0), one-sided at a ball gap's edge (frame 4), 0 where neither side has a
-    ball (frame 8) and for a team with no slot at kick-off;
-    and Tier0Emission's q_logit_goal term, which needs it."""
+    ball (frame 8) and for a team with no slot at kick-off; mirrored when the teams swap sides, also when both
+    stand right of the midline at kick-off (the lower mean x attacks +x), and read from the kick-off frame on;
+    and Tier0Emission's q_logit_goal term, which needs it and clips u at 40 m/s."""
     n = 10
     x = np.arange(n, dtype=np.float64)
     ball = np.stack([40.0 + x, np.full(n, 30.0)], 1)
@@ -952,6 +953,17 @@ def goal_velocity_known_answer() -> None:
         warnings.simplefilter("ignore", RuntimeWarning)
         u = challenge._goal_velocity(Geometry(g.ball_xy, gone.astype(np.float32), g.slot_team, g.pitch_m), 0, tok)
     assert np.allclose(u[tok == AWAY], 0.0) and np.allclose(u[tok == HOME], [-25, -25, -25, 0]), u
+    mirrored = players[:, ::-1].copy()
+    u = challenge._goal_velocity(Geometry(g.ball_xy, mirrored.astype(np.float32), g.slot_team, g.pitch_m), 0, tok)
+    assert np.allclose(u, -want, equal_nan=True), u
+    both_right = np.array([[[75.0, 30.0], [55.0, 30.0]]] * n)
+    u = challenge._goal_velocity(Geometry(g.ball_xy, both_right.astype(np.float32), g.slot_team, g.pitch_m), 0, tok)
+    assert np.allclose(u, -want, equal_nan=True), u
+    late = mirrored.copy()
+    late[6:] = players[6:]
+    late_g = Geometry(g.ball_xy, late.astype(np.float32), g.slot_team, g.pitch_m)
+    assert np.allclose(challenge._goal_velocity(late_g, 6, tok), want, equal_nan=True)
+    assert np.allclose(challenge._goal_velocity(late_g, 0, tok), -want, equal_nan=True)
 
     zero = np.zeros(2, np.float32)
     goal = np.array([0.0, math.e - 1], np.float32)
@@ -963,6 +975,10 @@ def goal_velocity_known_answer() -> None:
                 BallGeometry(zero, zero, zero, zero, goal_mps=-goal))
     lb = Tier0Emission(q_logit_a=1.0, q_logit_goal=-1.0).loglik(back).astype(np.float64)
     assert abs((lb[1, 0] - lb[0, 0]) - (-math.log1p(math.exp(-2.0)) + math.log1p(math.exp(-1.0)))) < 1e-5
+    fast = Half(HalfId("goal", 1, 0), np.array([HOME, HOME], np.int8),
+                BallGeometry(zero, zero, zero, zero, goal_mps=np.array([40.0, 400.0], np.float32)))
+    lf = Tier0Emission(q_logit_a=1.0, q_logit_goal=-1.0).loglik(fast)
+    assert lf[0, 0] == lf[1, 0] and lf[0, 1] == lf[1, 1], lf
     _raises(ValueError, Tier0Emission(q_logit_a=1.0, q_logit_goal=-1.0).loglik,
             Half(HalfId("goal", 1, 0), np.array([HOME, HOME], np.int8), BallGeometry(zero, zero, zero, zero)))
 

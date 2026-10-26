@@ -143,21 +143,32 @@ def _relative_speed(g: Geometry, slot: NDArray[np.intp], speed: NDArray[np.float
     return rel
 
 
+def _attack_signs(g: Geometry, kickoff: int) -> dict[int, float | None]:
+    """Per team, +1 when it attacks toward +x, -1 toward 0, None when it has no slot over the first second
+    after kickoff. With both teams placed, the team whose slots' mean x is lower attacks +x, so the two always
+    attack opposite ways; with one, it attacks +x when its mean x is in the left half."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        x = {team: float(np.nanmean(g.players_xy[kickoff:kickoff + FPS, g.slot_team == team, 0]))
+             for team in (HOME, AWAY)}
+    if not np.isnan(x[HOME]) and not np.isnan(x[AWAY]):
+        home = 1.0 if x[HOME] < x[AWAY] else -1.0
+        return {HOME: home, AWAY: -home}
+    return {team: None if np.isnan(v) else 1.0 if v < g.pitch_m[0] / 2 else -1.0 for team, v in x.items()}
+
+
 def _goal_velocity(g: Geometry, kickoff: int, token: NDArray[np.int8]) -> NDArray[np.float32]:
     """BallGeometry.goal_mps: the ball's x velocity from frames t-2 and t+2, else between t and whichever of
-    them has a ball, 0 when neither, signed toward the goal the token's team defends. That team attacks +x
-    when its slots' mean x over the first second after kickoff is in the left half, as in _team_push."""
+    them has a ball, 0 when neither, signed toward the goal the token's team defends (_attack_signs), and 0
+    for a team whose direction is unknown."""
     k, x = _SPEED_STEP, g.ball_xy[:, 0].astype(np.float64)
     pad = np.full(k, np.nan)
     back, fwd = np.r_[pad, x[:-k]][:g.n], np.r_[x[k:], pad][-g.n:]
     one = np.where(np.isnan(fwd), x - back, fwd - x) / k
     vx = np.nan_to_num(np.where(np.isnan(fwd - back), one, (fwd - back) / (2 * k)), nan=0.0) * FPS
-    out = np.full(g.n, np.nan)
+    out, signs = np.full(g.n, np.nan), _attack_signs(g, kickoff)
     for team in (HOME, AWAY):
-        with np.errstate(all="ignore"):
-            start = float(np.nanmean(g.players_xy[kickoff:kickoff + FPS, g.slot_team == team, 0]))
-        sign = 0.0 if np.isnan(start) else 1.0 if start < g.pitch_m[0] / 2 else -1.0
-        out[token == team] = -sign * vx[token == team]
+        out[token == team] = -(signs[team] or 0.0) * vx[token == team]
     return out.astype(np.float32)
 
 
@@ -173,14 +184,11 @@ def _player_pace(g: Geometry) -> NDArray[np.float32]:
 
 
 def _team_push(g: Geometry, kickoff: int) -> NDArray[np.float32]:
-    k, push = _PACE_STEP, np.full((g.n, 2), np.nan)
+    k, push, signs = _PACE_STEP, np.full((g.n, 2), np.nan), _attack_signs(g, kickoff)
     for team in (HOME, AWAY):
-        x = g.players_xy[:, g.slot_team == team, 0]
-        with np.errstate(all="ignore"):
-            start = float(np.nanmean(x[kickoff:kickoff + FPS]))
-        if np.isnan(start):
+        x, sign = g.players_xy[:, g.slot_team == team, 0], signs[team]
+        if sign is None:
             continue
-        sign = 1.0 if start < g.pitch_m[0] / 2 else -1.0
         for lo in range(k, g.n - k, _CHUNK):
             hi = min(lo + _CHUNK, g.n - k)
             dx = (x[lo + k:hi + k].astype(np.float64) - x[lo - k:hi - k].astype(np.float64)) / (2 * k) * FPS
@@ -190,12 +198,10 @@ def _team_push(g: Geometry, kickoff: int) -> NDArray[np.float32]:
 
 
 def _team_shape(g: Geometry, kickoff: int) -> NDArray[np.float32]:
-    rows, out = np.arange(g.n), []
+    rows, out, signs = np.arange(g.n), [], _attack_signs(g, kickoff)
     for team in (HOME, AWAY):
         xy = g.players_xy[:, g.slot_team == team].astype(np.float64)
-        with np.errstate(all="ignore"):
-            start = float(np.nanmean(xy[kickoff:kickoff + FPS, :, 0]))
-        xp = (1.0 if start < g.pitch_m[0] / 2 else -1.0) * (xy[..., 0] - g.pitch_m[0] / 2)
+        xp = (signs[team] or -1.0) * (xy[..., 0] - g.pitch_m[0] / 2)
         present = ~np.isnan(xp)
         keeper = np.argmin(np.where(present, xp, np.inf), axis=1)
         ox, oy = xp.copy(), xy[..., 1].copy()
