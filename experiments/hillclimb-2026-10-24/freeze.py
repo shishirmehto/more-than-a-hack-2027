@@ -164,6 +164,30 @@ E54 = ("handover_lag 20 with the dead_line fields comes from pre-registered expe
        "and not a recommendation. Besides the dev worlds' calibration every file inherits, the bridged mode rests "
        "on one label-free match-wide BAR-ATH statistic, the ATD's count of short ball gaps (experiment 90); no "
        "other BAR-ATH statistic was read. No StatsBomb data entered this selection.")
+E60 = ("q_logit_goal and the refitted q_logit_a, q_logit_dist and q_logit_margin come from pre-registered experiment "
+       "E60 on tier0_v13 under rule v2b. Two label-reading probes on PFF-A came first. P6: on tier0_v13's wrong-team "
+       "frames with the ball seen and more than 25 frames from a labelled hand-over, the nearest-team token agrees "
+       "with the labels only 18% to 40% of the time, against 85% to 90% on its right frames, so the token itself "
+       "points the wrong way there. P7: the token is right 91% to 93% of the time when the ball is slow, 65% when "
+       "it travels at 5 to 10 m/s toward the goal the token's team defends, and 45% above 10 m/s. The new term is "
+       "h sign(u) ln(1 + |u|) on BallGeometry.goal_mps, the ball's x velocity over frames t-2 to t+2 signed toward "
+       "the goal the nearest player's team defends, with each team's attack direction from its slots in the first "
+       "second after kickoff, as in Half.push_mps. The logistic was refitted with it on the 1,869,449 seen live "
+       "frames of the odd-indexed PFF games (probes.py fit_logit goal=True). Arms, registered before the run: "
+       "base, the refit, and the refit with handover_lag 10 or 5 (probes.py e60grid). Rule v2b with E32's clause "
+       "(synthetic veto at tier0_v13 minus 0.003 in every group; the minimum over PFF m0 and m2 in native and "
+       "bridged modes on the odd-indexed games ranks; ties within 0.003 of the best to the base, then the fewest "
+       "fields changed; no change unless the pick clears the base by more than 0.003) chose the refit at lag 15: "
+       "0.1561 against 0.1317, with the synthetic minimum 0.1446 against 0.1099. Held-out results, never used to "
+       "choose, paired per game over tier0_v13 on the even-indexed PFF games with 90% t intervals: m0 bridged "
+       "+0.0192 [+0.0152, +0.0232] 29 of 32 won, m2 bridged +0.0221 [+0.0173, +0.0269] 29 of 32, m0 native "
+       "+0.0046 [+0.0010, +0.0082] 19 of 32, m2 native +0.0027 [-0.0013, +0.0068] 17 of 32. The native gains "
+       "are smaller than on the odd-indexed games (+0.0083, +0.0058) and the m2 native interval crosses 0. On "
+       "seeds 15-24 it sits above tier0_v13 in all 15 groups (+0.028 to +0.045) and on all 150 seed worlds "
+       "(smallest +0.015), and its worst-group margin over baseline_smooth50 is 0.1470 against 0.1110. Before "
+       "the run one label-free BAR-ATH statistic was read to check reach and chose nothing: 15.7% of its seen "
+       "frames have goal_mps over 5 m/s, against 12.4% on native PFF. No StatsBomb data entered this selection. "
+       "Whether it replaces tier0_v13 as the recommendation is the user's decision, open on 2026-10-27.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -178,7 +202,8 @@ def main(argv):
     ap.add_argument("trim", type=int)
     ap.add_argument("close", type=int)
     ap.add_argument("--dead-outside-m", type=float, default=0.0)
-    ap.add_argument("--q-logit", type=float, nargs=3, default=(0.0, 0.0, 0.0), metavar=("A", "B", "C"))
+    ap.add_argument("--q-logit", type=float, nargs="+", default=(0.0, 0.0, 0.0), metavar="W",
+                    help="a, distance and margin weights, and optionally the goal weight (E60)")
     ap.add_argument("--handover-lag", type=int, default=0)
     ap.add_argument("--dead-still", type=float, nargs=2, default=(0.0, 0), metavar=("MPS", "FRAMES"))
     ap.add_argument("--dead-pace-still", type=float, default=0.0, metavar="MPS")
@@ -195,12 +220,16 @@ def main(argv):
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args(argv)
     e54 = bool(a.dead_line[0]) and a.handover_lag == 20
+    if len(a.q_logit) not in (3, 4):
+        ap.error("--q-logit takes 3 or 4 values")
+    goal = len(a.q_logit) == 4 and a.q_logit[3] != 0
     if a.spell_logit and len(a.spell_logit) > 1 + len(SPELL_FEATURES):
         ap.error(f"--spell-logit takes at most {1 + len(SPELL_FEATURES)} values")
     v1_doc = json.loads(V1.read_text())
     model = Decoder.load(V1).replace(dead_min_run=a.run, dead_trim=a.trim, dead_close=a.close,
                                      dead_outside_m=a.dead_outside_m, q_logit_a=a.q_logit[0],
                                      q_logit_dist=a.q_logit[1], q_logit_margin=a.q_logit[2],
+                                     q_logit_goal=a.q_logit[3] if goal else 0.0,
                                      handover_lag=a.handover_lag, dead_still_mps=a.dead_still[0],
                                      dead_still_frames=int(a.dead_still[1]), dead_pace_still_mps=a.dead_pace_still,
                                      spell_merge_frames=a.spell_merge, spell_push_mps=a.spell_push[0],
@@ -216,6 +245,8 @@ def main(argv):
     no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
+    if goal:
+        changed = changed.replace("q_logit_dist and q_logit_margin", "q_logit_dist, q_logit_margin and q_logit_goal")
     if a.handover_lag:
         changed = changed.replace("dead_outside_m and", "dead_outside_m, handover_lag and")
     if a.dead_still[0]:
@@ -249,7 +280,7 @@ def main(argv):
                      (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else "") +
                      (" " + LEAD if lead else "") + (" " + ADJ if a.spell_flip_adjacent else "") +
                      (" " + LINE if a.dead_line[0] else "") + (LINE_ALT if a.dead_line[0] and not e54 else "") +
-                     (" " + E54 if e54 else ""),
+                     (" " + E54 if e54 else "") + (" " + E60 if goal else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -271,6 +302,8 @@ def main(argv):
                      if a.dead_line[0] else "") +
                     (", p3-oracle.out, e52-*.csv, e53-*.csv, e54-*.csv, e54-pick.out, e54-confirm.out, "
                      "hc-confirm-e54-pff.csv and hc-confirm-e54-synth.csv" if e54 else "") +
+                    (", p6-seenerr.out, p7-direction.out, e60-synth.csv, e60-pff.csv, e60-pick.out, e60-confirm.out, "
+                     "hc-confirm-e60-pff.csv and hc-confirm-e60-synth.csv" if goal else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
@@ -281,6 +314,7 @@ def main(argv):
                          ("the spell_flip, dead_lead and dead_line fields and handover_lag 20 came after the "
                           if e54 else
                           "the spell_flip, dead_lead and dead_line fields came after the " if a.dead_line[0] else
+                          "the spell_flip and dead_lead fields and the q_logit_goal term came after the " if goal else
                           "the spell_flip and dead_lead fields came after the ") +
                          "first read. Inherited from "
                          "tier0_v1: " + v1_doc["provenance"]["public_window"],
