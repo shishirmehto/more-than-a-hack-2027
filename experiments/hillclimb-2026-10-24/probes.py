@@ -2038,6 +2038,7 @@ def flippairs(params, frames=250):
 
 
 SPELL_CUTS = (0.8, 0.65, 0.5)
+SPELL_FRAMES = 250
 SPELL_ARMS = [("seen", 0.8), ("all", 0.8), ("seen", 0.65), ("all", 0.65), ("seen", 0.5), ("all", 0.5)]
 SPELL_SEEN = {"seen": 0.5, "all": 0.0}
 
@@ -2132,7 +2133,7 @@ def spellflip(params, out, drop=(), split=False):
         for h, lab in zip(halves, labs):
             pre, lo = _pre_lag(model, chain, h)
             assert np.array_equal(lag(pre), model.decode(h).codes), h.id
-            rows = _spell_runs(pre, h, 250, lo)
+            rows = _spell_runs(pre, h, SPELL_FRAMES, lo)
             pres.append(pre)
             rows_.append(rows)
             if "_m0_" not in world:
