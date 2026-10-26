@@ -189,6 +189,17 @@ E60 = ("q_logit_goal and the refitted q_logit_a, q_logit_dist and q_logit_margin
        "the run one label-free BAR-ATH statistic was read to check reach and chose nothing: 15.7% of its seen "
        "frames have goal_mps over 5 m/s, against 12.4% on native PFF. No StatsBomb data entered this selection. "
        "Whether it replaces tier0_v13 as the recommendation is the user's decision, open on 2026-10-27.")
+E61 = ("With the dead_line fields, this file is tier0_v15 plus E60's frozen emission, from pre-registered experiment "
+       "E61 (probes.py e61grid; no refit, since fit_logit reads seen live frames and does not depend on the dead "
+       "rules). Rule v2b with E32's clause on base tier0_v15 chose it: PFF-A minimum 0.1582 against 0.1338, "
+       "synthetic minimum 0.1553 against 0.1203. Held-out results, never used to choose: on seeds 15-24 it sits "
+       "above tier0_v15 in all 15 groups and on all 150 seed worlds (smallest +0.015), and above tier0_v17 in all "
+       "15 groups and on 146 of 150 worlds; its worst-group margin over baseline_smooth50 is 0.1568. Paired per "
+       "game on the even-indexed PFF games with 90% t intervals, over tier0_v15: m0 bridged +0.0192 [+0.0151, "
+       "+0.0233] 29 of 32 won, m2 bridged +0.0220 [+0.0171, +0.0269] 29 of 32, m0 native +0.0045 [+0.0008, "
+       "+0.0081] 18 of 32, m2 native +0.0026 [-0.0015, +0.0066] 15 of 32; over tier0_v17: m0 bridged +0.0021 "
+       "[+0.0012, +0.0030] 27 of 32, m2 bridged +0.0023 [+0.0014, +0.0033] 27 of 32, m0 native +0.0034 "
+       "[+0.0025, +0.0043] 27 of 32, m2 native +0.0036 [+0.0026, +0.0046] 28 of 32.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -280,8 +291,9 @@ def main(argv):
                      (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
                      (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else "") +
                      (" " + LEAD if lead else "") + (" " + ADJ if a.spell_flip_adjacent else "") +
-                     (" " + LINE if a.dead_line[0] else "") + (LINE_ALT if a.dead_line[0] and not e54 else "") +
-                     (" " + E54 if e54 else "") + (" " + E60 if goal else ""),
+                     (" " + LINE if a.dead_line[0] else "") + (LINE_ALT if a.dead_line[0] and not e54 and not goal else "") +
+                     (" " + E54 if e54 else "") + (" " + E60 if goal else "") +
+                     (" " + E61 if goal and a.dead_line[0] else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -305,6 +317,8 @@ def main(argv):
                      "hc-confirm-e54-pff.csv and hc-confirm-e54-synth.csv" if e54 else "") +
                     (", p6-seenerr.out, p7-direction.out, e60-synth.csv, e60-pff.csv, e60-pick.out, e60-confirm.out, "
                      "hc-confirm-e60-pff.csv and hc-confirm-e60-synth.csv" if goal else "") +
+                    (", e61-synth.csv, e61-pff.csv, e61-pick.out, e61-confirm.out, hc-confirm-e61-pff.csv and "
+                     "hc-confirm-e61-synth.csv" if goal and a.dead_line[0] else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
@@ -314,6 +328,8 @@ def main(argv):
                          "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and " +
                          ("the spell_flip, dead_lead and dead_line fields and handover_lag 20 came after the "
                           if e54 else
+                          "the spell_flip, dead_lead and dead_line fields and the q_logit_goal term came after the "
+                          if goal and a.dead_line[0] else
                           "the spell_flip, dead_lead and dead_line fields came after the " if a.dead_line[0] else
                           "the spell_flip and dead_lead fields and the q_logit_goal term came after the " if goal else
                           "the spell_flip and dead_lead fields came after the ") +
