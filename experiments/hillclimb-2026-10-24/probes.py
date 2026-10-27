@@ -3947,6 +3947,17 @@ def _fk_runs(g, h):
     return list(zip(a[keep], b[keep]))
 
 
+def _fk_runs_half(h):
+    """_fk_runs from the decoder's Half alone, without the penalty-area exclusion (the Half carries no ball position):
+    the other team's nearest player is nearest_m + margin_m away."""
+    g = h.geometry
+    with np.errstate(invalid="ignore"):
+        cond = (h.nearest_team != NO_TEAM) & (g.speed_mps < FK_STILL_MPS) & (g.nearest_m + g.margin_m >= FK_CLEAR_M)
+    a, b = _runs(cond)
+    keep = (b - a) >= FK_HOLD
+    return list(zip(a[keep], b[keep]))
+
+
 def fkdose(params):
     """Label-free dose of a free-kick stoppage cue from the Laws of the Game (opponents stand 9.15 m off the ball at a
     free kick): _fk_runs on BAR-ATH and on native PFF-A (PFF's tracker ball), per match: runs, runs where PARAMS
@@ -4002,14 +4013,16 @@ def fkprecision(params):
         h = challenge.observe(g, clean.id)
         c, y0 = model.decode(h).codes, clean.labels
         y2 = merge_short(y0, 2 * FPS)
-        for x, z in _fk_runs(g, h):
-            rows.append({"team_called": bool((c[x:z] != D).mean() > 0.5), "frames": z - x,
-                         "d_m0": int((y0[x:z] == D).sum()), "d_m2": int((y2[x:z] == D).sum()),
-                         "mostly_d_m0": bool((y0[x:z] == D).mean() > 0.5)})
+        for cue, runs in (("outside the boxes", _fk_runs(g, h)), ("Half only, boxes kept", _fk_runs_half(h))):
+            for x, z in runs:
+                rows.append({"cue": cue, "team_called": bool((c[x:z] != D).mean() > 0.5), "frames": z - x,
+                             "d_m0": int((y0[x:z] == D).sum()), "d_m2": int((y2[x:z] == D).sum()),
+                             "mostly_d_m0": bool((y0[x:z] == D).mean() > 0.5)})
     t = pd.DataFrame(rows)
-    for called, f in t.groupby("team_called"):
-        print(f"{'team-called' if called else 'already D'} runs {len(f)}: frames labelled D m0 {f.d_m0.sum() / f.frames.sum():.3f}, "
-              f"m2 {f.d_m2.sum() / f.frames.sum():.3f}; runs mostly D (m0) {f.mostly_d_m0.mean():.3f}")
+    for (cue, called), f in t.groupby(["cue", "team_called"]):
+        print(f"{cue}, {'team-called' if called else 'already D'} runs {len(f)}: frames labelled D m0 "
+              f"{f.d_m0.sum() / f.frames.sum():.3f}, m2 {f.d_m2.sum() / f.frames.sum():.3f}; runs mostly D (m0) "
+              f"{f.mostly_d_m0.mean():.3f}")
 
 
 def e78_models(params):
