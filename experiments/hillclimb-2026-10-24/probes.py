@@ -158,6 +158,10 @@ pffcontrolled PARAMS... native PFF relabelled under the controlled rules h1p3 an
 takerprecision PARAMS label-reading: what the labels say on the frames T1 changes at corners, per dev world
 e79grid PARAMS       E79's arms (base, t1_corners, t1_hold) on the standard worlds, for the synthetic veto
 e79 PARAMS CSV...    E79 on the corner-blackout worlds and the user's registered gate; CSVs are modelgrid tables
+blackoutfit PARAMS   label-free: E79's blackout PFF corners against BAR-ATH's on PARAMS's codes
+stoppagedose PARAMS  T2's dose (E80): label-free at BAR-ATH's throw-in and goal kick tags, acts per match on dev
+e80grid PARAMS       E80's arms (base, t2, t2_all) on the worlds of --rule, a modelgrid table
+e80score PARAMS      E80's arms as a `possession score` table for confirm (PFF-B, other seeds)
 e78grid PARAMS       E78 arms: base, T1 (restart taker) on pseudo-tagged corners, and on corners, goal and free kicks
 e78score PARAMS      E78's arms as a `possession score --dev` table (--seeds), for `confirm` on PFF-B and seeds 15-24
 doubling             label-free PFF source check behind pff.undouble: gaps between moving-ball position changes and
@@ -3463,11 +3467,13 @@ def _pff_setpieces(half):
     return out
 
 
-METRICA_RESTARTS = {"CORNER KICK": "corner", "FREE KICK": "free kick", "GOAL KICK": "goal kick"}
-IDSSE_RESTARTS = {"CornerKick": "corner", "FreeKick": "free kick", "GoalKick": "goal kick"}
+METRICA_RESTARTS = {"CORNER KICK": "corner", "FREE KICK": "free kick", "GOAL KICK": "goal kick", "THROW IN": "throw-in"}
+IDSSE_RESTARTS = {"CornerKick": "corner", "FreeKick": "free kick", "GoalKick": "goal kick", "ThrowIn": "throw-in"}
 # BAR-ATH's team-tagged restarts against PFF's per-game medians (12 of 9 corners, 10 of 15 goal kicks, 5 of 28 free
 # kicks; the exploring session's estimate), and its tag-start-to-onset lead p25 to p75 in frames, both label-free.
 TAG_RECALL = {"corner": 1.0, "goal kick": 0.67, "free kick": 0.18}
+# E80: BAR-ATH's 26 throw-in tags against PFF's median of 40 per game over periods 1 and 2 of 64 games (our count)
+TAG_RECALL["throw-in"] = 0.65
 TAG_LEAD = (101, 178)
 
 
@@ -3734,6 +3740,170 @@ def e79(params, synth_csvs):
         if "t1_corners" in passed and verdict[best][1] <= verdict["t1_corners"][1] + VETO_SLACK:
             best = "t1_corners"
         print(f"BUILD {best} as a candidate outside rule v2 (registered)")
+
+
+
+# E80, T2 (stoppage existence, the exploring session's proposal from Smart Tagging, approved 16:56 IST): where PARAMS
+# has little D around a restart tag, the stoppage the tag implies is added. Window, share, kick speeds and fallback are
+# the proposal's; the fallback is BAR-ATH's median tag-start-to-onset lead (label-free).
+T2_WINDOW = (5 * FPS, 10 * FPS)
+T2_SHARE = 0.2
+T2_KICK = (2.0, 5.0)
+T2_FALLBACK = 134
+BARATH_T2 = ("throw-in", "goal kick")
+
+
+def _kick(half, i):
+    """(frame, source): the first frame from i + 1 s to i + 15 s where the seen ball moves faster than T2_KICK[1] m/s
+    within 1 s after a seen ball slower than T2_KICK[0] m/s ("speed"); i + T2_FALLBACK when there is none
+    ("fallback")."""
+    g = half.geometry
+    with np.errstate(invalid="ignore"):
+        speed = np.hypot(g.vx_mps, g.vy_mps)
+        slow, fast = speed < T2_KICK[0], speed > T2_KICK[1]
+    lo, hi = min(i + FPS, half.n), min(i + 15 * FPS, half.n)
+    recent = np.convolve(slow.astype(np.int32), np.ones(FPS, np.int32))[:half.n] > 0
+    hit = np.flatnonzero(fast[lo:hi] & recent[lo - 1:hi - 1]) if hi > lo else np.zeros(0, int)
+    return (lo + int(hit[0]), "speed") if len(hit) else (min(i + T2_FALLBACK, half.n), "fallback")
+
+
+def _stoppage_fill(codes, half, starts):
+    """T2 on CODES: at each restart tag start i where under T2_SHARE of CODES is D on [i - 5 s, i + 10 s), D from i
+    to the kick (_kick). Returns (codes, frames changed, acts)."""
+    out, changed, acts = codes.copy(), 0, 0
+    for i in starts:
+        lo, hi = max(i - T2_WINDOW[0], 0), min(i + T2_WINDOW[1], half.n)
+        if i >= half.n or (codes[lo:hi] == D).mean() >= T2_SHARE:
+            continue
+        k = _kick(half, i)[0]
+        changed, acts = changed + int((out[i:k] != D).sum()), acts + 1
+        out[i:k] = D
+    return out, changed, acts
+
+
+@dataclasses.dataclass(frozen=True)
+class StoppageFill:
+    """E80's arms: BASE's codes with T2 applied at the half's pseudo-tags of KINDS (their team unused)."""
+    base: Decoder
+    kinds: tuple
+
+    def decode(self, half):
+        decoded = self.base.decode(half)
+        starts = [i for i, _ in _pseudo_tags(half, self.kinds)]
+        return dataclasses.replace(decoded, codes=_stoppage_fill(decoded.codes, half, starts)[0])
+
+
+def e80_models(params):
+    base = Decoder.load(params)
+    return {"base": base, "t2": StoppageFill(base, BARATH_T2),
+            "t2_all": StoppageFill(base, BARATH_T2 + ("corner", "free kick"))}
+
+
+def _spell_count(codes):
+    return int((np.r_[True, codes[1:] != codes[:-1]] & (codes != D)).sum())
+
+
+def stoppagedose(params):
+    """T2's dose (E80) on PARAMS. Label-free on BAR-ATH: at each throw-in and goal kick tag, the D share on T2's window,
+    whether T2 acts, where its kick comes from, the seconds of D it adds and the spells it adds. Then the same per
+    match on dev worlds with pseudo-tags of those kinds (native PFF-A m0, Metrica and IDSSE m0 at seed 0), no labels
+    read."""
+    model, lay, rows = Decoder.load(params), challenge.layout(), []
+    halves = [challenge.observe(g, hid) for g, hid in zip(challenge.load_geometry(), challenge._half_ids())]
+    tags = challenge.tags()
+    for b, h in zip(lay.blocks, halves):
+        c = model.decode(h).codes
+        for t in tags:
+            if not t.restart or t.kind not in BARATH_T2 or not b.origin <= t.start < b.origin + b.n:
+                continue
+            i = t.start - b.origin
+            lo, hi = max(i - T2_WINDOW[0], 0), min(i + T2_WINDOW[1], h.n)
+            new, changed, acts = _stoppage_fill(c, h, [i])
+            rows.append({"kind": t.kind, "d_share": float((c[lo:hi] == D).mean()), "acts": acts,
+                         "kick": _kick(h, i)[1], "added_s": changed / FPS,
+                         "spells_added": _spell_count(new) - _spell_count(c)})
+    t = pd.DataFrame(rows)
+    g = t.groupby("kind")
+    print(pd.DataFrame({"tags": g.size(), "acts": g.acts.sum(), "added_s": g.added_s.sum(),
+                        "spells_added": g.spells_added.sum(), "d_share_p50": g.d_share.median(),
+                        "kick_speed_share_of_acts": g.apply(lambda f: (f[f.acts > 0].kick == "speed").mean())})
+          .round(3).to_string())
+    print(t[t.acts > 0].round(2).to_string(index=False))
+    worlds = {**bench.dev_worlds(["m0", "idsse:m0"], (1, 2.6, 4), seeds=(0,)),
+              **{w: [c] for w, c, _, _ in native_a() if "m2" not in w}}
+    out = []
+    for world, cases in worlds.items():
+        case = bench.pooled(cases)
+        n_tags = acts = frames = spells = 0
+        for h in case.halves:
+            c = model.decode(h).codes
+            starts = [i for i, _ in _pseudo_tags(h, BARATH_T2)]
+            new, changed, k = _stoppage_fill(c, h, starts)
+            n_tags, acts, frames, spells = n_tags + len(starts), acts + k, frames + changed, spells + _spell_count(new) - _spell_count(c)
+        matches = len({h.id.match for h in case.halves})
+        out.append({"world": world, "matches": matches, "tags_per_match": n_tags / matches, "acts_per_match": acts / matches,
+                    "added_s_per_match": frames / FPS / matches, "spells_added_per_match": spells / matches})
+    out.append({"world": "BAR-ATH", "matches": 1, "tags_per_match": len(t), "acts_per_match": int(t.acts.sum()),
+                "added_s_per_match": t.added_s.sum(), "spells_added_per_match": int(t.spells_added.sum())})
+    print(pd.DataFrame(out).round(2).to_string(index=False))
+
+
+
+def _corner_fit_row(g, h, c, i, taker):
+    """takerdose's columns for one corner at tag start i on codes C, plus the token and the ball's distance to the
+    nearest corner flag at the first seen frame from e (label-free)."""
+    starts, ends = _runs(c == D)
+    near = (ends >= i - 5 * FPS) & (ends <= i + 15 * FPS) & (ends < h.n)
+    if not near.any():
+        return {"matched": False}
+    k = np.flatnonzero(near)[np.argmin(np.abs(ends[near] - i))]
+    s0, e = int(starts[k]), int(ends[k])
+    seen = np.flatnonzero(h.nearest_team[e:] != NO_TEAM)
+    r = e + int(seen[0]) if len(seen) else None
+    L, W = g.pitch_m
+    flag = (np.min(np.hypot(*(g.ball_xy[r][:, None] - np.array([[0, 0, L, L], [0, W, 0, W]])))) if r is not None
+            else np.nan)
+    return {"matched": True, "first_taker": float(c[e] == taker), "last_taker": float((c[s0 - 1] if s0 else D) == taker),
+            "seen_at_end": float(h.nearest_team[e] != NO_TEAM), "reappear_s": (r - e) / FPS if r is not None else np.nan,
+            "reappear_taker": float(r is not None and h.nearest_team[r] == taker), "reappear_flag_m": float(flag),
+            "acts": float(_taker_fill(c, h, [(i, taker)])[1] > 0)}
+
+
+def blackoutfit(params):
+    """Label-free: how well E79's corner-blackout PFF world copies BAR-ATH's corners on PARAMS's codes. Per source
+    (BAR-ATH's 12 tagged corners; the blackout PFF world's pseudo-tagged corners, all 64 games), takerdose's columns
+    (D end in range, first team after e is the taker, last team before the D run is the taker, ball seen at e) and
+    where the ball reappears after e: seconds after e, whether its nearest team is the taker, its distance to the
+    nearest corner flag; then T1's acts per corner."""
+    import types
+    from possession import pff
+    model, rows = Decoder.load(params), []
+    lay = challenge.layout()
+    for b, g, hid in zip(lay.blocks, challenge.load_geometry(), challenge._half_ids()):
+        h = challenge.observe(g, hid)
+        c = model.decode(h).codes
+        for t in challenge.tags():
+            if t.code == "set pieces" and t.kind == "corner kick" and t.team != NO_TEAM and b.origin <= t.start < b.origin + b.n:
+                rows.append({"source": "BAR-ATH", **_corner_fit_row(g, h, c, t.start - b.origin, t.team)})
+    for clean in pff.load(metrica.RuleV2.parse("m0")):
+        n = clean.geometry.n
+        seen = pff.native_seen(clean) & ~_corner_blackout(types.SimpleNamespace(id=clean.id, n=n), n)
+        g = dataclasses.replace(clean.geometry, ball_xy=np.where(seen[:, None], clean.geometry.ball_xy,
+                                                                 np.float32(np.nan)).astype(np.float32))
+        h = challenge.observe(g, clean.id)
+        c = model.decode(h).codes
+        for i, taker in _pseudo_tags(h, ("corner",)):
+            rows.append({"source": "PFF blackout", **_corner_fit_row(g, h, c, i, taker)})
+    t = pd.DataFrame(rows)
+    t["matched"] = t.matched.astype(float)
+    m = t[t.matched == 1]
+    out = m.groupby("source")[["first_taker", "last_taker", "seen_at_end", "reappear_taker", "acts"]].mean()
+    out.insert(0, "matched", t.groupby("source").matched.mean())
+    out.insert(0, "corners", t.groupby("source").size())
+    for col in ("reappear_s", "reappear_flag_m"):
+        for q in (0.25, 0.5, 0.75):
+            out[f"{col}_p{int(q * 100)}"] = m.groupby("source")[col].quantile(q)
+    print(out.round(3).T.to_string())
 
 
 def e78_models(params):
@@ -5151,7 +5321,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "tagteam", "tagrestart", "tagcover", "takerdose", "takeroracle", "restartgaps", "restartcheck", "e78grid", "e78score", "takeracts", "pffcontrolled", "takerprecision", "e79grid", "e79"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "tagteam", "tagrestart", "tagcover", "takerdose", "takeroracle", "restartgaps", "restartcheck", "e78grid", "e78score", "takeracts", "pffcontrolled", "takerprecision", "e79grid", "e79", "stoppagedose", "e80grid", "e80score", "blackoutfit"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -5170,7 +5340,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "takerdose": lambda: takerdose(one), "takeroracle": lambda: takeroracle(one), "restartgaps": lambda: restartgaps(one), "restartcheck": restartcheck, "takeracts": lambda: takeracts(one), "pffcontrolled": lambda: pffcontrolled(a.params), "takerprecision": lambda: takerprecision(one), "e79grid": lambda: modelgrid(e79_models(one), a.out, a.dead_bias, a.rule), "e79": lambda: e79(one, a.params[1:]), "e78grid": lambda: modelgrid(e78_models(one), a.out, a.dead_bias, a.rule), "e78score": lambda: modelscore(e78_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "takerdose": lambda: takerdose(one), "takeroracle": lambda: takeroracle(one), "restartgaps": lambda: restartgaps(one), "restartcheck": restartcheck, "takeracts": lambda: takeracts(one), "pffcontrolled": lambda: pffcontrolled(a.params), "takerprecision": lambda: takerprecision(one), "e79grid": lambda: modelgrid(e79_models(one), a.out, a.dead_bias, a.rule), "e79": lambda: e79(one, a.params[1:]), "stoppagedose": lambda: stoppagedose(one), "blackoutfit": lambda: blackoutfit(one), "e80grid": lambda: modelgrid(e80_models(one), a.out, a.dead_bias, a.rule), "e80score": lambda: modelscore(e80_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e78grid": lambda: modelgrid(e78_models(one), a.out, a.dead_bias, a.rule), "e78score": lambda: modelscore(e78_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
