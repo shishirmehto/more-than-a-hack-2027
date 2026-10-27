@@ -203,6 +203,31 @@ E61 = ("With the dead_line fields, this file is tier0_v15 plus E60's frozen emis
        "m2 over tier0_v15 as tier0_v17 does over tier0_v13; over tier0_v17: m0 bridged +0.0021 "
        "[+0.0012, +0.0030] 27 of 32, m2 bridged +0.0023 [+0.0014, +0.0033] 27 of 32, m0 native +0.0034 "
        "[+0.0025, +0.0043] 27 of 32, m2 native +0.0036 [+0.0026, +0.0046] 28 of 32.")
+TOUCH = ("spell_flip_p 0.75 and these spell_logit weights come from pre-registered experiments E69 and E70 on "
+         "tier0_v13 under rule v2, after the PFF loader fix (experiment 113): PFF's 29.97 fps tracking repeats each "
+         "position for two frames, so the old nearest-frame resample made ball velocity jitter, and E31's touch "
+         "features (touch_own, touch_other: the largest change of ball speed between frames t - 5 and t + 5 within "
+         "1.5 m of a player, over the run's own-token frames and the other team's within 25 frames) had been fitted "
+         "on that jitter. E69 refitted E30's recipe with them (probes.py spellflip --drop seen rel_own shape_own "
+         "held_own on tier0_v10, PFF-A only): out-of-fold lift at seen>=0.8 +0.0112 [+0.0083, +0.0140], 29 of 32 "
+         "games, against +0.0073 without them; at tier0_v13's cut it gained +0.0026 on the native PFF-A minimum, "
+         "inside E32's clause, and lifted all 15 synthetic groups, IDSSE m0 included. E70, registered after that, "
+         "put the same weights at spell_flip_p 0.8, 0.75, 0.7 and 0.65 (probes.py e70grid). Rule v2 (synthetic veto "
+         "at tier0_v13 minus 0.003 in every group; the minimum over native PFF m0 and m2 on the odd-indexed games "
+         "ranks; ties within 0.003 of the best to the base, then the higher cut; no change unless the pick clears "
+         "the base by more than 0.003) chose 0.75: 0.1575 against 0.1529, every synthetic group above tier0_v13 "
+         "(veto slack 0.0047); 0.7 led at 0.1595 and tied, and 0.65 failed the veto on IDSSE m0. The weights and "
+         "the ranking both read PFF-A, as in E30. Held-out results, never used to choose, paired per game over "
+         "tier0_v13 on the even-indexed PFF games with 90% t intervals: m0 native +0.0059 [+0.0033, +0.0085] 27 of "
+         "32 won, m2 native +0.0072 [+0.0043, +0.0100] 27 of 32. On seeds 15-24 it sits above tier0_v13 in all 15 "
+         "groups (IDSSE m0 +0.0012 to +0.0023) and on 145 of 150 worlds; its worst-group margin over "
+         "baseline_smooth50 is 0.1123 against 0.1110. E30's registered BAR-ATH check passes: every feature with a "
+         "non-zero weight has its BAR-ATH median inside PFF-A's 10th-90th range (touch_own 1.596 inside 0 to "
+         "2.641). Read label-free as information, not a gate: the flip takes 15.3% of BAR-ATH's 274 candidate runs "
+         "against 9.2% on PFF-A (tier0_v13: 8.0% and 6.2%), consistent with BAR-ATH's smoother ball giving smaller "
+         "touch values. No bridged-mode number and no lead from another team's fork entered this selection; it "
+         "reads the fixed loader, whose lineage the user has not ruled on (REPORT, Fork lineage). No StatsBomb data "
+         "entered this selection. A confirmed alternative: whether it replaces tier0_v13 is the user's decision.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -258,6 +283,8 @@ def main(argv):
     lead = any(a.dead_lead_cut)
     logit = any(a.q_logit)
     no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
+    i_touch = 1 + SPELL_FEATURES.index("touch_own")
+    touch = bool(a.spell_logit) and len(a.spell_logit) > i_touch and a.spell_logit[i_touch] != 0
     changed = ("dead_min_run, dead_trim, dead_close, dead_outside_m and the emission's q_logit_a, q_logit_dist and "
                "q_logit_margin" if logit else "dead_min_run, dead_trim, dead_close and dead_outside_m")
     if goal:
@@ -293,7 +320,8 @@ def main(argv):
                      (" " + PACE if a.dead_pace_still else "") + (" " + MERGE if a.spell_merge else "") +
                      (" " + PUSH if a.spell_push[0] else "") + (" " + SWITCH if a.switch_penalty else "") +
                      (" " + SPELL if a.spell_flip[0] else "") + (" " + NO_SEEN if no_seen else "") +
-                     (" " + LEAD if lead else "") + (" " + ADJ if a.spell_flip_adjacent else "") +
+                     (" " + LEAD if lead else "") + (" " + TOUCH if touch else "") +
+                     (" " + ADJ if a.spell_flip_adjacent else "") +
                      (" " + LINE if a.dead_line[0] else "") + (LINE_ALT if a.dead_line[0] and not e54 and not goal else "") +
                      (" " + E54 if e54 else "") + (" " + E60 if goal else "") +
                      (" " + E61 if goal and a.dead_line[0] else ""),
@@ -312,6 +340,9 @@ def main(argv):
                      "select-e30.out and barath-spell-e30.out" if no_seen else "") +
                     (", deadsplit-v12.out, deadcensus-v12.out, deadedges-v12.out, deadstarts-v12.out, e32-pff.csv, "
                      "e32-synth.csv and select-e32.out" if lead else "") +
+                    (", e68-spell.out, e69-spell.out, e69-synth.csv, e69-pff.csv, e69-pick.out, e69-barath-spell.out, "
+                     "e70-synth.csv, e70-pff.csv, e70-pick.out, e70-confirm.out, e70-confirm-synth.out, "
+                     "e70-flipshare.out, hc-confirm-e70-pff.csv and hc-confirm-e70-synth.csv" if touch else "") +
                     (", flipindep-v13.out, flippairs-v13.out, e40-pff.csv, e40-synth.csv and select-e40.out"
                      if a.spell_flip_adjacent else "") +
                     (", e42-*.csv, e42b-*.csv, e42c-*.csv, hc-confirm-e42c-pff.csv and hc-confirm-e42c-synth.csv"
