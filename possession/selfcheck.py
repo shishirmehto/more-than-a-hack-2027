@@ -422,6 +422,18 @@ def geometry_emission_known_answer() -> None:
     qs = np.array([0.576116885, 0.369787202, 0.686011764, 0.570070236, 0.522924595])
     want = np.log(np.stack([np.where(home, qs, 1 - qs), np.where(home, 1 - qs, qs)], 1)) + math.log(5 / 6)
     assert np.allclose(fast.loglik(half).astype(np.float64)[1:, :2], want, atol=1e-6)
+    pressing = np.array([nan, 1.0, 1.0, nan, -9.0, 0.0], np.float32)
+    pressed = Half(HalfId("geo", 1, 0), tok, geo, press_mps=pressing)
+    press = dataclasses.replace(on, q_logit_press=-1.0)
+    shift = np.exp(-np.array([1.0, -1.0, 0.0, 5.0, 0.0]))
+    qp = qm * shift / (qm * shift + 1 - qm)
+    want = np.log(np.stack([np.where(home, qp, 1 - qp), np.where(home, 1 - qp, qp)], 1)) + math.log(5 / 6)
+    assert np.allclose(press.loglik(pressed).astype(np.float64)[1:, :2], want, atol=1e-6)
+    assert np.array_equal(press.loglik(pressed)[[0]], on.loglik(half)[[0]])
+    swapped = Half(HalfId("geo", 1, 0), np.where(tok == NO_TEAM, NO_TEAM, 1 - tok).astype(np.int8), geo,
+                   press_mps=-pressing)
+    assert np.array_equal(press.loglik(swapped), press.loglik(pressed)[:, [1, 0, 2]])
+    _raises(ValueError, press.loglik, half)
 
     tok = np.array([HOME] * 4 + [AWAY] * 6 + [HOME] * 4, np.int8)
     out = np.zeros(14, np.float32)

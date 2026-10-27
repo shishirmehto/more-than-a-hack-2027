@@ -30,13 +30,14 @@ STATE_LABEL = np.array([{State.H: H, State.A: A, State.D_AFTER_H: D, State.D_AFT
 _M_FLOOR, _M_CAP = 1e-6, 0.98
 _MARGIN_CAP_M = 30.0
 _SPEED_CAP_MPS = 40.0
+_PRESS_CAP_MPS = 5.0
 _DEAD_RULE_FIELDS = ("dead_trim", "dead_close", "dead_outside_m", "dead_still_mps", "dead_pace_still_mps",
                      "dead_pace_live_mps", "dead_lead_cut", "dead_out_lead_cut", "dead_out_min_run",
                      "dead_end_cut")
 _OUT_BEFORE, _OUT_AFTER = 25, 75
 _END_WINDOW = 250
 _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed", "q_logit_dist_speed", "q_logit_rel",
-                 "q_logit_goal")
+                 "q_logit_goal", "q_logit_press")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
                   "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other",
                   "rel_own", "shape_own", "held_own", "goal_own", "goal_other", "kick_own", "kick_other",
@@ -76,6 +77,9 @@ class Tier0Emission:
     q_logit_goal:   adds h sign(u) ln(1 + min(|u|, 40)) to z, u = BallGeometry.goal_mps, the ball's x velocity
                     toward the goal the token's team defends: when the ball travels fast at the token team's
                     own goal the token is less often right, so a negative h lowers q there.
+    q_logit_press:  adds k clip(s p, -5, 5) to z, p = Half.press_mps (home minus away closing speed on the ball)
+                    and s = +1 for a HOME token, -1 for AWAY; NaN p counts as 0. A team closing on the ball is
+                    more often the team without it, so a negative k lowers q when the token's team presses.
     Checked at construction: 0 < q < 1, dead_bias > 0, 0 < alive_share <= 1, finite q_logit terms.
     """
     q: float = 0.78
@@ -88,6 +92,7 @@ class Tier0Emission:
     q_logit_dist_speed: float = 0.0
     q_logit_rel: float = 0.0
     q_logit_goal: float = 0.0
+    q_logit_press: float = 0.0
 
     def __post_init__(self) -> None:
         _number("q", self.q, 0, 1)
@@ -139,8 +144,13 @@ class Tier0Emission:
                 raise ValueError(f"{half.id}: q_logit_goal reads BallGeometry.goal_mps and this Half has none")
             u = np.clip(g.goal_mps[where].astype(np.float64), -_SPEED_CAP_MPS, _SPEED_CAP_MPS)
             z = z + self.q_logit_goal * np.sign(u) * np.log1p(np.abs(u))
-        hit, miss = -np.logaddexp(0.0, -z), -np.logaddexp(0.0, z)
         home = half.nearest_team[where] == HOME
+        if self.q_logit_press:
+            if half.press_mps is None:
+                raise ValueError(f"{half.id}: q_logit_press reads Half.press_mps and this Half has none")
+            p = np.where(home, 1.0, -1.0) * half.press_mps[where].astype(np.float64)
+            z = z + self.q_logit_press * np.nan_to_num(np.clip(p, -_PRESS_CAP_MPS, _PRESS_CAP_MPS))
+        hit, miss = -np.logaddexp(0.0, -z), -np.logaddexp(0.0, z)
         out[where, 0] = np.where(home, hit, miss) + seen[0]
         out[where, 1] = np.where(home, miss, hit) + seen[1]
 
@@ -678,7 +688,8 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
              math.fsum(goth.tolist()) / len(goth) if len(goth) else 0.0,
              math.log1p(float(kown.max())) if len(kown) else 0.0,
              math.log1p(float(koth.max())) if len(koth) else 0.0,
-             min(max(sign * math.fsum(press.tolist()) / len(press), -5.0), 5.0) if len(press) else 0.0)
+             min(max(sign * math.fsum(press.tolist()) / len(press), -_PRESS_CAP_MPS), _PRESS_CAP_MPS)
+             if len(press) else 0.0)
         out.append((a, b, team, tuple(round(v, 9) for v in x)))
     return out
 
