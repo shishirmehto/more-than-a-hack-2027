@@ -69,8 +69,8 @@
       "window_frames": 155923,
       "window_missing": 64079
     },
-    "evaluation": "Not yet scored.",
-    "evidence": ".audit/hillclimb-2026-10-24.tsv",
+    "evaluation": "Scored once after the build, never used to choose it. Its weights are tier0_v19_pfffree's (the fit reads tier0_v10, not the base), so it is tier0_v19_pfffree plus E81's dead_end_cut 20 and stoppage_fill. Against tier0_v19_pfffree on held-out PFF-B: native m0 +0.0040 [+0.0022, +0.0058], 24 of 32 games won; native m2 +0.0031 [+0.0012, +0.0049], 24 of 32. Synthetic seeds 15-24 with dev pseudo-tags: above tier0_v19_pfffree in all 15 groups by 0.0066 to 0.0128; worst-group margin over baseline_smooth50 0.1120 against 0.1054. Above baseline_smooth50 in every group and on all 32 PFF-B games.",
+    "evidence": "data/derived/runs/hc/pfffree-v20-confirm-pff.csv, pfffree-v20-confirm-synth.csv; .audit/hillclimb-2026-10-24.tsv",
     "fitted": "q_logit: E5's logistic of P(token == labelled team) on alive frames after kickoff of IDSSE and Metrica m0 (probes._newton). spell_logit: E30's flip-helps target and features without seen, rel_own, shape_own, held_own, a ridge-1 Newton logistic over 6660 candidate runs with token share 0.5 or more on IDSSE m0 and Metrica m0 renewal worlds at dead_bias 2.6, seeds 0-4, decoded by tier0_v10 with the new q_logit; weights rounded to 4 places. No PFF or StatsBomb file is read.",
     "idsse_revision": "a715a38dfbaf5f58e431727c2b78d174101a703c",
     "inherited_selection": "Every other value is tier0_v20's and was selected by ranking on PFF-A labels under rule v2 (see params/tier0_v20.json provenance.selection). This file removes PFF-fitted weights, not PFF-informed selection.",

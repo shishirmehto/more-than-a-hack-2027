@@ -53,6 +53,13 @@ SCORED = {
         "seeds 15-24: worst-group margin over baseline_smooth50 0.1682 against tier0_v18 0.1568 and tier0_v13_pfffree "
         "0.1038; above tier0_v18 in 5 of the 6 IDSSE groups (the sixth -0.0001) and below it in all 9 Metrica groups "
         "by 0.013 to 0.032. Above baseline_smooth50 in every group and on all 64 PFF games."),
+    "tier0_v20_pfffree.json": ("data/derived/runs/hc/pfffree-v20-confirm-pff.csv, pfffree-v20-confirm-synth.csv",
+        "Scored once after the build, never used to choose it. Its weights are tier0_v19_pfffree's (the fit reads "
+        "tier0_v10, not the base), so it is tier0_v19_pfffree plus E81's dead_end_cut 20 and stoppage_fill. Against "
+        "tier0_v19_pfffree on held-out PFF-B: native m0 +0.0040 [+0.0022, +0.0058], 24 of 32 games won; native m2 "
+        "+0.0031 [+0.0012, +0.0049], 24 of 32. Synthetic seeds 15-24 with dev pseudo-tags: above tier0_v19_pfffree in "
+        "all 15 groups by 0.0066 to 0.0128; worst-group margin over baseline_smooth50 0.1120 against 0.1054. Above "
+        "baseline_smooth50 in every group and on all 32 PFF-B games."),
     "tier0_v19_pfffree.json": ("data/derived/runs/v19pfffree-pff.csv, v19pfffree-synth.csv",
         "Scored once after the refit, never used to choose it. Against tier0_v19 on held-out PFF-B: native m0 "
         "-0.0135 [-0.0173, -0.0097], 2 of 32 games won; native m2 -0.0138 [-0.0179, -0.0097], 3 of 32. Against "
