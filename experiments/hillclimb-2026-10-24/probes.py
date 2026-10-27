@@ -105,6 +105,7 @@ leadgrid PARAMS --out CSV  E32: PARAMS with each LEAD_GRID start-trim cut on the
 insertruns PARAMS    label-reading ceiling of making short dead cue runs D, by ball-out evidence
 ttitoken             E39 gate: nearest-player token against a time-to-intercept token on PFF-A seen alive frames
 restartdet PARAMS    restart detector gate: law-of-the-game triggers and last touch against the first call after D
+touchline PARAMS     label-reading: restart classes of missed stoppages, and held touchline triggers as a D fill
 postfill PARAMS      restart-taker ceiling: wrong first calls after D given the labelled restart team
 postd PARAMS         restart-taker gate: first team call after each D stretch against the labelled restart team
 islandruns PARAMS    E37 ceiling: label-free island candidates inside team runs, inserted where labels say it helps
@@ -138,6 +139,7 @@ deadstarts PARAMS    label-reading: the dead rule's cue runs against labelled st
 spellveto PARAMS WEIGHTS --out CSV
                      E29 veto rows: PARAMS with the spell flip at each registered arm and spellflip's all-A weights
 subs CSV...          label-free: label shares, H, A and D runs and differing frames of our own submission CSVs
+lowtail CSV A B      model A minus B in a `score` run table per group: pooled per seed, per game with its lower tail
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
                      per-game differences with 90% t intervals on the native PFF games
 
@@ -2745,11 +2747,11 @@ def postfill(params):
 RESTART_HOLD, RESTART_AFTER, CORNER_M, KICKOFF_M, CLEAR_M = 25, 50, 1.5, 1.0, 9.0
 
 
-def _held(flag):
-    """FLAG with only its runs of RESTART_HOLD+ frames kept."""
+def _held_runs(flag, hold=RESTART_HOLD):
+    """FLAG with only its runs of HOLD+ frames kept."""
     out = np.zeros_like(flag)
     for a, b in zip(*_runs(flag)):
-        if b - a >= RESTART_HOLD:
+        if b - a >= hold:
             out[a:b] = True
     return out
 
@@ -2782,8 +2784,8 @@ def _restart_triggers(g, lo, hi, throw_m):
                         (np.nan_to_num((x[:, opp] - length / 2) * med_opp[:, None], nan=1.0) > -1).all(1)
             kickoff = (np.nan_to_num(dmark[:, own], nan=1e9) < KICKOFF_M).any(1) & \
                       (np.nan_to_num(dmark[:, opp], nan=1e9) >= CLEAR_M).all(1) & halves_ok
-            fired[k] = {"throw": _held(beyond[:, own].any(1)).any(), "corner": _held(corner).any(),
-                        "kickoff": _held(kickoff).any()}
+            fired[k] = {"throw": _held_runs(beyond[:, own].any(1)).any(), "corner": _held_runs(corner).any(),
+                        "kickoff": _held_runs(kickoff).any()}
     return {kind: (fired[HOME][kind], fired[AWAY][kind]) for kind in ("throw", "corner", "kickoff")}
 
 
@@ -2837,6 +2839,145 @@ def restartdet(params):
         print(f"{arm}: fires on {f.mean():.4f}; right where it fires {(t[arm][f] == t.truth[f]).mean():.4f}; v13 "
               f"right there {(t.v13[f] == t.truth[f]).mean():.4f}; disagrees with v13 on {(t[arm][f] != t.v13[f]).mean():.4f}"
               f" of those, where it is right on {(t[arm][f & (t[arm] != t.v13)] == t.truth[f & (t[arm] != t.v13)]).mean():.4f}")
+
+
+TOUCH_ARMS = ((0.5, 25), (1.0, 25), (1.0, 50))
+RESTART_CLASSES = ("corner", "goal area", "touchline", "centre", "other", "unseen")
+
+
+def _touchline(g, throw_m, hold):
+    """bool [n] of Geometry G: some slot more than THROW_M beyond a touchline, kept in runs of HOLD+ frames."""
+    y = g.players_xy[..., 1].astype(np.float64)
+    with np.errstate(invalid="ignore"):
+        beyond = ((y < -throw_m) | (y > g.pitch_m[1] + throw_m)).any(1)
+    return _held_runs(beyond, hold)
+
+
+def _restart_class(xy, pitch_m):
+    """RESTART_CLASSES entry for a seen ball at XY: within 3 m of a corner point, in a goal area (1 m slack),
+    within 2 m of a touchline or beyond it, within 2 m of the centre mark, else other."""
+    x, y = float(xy[0]), float(xy[1])
+    length, width = pitch_m
+    if min(np.hypot(x - cx, y - cy) for cx in (0.0, length) for cy in (0.0, width)) <= 3.0:
+        return "corner"
+    if min(x, length - x) <= 6.5 and abs(y - width / 2) <= 10.16:
+        return "goal area"
+    if min(y, width - y) <= 2.0:
+        return "touchline"
+    if np.hypot(x - length / 2, y - width / 2) <= 2.0:
+        return "centre"
+    return "other"
+
+
+def touchline(params):
+    """Label-reading, never a candidate: PARAMS's final codes on native PFF-A m0 and m2 against labelled D
+    stretches of 50+ frames after kickoff and against held touchline triggers (_touchline, label-free; audit row
+    352 showed PFF keeps slots beyond the lines). Prints (1) per restart class (_restart_class of the seen ball
+    nearest each stretch's end, from RESTART_HOLD frames before it to 5 after; a geometric proxy, since the loader
+    keeps no restart type) the count, the decoder's mean D share and the missed share (under 10% D), and the share
+    of missed stretches holding a trigger frame per arm; (2) per TOUCH_ARMS arm the trigger frames, their labelled
+    and decoder D shares, the labelled D share of the trigger frames the decoder calls a team (the fill's
+    precision), and the trigger runs with under 20% decoder D; (3) pooled spellF1 per world and paired per-game
+    deltas on PFF-A m0 for the label-free fills (D on trigger frames the decoder calls a team), the same fills
+    only where labelled D (their ceiling), deadedges' missed-stretch oracle, and that oracle per restart class."""
+    from possession import pff
+    model, masks, rows, per_game, stretches, frames = Decoder.load(params), None, [], [], [], []
+    arms = [f"trig{m:g}h{hold}" for m, hold in TOUCH_ARMS]
+    names = ["base", *arms, *[f"{arm} ceiling" for arm in arms], "missed", *[f"missed {k}" for k in RESTART_CLASSES]]
+    for world, pooled_a, labs, games_a in native_a():
+        if masks is None:
+            want, masks = {(h.id.match, h.id.half): h.n for h in pooled_a.halves}, {}
+            for c in pff.load(metrica.RuleV2.parse("m0")):
+                key = (c.id.match, c.id.half)
+                if key not in want:
+                    continue
+                if c.geometry.n != want[key]:
+                    raise ValueError(f"{key}: pff.load has {c.geometry.n} frames, native_a {want[key]}")
+                masks[key] = ([_touchline(c.geometry, m, hold) for m, hold in TOUCH_ARMS],
+                              c.geometry.ball_xy.copy(), pff.native_seen(c), c.geometry.pitch_m)
+            if set(want) - set(masks):
+                raise ValueError(f"pff.load gave no half for {sorted(set(want) - set(masks))[:3]}")
+        variants = {k: [] for k in names}
+        for h, lab in zip(pooled_a.halves, labs):
+            trig, ball, seen, pitch = masks[(h.id.match, h.id.half)]
+            c = model.decode(h).codes
+            out = {k: c.copy() for k in names[1:]}
+            after = np.arange(h.n) >= h.id.kickoff
+            for arm, t in zip(arms, trig):
+                t = t & after
+                team = t & (c != D)
+                out[arm][team] = D
+                out[f"{arm} ceiling"][team & (lab == D)] = D
+                low = [(a, b) for a, b in zip(*_runs(t)) if (c[a:b] == D).mean() < 0.2]
+                frames.append({"world": world, "arm": arm, "after": int(after.sum()), "trig": int(t.sum()),
+                               "lab_D": int((t & (lab == D)).sum()), "dec_D": int((t & (c == D)).sum()),
+                               "team": int(team.sum()), "team_lab_D": int((team & (lab == D)).sum()),
+                               "runs": len(_runs(t)[0]), "low_runs": len(low),
+                               "low_frames": sum(b - a for a, b in low),
+                               "low_lab_D": sum(int((lab[a:b] == D).sum()) for a, b in low)})
+            for a, b in zip(*_runs(lab == D)):
+                if b - a < 50 or a < h.id.kickoff:
+                    continue
+                lo = max(b - RESTART_HOLD, 0)
+                near = lo + np.flatnonzero(seen[lo:min(b + 5, h.n)])
+                kind = _restart_class(ball[near[np.argmin(np.abs(near - b))]], pitch) if len(near) else "unseen"
+                share = float((c[a:b] == D).mean())
+                if share < 0.1:
+                    out["missed"][a:b] = D
+                    out[f"missed {kind}"][a:b] = D
+                stretches.append({"world": world, "class": kind, "share": share, "missed": share < 0.1,
+                                  **{arm: bool(t[a:b].any()) for arm, t in zip(arms, trig)}})
+            variants["base"].append(c)
+            for k in names[1:]:
+                variants[k].append(out[k])
+        runs = score.valid_runs(pooled_a.gt)
+        f0 = None
+        for name, codes in variants.items():
+            f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs)
+            f0 = f1 if name == "base" else f0
+            rows.append({"world": world, "variant": name, "spell_f1": f1, "delta": f1 - f0, "n_pred": n})
+            if "_m0_" in world:
+                by_key = {(h.id.match, h.id.half): x for h, x in zip(pooled_a.halves, codes)}
+                for g in games_a:
+                    gc = [by_key[(h.id.match, h.id.half)] for h in g.halves]
+                    per_game.append({"base": Path(params).stem, "game": g.name, "variant": name,
+                                     "spell_f1": score.spell_f1(g.layout, g.gt, gc, score.valid_runs(g.gt))[0]})
+        print(world, flush=True)
+    s = pd.DataFrame(stretches)
+    print("\nlabelled D stretches of 50+ frames after kickoff by restart class: count, decoder mean D share, "
+          "missed share (under 10% D)")
+    print(s.groupby(["world", "class"]).agg(n=("share", "size"), dec_D=("share", "mean"),
+                                            missed=("missed", "mean")).round(3).to_string())
+    print("\nmissed stretches holding a trigger frame, per arm")
+    m = s[s.missed]
+    print(m.groupby(["world", "class"])[arms].mean().round(3).to_string())
+    print(m.groupby("world")[arms].mean().round(3).to_string())
+    f = pd.DataFrame(frames).groupby(["world", "arm"]).sum(numeric_only=True)
+    print("\ntrigger frames after kickoff: share of frames, labelled D share, decoder D share, precision (labelled D "
+          "share of the trigger frames the decoder calls a team); trigger runs and those under 20% decoder D")
+    print(pd.DataFrame({"frames": f.trig, "share": f.trig / f.after, "lab_D": f.lab_D / f.trig,
+                        "dec_D": f.dec_D / f.trig, "team_frames": f.team, "precision": f.team_lab_D / f.team,
+                        "runs": f.runs, "low_runs": f.low_runs,
+                        "low_lab_D": f.low_lab_D / f.low_frames}).round(4).to_string())
+    print()
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+    paired_delta(per_game, names[1:])
+
+def lowtail(csv, a, b):
+    """Model A minus model B in a `possession score --dev` CSV, per group: the pooled difference per seed, and over
+    games (seeds averaged per game) the mean [90% t interval], games won, the 10th percentile and the worst game."""
+    t = pd.read_csv(csv)
+    wide = t.pivot_table(index=["world", "case"], columns="model", values="spell_f1")
+    d = (wide[a] - wide[b]).rename("d").reset_index().assign(group=lambda f: f.world.map(bench.group))
+    print(f"{a} - {b}")
+    for grp, f in d.groupby("group"):
+        pooled = f[f.case == "dev_pooled"].d.to_numpy()
+        games = f[f.case != "dev_pooled"].groupby("case").d.mean().to_numpy()
+        h = T90 * games.std(ddof=1) / np.sqrt(len(games))
+        print(f"  {grp}: pooled {pooled.mean():+.4f} over {len(pooled)} seeds (min {pooled.min():+.4f}); per game "
+              f"{games.mean():+.4f} [{games.mean() - h:+.4f}, {games.mean() + h:+.4f}], won {(games > 0).sum()}/"
+              f"{len(games)}, 10th percentile {np.quantile(games, 0.1):+.4f}, worst {games.min():+.4f}")
+
 
 
 def seedwins(csv, a, b):
@@ -4006,7 +4147,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -4024,7 +4165,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
