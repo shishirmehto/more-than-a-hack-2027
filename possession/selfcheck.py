@@ -1429,22 +1429,22 @@ def skillcorner_reproduces_feed_counts() -> None:
     # Counted 2026-10-27 at 10 fps by an independent probe straight from the JSONL and phases CSV (its own
     # parse): possessions are maximal H or A runs, and a D or an X frame ends one. A phase counts only on
     # frames of its own period: in 16 matches the last first-half phase runs on past half-time (881 frames).
-    halves = list(skillcorner.load())
-    assert [(h.id.match, h.id.half) for h in halves] == [(f"skillcorner_{m}", k) for m in skillcorner.MATCHES
-                                                         for k in (1, 2)]
     spells = labelled = 0
     for match in skillcorner.MATCHES:
         for period in skillcorner.parse_match(match):
             spells += _n_spells(np.where(period.labels == X, D, period.labels).astype(np.int8))
             labelled += int(np.isin(period.labels, (H, A)).sum())
     assert (spells, labelled) == (6481, 611_714), (spells, labelled)
-    for h in halves:
+    ids = []
+    for h in skillcorner.load():
+        ids.append((h.id.match, h.id.half))
         g = h.geometry
         on_pitch = [(~np.isnan(g.players_xy[:, g.slot_team == team, 0])).sum(axis=1) for team in (HOME, AWAY)]
         assert all(1 <= count.max() <= 11 for count in on_pitch), h.id
         tokens, team = challenge.observe(g, h.id).nearest_team, np.isin(h.labels, (H, A))
         seen = skillcorner.native_seen(h) & team
         assert (tokens[seen] == h.labels[seen]).mean() > 0.6, h.id
+    assert ids == [(f"skillcorner_{m}", k) for m in skillcorner.MATCHES for k in (1, 2)]
 
 
 def pff_resample_known_answer() -> None:

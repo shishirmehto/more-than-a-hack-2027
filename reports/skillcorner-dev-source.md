@@ -91,6 +91,9 @@ No SkillCorner file, frame-level export or BAR-ATH label is in this commit.
 - **v19 against v13.** v19 beats v13 on 14 of 20 matches. The per-match mean difference is +0.0026
   (sd 0.0044).
 - **Dropout.** This world's dropout leaves the ball missing on 51.7% of frames from kickoff on.
+- **Native mode.** `--rule skillcorner:m0:native` hides only the balls SkillCorner did not detect, which is
+  40.4% of frames from kickoff on, mostly dead time. It gives v13 0.3546, v19 0.3593 and smooth50 0.2610.
+  That run shows native mode works. It is not a realistic world.
 
 One seed and one world under a convention that neither v13 nor v19 was tuned on. Treat it as a
 check that the source runs, not as a ranking.
