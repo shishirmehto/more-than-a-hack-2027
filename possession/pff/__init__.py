@@ -137,10 +137,12 @@ def ticks(n: int, fps: float) -> NDArray[np.int64]:
 
 def undouble(a: NDArray[np.float32]) -> NDArray[np.float32]:
     """a [n, ..., 2] positions with every lone repeat replaced by the midpoint of its neighbours. PFF's
-    tracker updates about every second frame of its 29.97 fps stream (99.7% of moving-ball steps and
-    half of all player steps repeat the frame before), so a position equal to the previous frame's,
-    where the previous differs from the one before it and the next differs from it, is a held copy.
-    Longer repeats (a still ball, a paused track) and repeats next to a NaN stay as they are."""
+    tracker updates about every second frame of its 29.97 fps stream. Over periods 1 and 2 of all 64
+    games, 99.5% of moving-ball position changes come 2 source frames after the previous change and
+    50.0% of player steps repeat the frame before (experiments/hillclimb-2026-10-24/probes.py doubling).
+    So a position equal to the previous frame's, where the previous differs from the one before it and
+    the next differs from it, is a held copy. Longer repeats (a still ball, a paused track) and repeats
+    next to a NaN stay as they are."""
     same = np.zeros(a.shape[:-1], bool)
     same[1:] = (a[1:] == a[:-1]).all(-1)
     held = np.zeros_like(same)

@@ -456,7 +456,14 @@ enters the hillclimb. The decision log's trace (27 October):
   The session's later vx check (log row 466) sized it. That check ran at my request on dev data and BAR-ATH only.
   The undoubling itself came from our own source scan. Experiments 114 to 120, 122, 123 and 125 to 135 read the
   fixed loader, and so do experiment 136's PFF groups. tier0_v19 and tier0_v19_pfffree were fitted, selected and confirmed on it, and v19 was frozen
-  before the user ruled on it.
+  before the user ruled on it. On 27 October the user left the call to the hillclimb ("you choose to keep the fix
+  or not"), and the fix stays. It corrects how we read PFF's stream, and it carries no possession rule, feature or
+  constant from a fork. Our own label-free count on all 64 games (`probes.py doubling`) confirms the pattern: 99.5%
+  of moving-ball position changes come 2 source frames after the previous one, and 50.0% of player steps repeat
+  the frame before. Retiring the fix would put back a resampling artefact that BAR-ATH's ATD does not show
+  (experiment 113's vx-change autocorrelation, +0.994 on BAR-ATH) under the ball-speed features that v19's spell
+  flip is fitted on. The decision covers the loader fix only. v15's dead line stays
+  frozen, and experiments from E69 on still rank under rule v2 without bridged mode.
 - **Closed with no change.** E41 and E43 (F1), E47 (scan 6, another team's return-distance gap rule, sized by
   the exploring session's own measurement), E48 (scan 7, a competitor's model), E49 (scan 10), E50 (the survey's
   idea 2), E58 (scan 12) and E59 came from fork leads. E59 used another team's edge-weighted dropout weights (x26
@@ -481,7 +488,8 @@ happened during the pause anyway, and neither registered or selected anything. E
 probe with bars set before it, so its closures prune the search on PFF-A labels. Experiment 136 is a measurement.
 Both read the fixed loader, so a Retire ruling would need their decoder side re-read. If the loader fix goes,
 E31's touch weights fitted on the old loader (`data/derived/runs/hc/e31-weights.json`) at a cut of 0.75 would show
-what of v19 survives.
+what of v19 survives. The fix stayed (see the loader fix above), so the pause ended on 27 October and the
+hillclimb resumed on tier0_v19's fixed loader.
 
 ## Experiments
 
