@@ -39,7 +39,7 @@ _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed",
                  "q_logit_goal")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
                   "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other",
-                  "rel_own", "shape_own", "held_own")
+                  "rel_own", "shape_own", "held_own", "goal_own", "goal_other")
 _SHAPE_LAG = 50
 _HELD_RADIUS_M = 1.0
 _TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
@@ -584,7 +584,10 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     [start + 50, stop + 50), because team shape trails a change of possession by 2 to 4 s; 0 when none is
     present or the Half has no shape_lo. held_own: share of the run's frames whose held team is the run's team,
     the held team being the token at the latest frame up to then with the nearest player within 1 m of the ball
-    (experiment 35's last team within 1 m); a frame with no such earlier frame counts as not own.
+    (experiment 35's last team within 1 m); a frame with no such earlier frame counts as not own. goal_own,
+    goal_other: mean of sign(u) ln(1 + |u|), u = BallGeometry.goal_mps clipped to +-40 m/s, over the run's
+    own-token frames and over its other-token frames; positive means the ball moves toward the goal of the
+    token's team; 0 when there is none or the geometry has no goal_mps.
     """
     g = half.geometry
     if g is None or half.push_mps is None:
@@ -597,6 +600,10 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     if half.n > 2 * s:
         dv[s:-s] = np.abs(v[2 * s:] - v[:-2 * s])
     touch = np.where(g.nearest_m <= _TOUCH_RADIUS_M, np.minimum(dv, _SPEED_CAP_MPS), np.nan)
+    goal = None
+    if g.goal_mps is not None:
+        u = np.clip(g.goal_mps.astype(np.float64), -_SPEED_CAP_MPS, _SPEED_CAP_MPS)
+        goal = np.sign(u) * np.log1p(np.abs(u))
     with np.errstate(invalid="ignore"):
         close = (g.nearest_m <= _HELD_RADIUS_M) & (half.nearest_team != NO_TEAM)
     last = np.maximum.accumulate(np.where(close, np.arange(half.n), -1))
@@ -628,6 +635,10 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
         lo, hi = max(a - _TOUCH_SLACK, 0), min(b + _TOUCH_SLACK, half.n)
         miss = touch[lo:hi][half.nearest_team[lo:hi] == 1 - team]
         miss = miss[~np.isnan(miss)]
+        gown = goal[a:b][own] if goal is not None else np.empty(0)
+        gown = gown[~np.isnan(gown)]
+        goth = goal[a:b][tok == 1 - team] if goal is not None else np.empty(0)
+        goth = goth[~np.isnan(goth)]
         sign = 1.0 if team == H else -1.0
         prev = (int(codes[starts[k - 1]]), stops[k - 1] - starts[k - 1]) if k else (D, 0)
         nxt = (int(codes[starts[k + 1]]), stops[k + 1] - starts[k + 1]) if k + 1 < len(starts) else (D, 0)
@@ -644,7 +655,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
              math.log1p(float(miss.max())) if len(miss) else 0.0,
              math.log1p(float(np.median(rel))) if len(rel) else 0.0,
              sign * math.fsum(shape.tolist()) / len(shape) if len(shape) else 0.0,
-             int((held[a:b] == team).sum()) / (b - a))
+             int((held[a:b] == team).sum()) / (b - a),
+             math.fsum(gown.tolist()) / len(gown) if len(gown) else 0.0,
+             math.fsum(goth.tolist()) / len(goth) if len(goth) else 0.0)
         out.append((a, b, team, tuple(round(v, 9) for v in x)))
     return out
 

@@ -30,9 +30,9 @@ from possession.half import D  # noqa: E402
 
 V10 = Path("params/tier0_v10.json")
 # E30's feature set: seen left out, and every SPELL_FEATURES entry added after E30.
-DROP = ("seen", "touch_own", "touch_other", "rel_own", "shape_own", "held_own")
+DROP = ("seen", "touch_own", "touch_other", "rel_own", "shape_own", "held_own", "goal_own", "goal_other")
 # E69's feature set: E30's with E31's touch_own and touch_other kept.
-TOUCH_DROP = ("seen", "rel_own", "shape_own", "held_own")
+TOUCH_DROP = ("seen", "rel_own", "shape_own", "held_own", "goal_own", "goal_other")
 # Scored once after each refit and never used to choose it; a file not yet scored says so.
 SCORED = {
     "tier0_v13_pfffree.json": ("data/derived/runs/pfffree-pff.csv, pfffree-synth.csv", 
@@ -134,7 +134,8 @@ def main():
         "fitted": (f"q_logit: E5's logistic of P(token == labelled team) on alive frames after kickoff of IDSSE and "
                    f"Metrica m0 (probes._newton){', with E60 goalward-ball term' if args.goal else ''}. "
                    f"spell_logit: E30's flip-helps target and features without "
-                   f"{', '.join(drop)}, a ridge-1 Newton logistic over {n_runs} candidate runs with token share 0.5 or "
+                   f"{', '.join(f for f in drop if f not in probes.LATE_SPELL)}, a ridge-1 Newton logistic over "
+                   f"{n_runs} candidate runs with token share 0.5 or "
                    "more on IDSSE m0 and Metrica m0 renewal worlds at dead_bias 2.6, seeds 0-4, decoded by tier0_v10 "
                    "with the new q_logit; weights rounded to 4 places. No PFF or StatsBomb file is read."),
         "inherited_selection": (f"Every other value is {args.base.stem}'s and was selected by ranking on PFF-A labels "

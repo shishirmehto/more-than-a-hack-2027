@@ -827,7 +827,7 @@ def spell_flip_known_answer() -> None:
     assert (a, b, team) == (5, 8, A)
     assert x == tuple(round(v, 9) for v in (math.log(3 / 25), 1.0, 1.0, 0.0, math.log1p(3.0), math.log1p(5.0),
                                             math.log1p(5.0), math.log1p(2.0), 0.0, 0.0, 1.0, math.log1p(5),
-                                            math.log1p(5), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)), x
+                                            math.log1p(5), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)), x
     held = decoder.SPELL_FEATURES.index("held_own")
     runs = np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8)
     assert decoder._spell_runs(runs, half("HHHHHAAAHHHHH", near=1.0), 4, np.zeros(13))[0][3][held] == 1.0
@@ -850,7 +850,7 @@ def spell_flip_known_answer() -> None:
     assert flip("HHHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHH"
     assert flip("HHHHHAAAHHHAAAHHHHH", 0.5) == "HHHHHHHHAAAHHHHHHHH"
     assert flip("HHHHHAAAHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHHHHHHHH"
-    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 2.0
+    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 2.2
     assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), {"a": 0.5, "len": 1.0}) == 1.5
     kick = half("HHHHHAAAHHHHH", near=1.0)
     speed = np.full(13, 5.0, np.float32)
@@ -865,6 +865,14 @@ def spell_flip_known_answer() -> None:
                np.full(13, math.e - 1, np.float32)), pace_mps=kick.pace_mps, push_mps=kick.push_mps)
     (*_, xr), = decoder._spell_runs(np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8), rel, 4, np.zeros(13))
     assert xr[decoder.SPELL_FEATURES.index("rel_own")] == round(math.log1p(float(np.float32(math.e - 1))), 9), xr
+    goal = np.zeros(13, np.float32)
+    goal[5:8] = (3.0, -1.0, 1.0)
+    gtok = np.array([HOME] * 5 + [AWAY, HOME, AWAY] + [HOME] * 5, np.int8)
+    gh = Half(kick.id, gtok, BallGeometry(g.margin_m, g.nearest_m, g.outside_m, g.speed_mps, None, None, goal),
+              pace_mps=kick.pace_mps, push_mps=kick.push_mps)
+    (*_, xg), = decoder._spell_runs(np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8), gh, 4, np.zeros(13))
+    assert xg[decoder.SPELL_FEATURES.index("goal_own"):] == \
+        (round((math.log1p(3.0) + math.log1p(1.0)) / 2, 9), round(-math.log1p(1.0), 9)), xg
     lo = np.zeros(80, np.float32)
     lo[55:58] = -2.0
     lo[58:70] = np.nan
