@@ -455,8 +455,9 @@ enters the hillclimb. The decision log's trace (27 October):
   The undoubling itself came from our own source scan. Experiments 114 to 120, 122, 123 and 125 to 134 read the
   fixed loader. tier0_v19 and tier0_v19_pfffree were fitted, selected and confirmed on it, and v19 was frozen
   before the user ruled on it.
-- **Closed with no change.** E41 (F1), E43 (F1), E47 (scan 6), E48 (scan 7, a competitor's model), E49, E50,
-  E58 and E59 came from fork leads. E46 came from literature (Lang et al. 2022) through the same session.
+- **Closed with no change.** E41 (F1), E43 (F1), E48 (scan 7, a competitor's model), E49, E50, E58 and E59 came
+  from fork leads. E47 (scan 6) rests on the exploring session's own measurement made during a fork scan, like
+  bridged mode. E46 came from literature (Lang et al. 2022) through the same session.
 - **tier0_v17** is ours in idea (experiments 107 and 108). Under rule v2 on the old loader its native PFF-A
   gains (+0.0083 m0, +0.0058 m2) clear E32's clause, and PFF-B native m2 fails (+0.0027 [-0.0013, +0.0068]),
   so it misses confirmation with or without bridged mode.
