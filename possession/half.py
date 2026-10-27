@@ -143,6 +143,8 @@ class Half:
                   3 players nearest it outside 1 m, each player's velocity from frames t-12 and t+12 against the
                   direction from the player to the ball at t (challenge._team_press). NaN where the ball or either
                   team has no such player, and within 12 frames of either end.
+    restart_rows: sorted rows of this half where a Smart Tagging throw-in or goal kick tag starts, when the Half
+                  was built with challenge.halves(restart_tags=True); empty otherwise and on every dev source.
 
     Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
     NO_TEAM frames.
@@ -155,6 +157,7 @@ class Half:
     shape_lo: NDArray[np.float32] | None = None
     return_m: NDArray[np.float32] | None = None
     press_mps: NDArray[np.float32] | None = None
+    restart_rows: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -164,6 +167,8 @@ class Half:
             raise ValueError("nearest_team values must be in {-1, 0, 1}")
         if not 0 <= self.id.kickoff < self.n:
             raise ValueError(f"kickoff {self.id.kickoff} outside [0, {self.n})")
+        if list(self.restart_rows) != sorted(self.restart_rows) or not all(0 <= r < self.n for r in self.restart_rows):
+            raise ValueError(f"restart_rows must be sorted rows in [0, {self.n})")
         _freeze(tok)
         if self.geometry is not None:
             unseen = tok == NO_TEAM

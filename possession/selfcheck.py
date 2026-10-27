@@ -651,6 +651,43 @@ def handover_lag_known_answer() -> None:
         assert Decoder.load(Path(tmp) / "lag.json") == model
 
 
+def stoppage_fill_known_answer() -> None:
+    """decoder._stoppage_fill: D from a tagged restart to the kick where the codes have little D; nothing where they
+    already have D, where no kick is seen or outside the half; the decode path through Half.restart_rows, needs_tags
+    and the save."""
+    n = 600
+    tok = np.full(n, HOME, np.int8)
+    zeros, kick = np.zeros(n, np.float32), np.zeros(n, np.float32)
+    kick[200:260] = 10.0
+
+    def half(vx: np.ndarray, rows: tuple[int, ...] = ()) -> Half:
+        geo = BallGeometry(margin_m=np.full(n, 5.0, np.float32), nearest_m=np.ones(n, np.float32), outside_m=zeros,
+                           speed_mps=np.abs(vx), vx_mps=vx, vy_mps=zeros)
+        return Half(HalfId("t2", 1, 0), tok, geometry=geo, restart_rows=rows)
+
+    live = np.full(n, H, np.int8)
+    out = decoder._stoppage_fill(live, half(kick), [150])
+    assert np.flatnonzero(out != H).tolist() == list(range(150, 200)) and (out[150:200] == D).all()
+    dead = live.copy()
+    dead[100:180] = D
+    assert np.array_equal(decoder._stoppage_fill(dead, half(kick), [150]), dead), "0.21 of the window is D already"
+    assert np.array_equal(decoder._stoppage_fill(live, half(zeros), [150]), live), "no kick, no D"
+    assert np.array_equal(decoder._stoppage_fill(live, half(kick), [-5, n]), live)
+    base = Decoder(Tier0Emission(), DecoderParams(temper=1.0))
+    model = base.replace(stoppage_fill=True)
+    assert model.needs_tags and model.needs_geometry and not base.needs_tags
+    plain, filled = base.decode(half(kick, (150,))).codes, model.decode(half(kick, (150,))).codes
+    assert (plain == H).all() and np.flatnonzero(filled == D).tolist() == list(range(150, 200))
+    assert np.array_equal(model.decode(half(kick)).codes, plain), "no restart rows, no change"
+    with tempfile.TemporaryDirectory() as tmp:
+        assert json.loads(model.save(Path(tmp) / "t2.json", {}).read_text())["params"]["stoppage_fill"] is True
+        assert "stoppage_fill" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(Path(tmp) / "t2.json") == model
+    _raises(ValueError, DecoderParams, stoppage_fill=1)
+    _raises(ValueError, half, kick, (n,))
+    _raises(ValueError, half, kick, (300, 150))
+
+
 def spell_merge_known_answer() -> None:
     """decoder._merge_spells: interior and tail merges, shortest first, D boundaries, mirroring, decode and save."""
     code = {"H": H, "A": A, "D": D}
@@ -1509,6 +1546,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     geometry_emission_known_answer,
     dead_run_rule_known_answer,
     handover_lag_known_answer,
+    stoppage_fill_known_answer,
     spell_merge_known_answer,
     spell_push_known_answer,
     team_push_known_answer,

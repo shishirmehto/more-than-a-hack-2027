@@ -45,6 +45,8 @@ SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_m
 _SHAPE_LAG = 50
 _HELD_RADIUS_M = 1.0
 _TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
+_STOP_BEFORE, _STOP_AFTER, _STOP_SHARE = 5 * FPS, 10 * FPS, 0.2
+_KICK_SLOW_MPS, _KICK_FAST_MPS, _KICK_FROM, _KICK_TO = 2.0, 5.0, FPS, 15 * FPS
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +267,13 @@ class DecoderParams:
                         the highest spell logit goes to the other team, then the next highest touching no kept
                         one, and so on (ties to the earlier start): flipping both sides of a boundary only moves
                         it. False flips every passing possession.
+    stoppage_fill:      False is off. True, after every other rule, gives D to the frames from each row i of
+                        Half.restart_rows (a Smart Tagging throw-in or goal kick) up to the kick, where under 0.2 of
+                        the codes on [i - 5 s, i + 10 s) are D. The kick is the first frame from i + 1 s to
+                        i + 15 s where the seen ball moves faster than 5 m/s within 1 s after a seen ball slower
+                        than 2 m/s; a row with no such frame adds nothing. The tag marks a stoppage the codes
+                        missed. Window, share and speeds are the T2 proposal's, never gridded. Needs Half.geometry
+                        and a Half built with restart_tags (challenge.halves); dev Halves carry no rows.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -319,6 +328,7 @@ class DecoderParams:
     dead_return_min_run: int = 0
     dead_end_live_mps: float = 0.0
     dead_end_cut: int = 0
+    stoppage_fill: bool = False
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -396,6 +406,8 @@ class DecoderParams:
             raise ValueError(f"spell_flip_adjacent must be true or false, got {self.spell_flip_adjacent!r}")
         if self.spell_flip_adjacent and not self.spell_flip_p:
             raise ValueError("spell_flip_adjacent acts only with spell_flip_p > 0")
+        if not isinstance(self.stoppage_fill, bool):
+            raise ValueError(f"stoppage_fill must be true or false, got {self.stoppage_fill!r}")
         if self.spell_logit:
             if "a" not in self.spell_logit or not set(self.spell_logit) <= {"a", *SPELL_FEATURES}:
                 raise ValueError(f"spell_logit needs 'a' and takes only {', '.join(SPELL_FEATURES)}")
@@ -433,7 +445,7 @@ _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_ou
                     "dead_out_lead_cut": 0, "dead_out_min_run": 0, "spell_flip_adjacent": False,
                     "dead_line_m": 0.0, "dead_line_min_run": 0, "dead_line_lead_cut": 0, "dead_end_lead": 0,
                     "dead_end_live_mps": 0.0, "dead_return_m": 0.0,
-                    "dead_return_min_run": 0, "dead_end_cut": 0}
+                    "dead_return_min_run": 0, "dead_end_cut": 0, "stoppage_fill": False}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -470,7 +482,8 @@ class Decoder:
           6. spell_merge_frames joins short possessions to their neighbours (see DecoderParams).
           7. spell_flip_p gives short possessions its fitted logistic picks to the other team.
           8. handover_lag moves the hand-overs between the teams later (see DecoderParams).
-          With switch_penalty, or after 4 to 8, the posterior is dropped, because it no longer describes the
+          9. stoppage_fill adds the stoppages at tagged restarts that the codes missed (see DecoderParams).
+          With switch_penalty, or after 4 to 9, the posterior is dropped, because it no longer describes the
           codes.
         """
         p, kickoff = self.params, half.id.kickoff
@@ -492,7 +505,7 @@ class Decoder:
         post[:kickoff] = (0.0, 0.0, 1.0)
         post[kickoff:] = np.repeat(g, p.stride, axis=0)[:m]
         codes = np.round(post, 9).argmax(axis=1).astype(np.int8)
-        if p.dead_min_run or p.handover_lag or p.spell_merge_frames or p.spell_push_mps or p.spell_flip_p:
+        if p.dead_min_run or p.handover_lag or p.spell_merge_frames or p.spell_push_mps or p.spell_flip_p or p.stoppage_fill:
             return Decoded(codes=_rules(codes, half, p, logodds), posterior=None)
         return Decoded(codes=codes, posterior=post.astype(np.float32))
 
@@ -501,8 +514,13 @@ class Decoder:
         """True when decoding reads Half.geometry, Half.pace_mps or Half.push_mps, which only challenge.observe
         supplies."""
         p = self.params
-        return self.emission.needs_geometry or bool(p.spell_push_mps or p.spell_flip_p) or bool(p.dead_min_run and (
-            p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps))
+        return self.emission.needs_geometry or bool(p.spell_push_mps or p.spell_flip_p or p.stoppage_fill) or bool(
+            p.dead_min_run and (p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps))
+
+    @property
+    def needs_tags(self) -> bool:
+        """True when decoding reads Half.restart_rows, which challenge.halves supplies with restart_tags=True."""
+        return self.params.stoppage_fill
 
     def replace(self, **flat: object) -> "Decoder":
         """A copy with fields changed by flat name. Each key goes to the emission or the params,
@@ -564,7 +582,36 @@ def _rules(codes: NDArray[np.int8], half: Half, p: DecoderParams,
            logodds: NDArray[np.float64] | None = None) -> NDArray[np.int8]:
     flipped = _push_flip(_missing_run_dead(codes, half, p), half, p)
     merged = _merge_spells(flipped, p.spell_merge_frames, p.spell_merge_tails)
-    return _lag_handovers(_spell_flip(merged, half, p, logodds), p.handover_lag)
+    lagged = _lag_handovers(_spell_flip(merged, half, p, logodds), p.handover_lag)
+    return _stoppage_fill(lagged, half, half.restart_rows) if p.stoppage_fill else lagged
+
+
+def _kick(half: Half, i: int) -> int | None:
+    """The first frame from i + 1 s to i + 15 s where the seen ball moves faster than _KICK_FAST_MPS within 1 s
+    after a seen ball slower than _KICK_SLOW_MPS; None when there is none."""
+    g = half.geometry
+    with np.errstate(invalid="ignore"):
+        speed = np.hypot(g.vx_mps, g.vy_mps)
+        slow, fast = speed < _KICK_SLOW_MPS, speed > _KICK_FAST_MPS
+    lo, hi = min(i + _KICK_FROM, half.n), min(i + _KICK_TO, half.n)
+    recent = np.convolve(slow.astype(np.int32), np.ones(FPS, np.int32))[:half.n] > 0
+    hit = np.flatnonzero(fast[lo:hi] & recent[lo - 1:hi - 1]) if hi > lo else ()
+    return lo + int(hit[0]) if len(hit) else None
+
+
+def _stoppage_fill(codes: NDArray[np.int8], half: Half, starts) -> NDArray[np.int8]:
+    """stoppage_fill's step on CODES at the rows STARTS (see DecoderParams)."""
+    out = codes.copy()
+    for i in starts:
+        if not 0 <= i < half.n:
+            continue
+        lo, hi = max(i - _STOP_BEFORE, 0), min(i + _STOP_AFTER, half.n)
+        if (codes[lo:hi] == D).mean() >= _STOP_SHARE:
+            continue
+        k = _kick(half, i)
+        if k is not None:
+            out[i:k] = D
+    return out
 
 
 def _frame_logodds(g: NDArray[np.float64], half: Half, stride: int, m: int) -> NDArray[np.float64]:

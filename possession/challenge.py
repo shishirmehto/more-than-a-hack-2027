@@ -25,6 +25,8 @@ BASELINE_RAW = Path(__file__).resolve().parents[1] / "evaluation" / "results" / 
 SET_PIECES = "set pieces"
 GOALS = "goals"
 KICKOFF_START = "kick off (start)"
+# The restart kinds whose tag marks a stoppage for DecoderParams.stoppage_fill (E81: throw-ins and goal kicks).
+STOPPAGE_KINDS = ("throw-in", "goal kick")
 
 _TAG_HALF = {"1st half": 1, "2nd half": 2}
 
@@ -290,14 +292,25 @@ def observe(g: Geometry, id: HalfId) -> Half:
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
-           data_dir: str | Path | None = None) -> tuple[Half, Half]:
-    """The two decoder inputs for BAR-ATH from the chosen source."""
+           data_dir: str | Path | None = None, *, restart_tags: bool = False) -> tuple[Half, Half]:
+    """The two decoder inputs for BAR-ATH from the chosen source. restart_tags also fills Half.restart_rows
+    from Smart Tagging (decoders with stoppage_fill read them)."""
     if source == "baseline_raw":
-        return _halves_from_baseline_raw()
-    if source == "atd":
+        out = _halves_from_baseline_raw()
+    elif source == "atd":
         (g1, g2), (id1, id2) = load_geometry(data_dir), _half_ids()
-        return observe(g1, id1), observe(g2, id2)
-    raise ValueError(f"unknown source {source!r}; have 'baseline_raw', 'atd'")
+        out = observe(g1, id1), observe(g2, id2)
+    else:
+        raise ValueError(f"unknown source {source!r}; have 'baseline_raw', 'atd'")
+    if restart_tags:
+        out = tuple(replace(h, restart_rows=rows) for h, rows in zip(out, restart_rows(data_dir)))
+    return out
+
+
+def restart_rows(data_dir: str | Path | None = None) -> tuple[tuple[int, ...], ...]:
+    """Per half, the sorted half rows where a STOPPAGE_KINDS restart tag starts."""
+    starts = [t.start for t in tags(data_dir) if t.restart and t.kind in STOPPAGE_KINDS]
+    return tuple(tuple(sorted(s - b.origin for s in starts if b.origin <= s < b.origin + b.n)) for b in layout().blocks)
 
 
 @functools.cache

@@ -228,6 +228,28 @@ TOUCH = ("spell_flip_p 0.75 and these spell_logit weights come from pre-register
          "touch values. No bridged-mode number and no lead from another team's fork entered this selection; it "
          "reads the fixed loader, whose lineage the user has not ruled on (REPORT, Fork lineage). No StatsBomb data "
          "entered this selection. A confirmed alternative: whether it replaces tier0_v13 is the user's decision.")
+E81 = ("dead_end_cut 20 and stoppage_fill come from pre-registered experiment E81 on tier0_v19 under rule v2, a bundle "
+       "of two near-misses that act on different errors. E72 (dead_end_cut 10, 20, 30, 40) found tier0_v19's dead "
+       "runs end a median 15 frames before the labelled restart and gained +0.0026 at 20 on the native PFF-A minimum, "
+       "inside E32's clause. E80's T2 (stoppage_fill) gives D from the start of a Smart Tagging throw-in or goal kick "
+       "tag to the kick where the codes have under 20% D on [-5 s, +10 s) around it; on dev, pseudo-tags from each "
+       "source's set-piece events, kept at BAR-ATH's tag recall per kind and started at its tag lead, stand in for "
+       "the tags. It gained +0.0020, inside the clause. Its window, share and kick speeds are the T2 proposal's and "
+       "were never gridded. The proposal's 134-frame fallback, BAR-ATH's median tag lead, was dropped so that no "
+       "BAR-ATH statistic sets a decoder constant: a tag whose kick ball speed does not find adds nothing, which "
+       "leaves every BAR-ATH act unchanged. Rule v2 (synthetic veto at tier0_v19 minus 0.003 in every group; the "
+       "minimum over native PFF m0 and m2 on the odd-indexed games ranks; ties within 0.003 to the base, then the "
+       "registered preference; no change unless the pick clears the base by more than 0.003) chose the bundle: "
+       "0.1622 against 0.1575, every synthetic group above tier0_v19 (veto slack 0.0089). Both parts had been picked "
+       "on PFF-A, so the held-out games decided. Paired per game over tier0_v19 on the even-indexed PFF games, which "
+       "neither E72 nor E80 read, with 90% t intervals: m0 native +0.0034 [+0.0014, +0.0054] 20 of 32 won, m2 "
+       "native +0.0027 [+0.0007, +0.0047] 21 of 32. On seeds 15-24 it sits above tier0_v19 in all 15 groups; its "
+       "worst-group margin over baseline_smooth50 is 0.1177 against 0.1123. Dev halves carry no tags, so possession "
+       "score --dev shows only the end cut; probes.py e81grid and e81score with pseudo-tags are the dev evidence, and "
+       "probes.py t2identity shows this decoder's step equals the one E81 ran. On BAR-ATH, label-free, it turns 4,006 "
+       "graded frames to D and changes possessions from 160 and 184 to 161 and 182 by half. T2 transfers only as far "
+       "as BAR-ATH's automatic tags mark real stoppages. A confirmed alternative: whether it replaces tier0_v13 is "
+       "the user's decision.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -254,6 +276,8 @@ def main(argv):
     ap.add_argument("--dead-lead-cut", type=int, nargs=2, default=(0, 0), metavar=("ALL", "OUT"))
     ap.add_argument("--spell-flip-adjacent", action="store_true")
     ap.add_argument("--dead-line", type=float, nargs=3, default=(0.0, 0, 0), metavar=("M", "RUN", "CUT"))
+    ap.add_argument("--dead-end-cut", type=int, default=0, metavar="CUT", help="E72's end cut (E81)")
+    ap.add_argument("--stoppage-fill", action="store_true", help="T2 at Smart Tagging throw-ins and goal kicks (E81)")
     ap.add_argument("--spell-logit", type=float, nargs="+", default=None, metavar="W",
                     help="the intercept, then one weight per decoder.SPELL_FEATURES name in order; trailing "
                          "features left out weigh 0 and are not written")
@@ -279,7 +303,11 @@ def main(argv):
                                      spell_logit=dict(zip(("a",) + SPELL_FEATURES, a.spell_logit or ())),
                                      dead_lead_cut=a.dead_lead_cut[0], dead_out_lead_cut=a.dead_lead_cut[1],
                                      spell_flip_adjacent=a.spell_flip_adjacent, dead_line_m=a.dead_line[0],
-                                     dead_line_min_run=int(a.dead_line[1]), dead_line_lead_cut=int(a.dead_line[2]))
+                                     dead_line_min_run=int(a.dead_line[1]), dead_line_lead_cut=int(a.dead_line[2]),
+                                     dead_end_cut=a.dead_end_cut, stoppage_fill=a.stoppage_fill)
+    e81 = bool(a.dead_end_cut) and a.stoppage_fill
+    if bool(a.dead_end_cut) != a.stoppage_fill:
+        ap.error("--dead-end-cut and --stoppage-fill come from E81 together")
     lead = any(a.dead_lead_cut)
     logit = any(a.q_logit)
     no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
@@ -310,6 +338,17 @@ def main(argv):
         changed = changed.replace("dead_close,", "dead_close, dead_line_m, dead_line_min_run, dead_line_lead_cut,", 1)
     if a.spell_flip_adjacent:
         changed = changed.replace("spell_logit", "spell_logit, spell_flip_adjacent", 1)
+    if e81:
+        changed = changed.replace("dead_close,", "dead_close, dead_end_cut,", 1).replace(
+            "spell_logit", "spell_logit, stoppage_fill", 1)
+    after = ("the spell_flip, dead_lead and dead_line fields and handover_lag 20" if e54 else
+             "the spell_flip, dead_lead and dead_line fields and the q_logit_goal term" if goal and a.dead_line[0] else
+             "the spell_flip, dead_lead and dead_line fields" if a.dead_line[0] else
+             "the spell_flip and dead_lead fields and the q_logit_goal term" if goal else
+             "the spell_flip and dead_lead fields")
+    if e81:
+        after = after.replace(" and dead_lead fields", ", dead_lead, dead_end_cut and stoppage_fill fields").replace(
+            " and dead_line fields", ", dead_line, dead_end_cut and stoppage_fill fields")
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -324,7 +363,7 @@ def main(argv):
                      (" " + ADJ if a.spell_flip_adjacent else "") +
                      (" " + LINE if a.dead_line[0] else "") + (LINE_ALT if a.dead_line[0] and not e54 and not goal else "") +
                      (" " + E54 if e54 else "") + (" " + E60 if goal else "") +
-                     (" " + E61 if goal and a.dead_line[0] else ""),
+                     (" " + E61 if goal and a.dead_line[0] else "") + (" " + E81 if e81 else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -353,6 +392,9 @@ def main(argv):
                      "hc-confirm-e60-pff.csv and hc-confirm-e60-synth.csv" if goal else "") +
                     (", e61-synth.csv, e61-pff.csv, e61-pick.out, e61-confirm.out, hc-confirm-e61-pff.csv and "
                      "hc-confirm-e61-synth.csv" if goal and a.dead_line[0] else "") +
+                    (", e72-synth.csv, e72-pff.csv, e72-pick.out, stoppagedose-v19.out, e80-synth.csv, e80-pff.csv, "
+                     "e80-pick.out, e81-synth.csv, e81-pff.csv, e81-pick.out, e81-confirm-pff.csv, e81-confirm-pff.out, "
+                     "e81-confirm-synth.csv, e81-confirm-synth.out, barathdiff-e81.out and t2identity.out" if e81 else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
@@ -360,14 +402,7 @@ def main(argv):
                          "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
                          "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Every experiment from E17 on, "
                          "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and " +
-                         ("the spell_flip, dead_lead and dead_line fields and handover_lag 20 came after the "
-                          if e54 else
-                          "the spell_flip, dead_lead and dead_line fields and the q_logit_goal term came after the "
-                          if goal and a.dead_line[0] else
-                          "the spell_flip, dead_lead and dead_line fields came after the " if a.dead_line[0] else
-                          "the spell_flip and dead_lead fields and the q_logit_goal term came after the " if goal else
-                          "the spell_flip and dead_lead fields came after the ") +
-                         "first read. Inherited from "
+                         after + " came after the first read. Inherited from "
                          "tier0_v1: " + v1_doc["provenance"]["public_window"],
     })
     print(a.out.read_text())
