@@ -146,6 +146,10 @@ class Half:
     restart_rows: sorted rows of this half where a Smart Tagging throw-in or goal kick tag starts, when the Half
                   was built with challenge.halves(restart_tags=True); None when no tags were loaded, as on every
                   dev source. A decoder with stoppage_fill refuses None, so it never runs as if no tag existed.
+    camera:       int8 [n] when the Half was built with challenge.halves(camera=True): the broadcast players shown
+                  at their live positions at that row (challenge.broadcast_camera), 0 when the broadcast shows
+                  something else, -1 where no broadcast frame maps; None when no broadcast was loaded. A decoder
+                  with dead_camera_players refuses None.
 
     Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
     NO_TEAM frames.
@@ -159,6 +163,7 @@ class Half:
     return_m: NDArray[np.float32] | None = None
     press_mps: NDArray[np.float32] | None = None
     restart_rows: tuple[int, ...] | None = None
+    camera: NDArray[np.int8] | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -171,6 +176,12 @@ class Half:
         rows = self.restart_rows or ()
         if list(rows) != sorted(rows) or not all(0 <= r < self.n for r in rows):
             raise ValueError(f"restart_rows must be sorted rows in [0, {self.n})")
+        if self.camera is not None:
+            cam = self.camera
+            if not isinstance(cam, np.ndarray) or cam.dtype != np.int8 or cam.shape != tok.shape or (cam < -1).any():
+                raise ValueError(f"camera must be int8 [{self.n}] of -1 or player counts, got "
+                                 f"{getattr(cam, 'dtype', None)} {getattr(cam, 'shape', None)}")
+            _freeze(cam)
         _freeze(tok)
         if self.geometry is not None:
             unseen = tok == NO_TEAM

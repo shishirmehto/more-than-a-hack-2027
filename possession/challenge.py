@@ -45,6 +45,8 @@ _NORM_LIMIT = 2.0
 # session's alignment statistics and never tuned on a decode.
 _ANCHORS, _ANCHOR_STRIDE, _ANCHOR_PLAYERS, _ANCHOR_CAP_M, _ANCHOR_BEST_M, _ANCHOR_AWAY = 60, 5, 12, 15.0, 1.5, 10 * FPS
 _MATCH_PLAYERS, _MATCH_M = 6, 1.5
+# A chunk's float sums can depend on its row count, so this size is part of every pinned build that reads the broadcast.
+_MATCH_CHUNK = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,23 +299,45 @@ def observe(g: Geometry, id: HalfId) -> Half:
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
            data_dir: str | Path | None = None, *, restart_tags: bool = False,
-           broadcast: bool = False) -> tuple[Half, Half]:
+           broadcast: bool = False, camera: bool = False) -> tuple[Half, Half]:
     """The two decoder inputs for BAR-ATH from the chosen source. restart_tags also fills Half.restart_rows
     from Smart Tagging (decoders with stoppage_fill read them). broadcast takes the missing tactical ball from the
-    broadcast ATD where its frame matches (broadcast_fill; decoders with broadcast_ball want it), source 'atd' only."""
-    if source == "baseline_raw" and not broadcast:
+    broadcast ATD where its frame matches (broadcast_fill; decoders with broadcast_ball want it), and camera fills
+    Half.camera from the same mapping (broadcast_camera; decoders with dead_camera_players read it), source 'atd'
+    only."""
+    if (broadcast or camera) and source != "atd":
+        raise ValueError(f"broadcast and camera match the broadcast to the tactical ATD's players, so they need source "
+                         f"'atd', got {source!r}")
+    if source == "baseline_raw":
         out = _halves_from_baseline_raw()
     elif source == "atd":
-        geoms, blocks = load_geometry(data_dir), layout().blocks
-        if broadcast:
+        geoms, blocks, cams = load_geometry(data_dir), layout().blocks, None
+        if broadcast or camera:
             b = load_broadcast(data_dir)
-            geoms = tuple(broadcast_fill(g, blk, off, b) for g, blk, off in zip(geoms, blocks, broadcast_offsets(geoms, b)))
+            offsets = broadcast_offsets(geoms, b)
+            if camera:
+                cams = tuple(broadcast_camera(g, blk, off, b) for g, blk, off in zip(geoms, blocks, offsets))
+            if broadcast:
+                geoms = tuple(broadcast_fill(g, blk, off, b) for g, blk, off in zip(geoms, blocks, offsets))
         out = tuple(observe(g, i) for g, i in zip(geoms, _half_ids()))
+        if cams is not None:
+            out = tuple(replace(h, camera=c) for h, c in zip(out, cams))
     else:
-        raise ValueError(f"source {source!r} with broadcast={broadcast}; have 'baseline_raw' and 'atd', broadcast with 'atd'")
+        raise ValueError(f"source {source!r}; have 'baseline_raw' and 'atd'")
     if restart_tags:
         out = tuple(replace(h, restart_rows=rows) for h, rows in zip(out, restart_rows(data_dir)))
     return out
+
+
+def halves_for(model, source: Literal["baseline_raw", "atd"] | None = None,
+               data_dir: str | Path | None = None) -> tuple[Half, Half]:
+    """The two BAR-ATH halves MODEL decodes, read off its needs_geometry, needs_tags, needs_broadcast and needs_camera
+    (decoder.Decoder has all four): from the gated ATD when it reads geometry, the broadcast ball or the camera, or
+    SOURCE says so, else from baseline_raw, with every input it reads. make-submission and probes.jitter both build
+    their halves here, so a new input cannot reach one and miss the other."""
+    atd = model.needs_geometry or model.needs_broadcast or model.needs_camera
+    return halves(source or ("atd" if atd else "baseline_raw"), data_dir, restart_tags=model.needs_tags,
+                  broadcast=model.needs_broadcast, camera=model.needs_camera)
 
 
 def restart_rows(data_dir: str | Path | None = None) -> tuple[tuple[int, ...], ...]:
@@ -482,7 +506,10 @@ def load_broadcast(data_dir: str | Path | None = None) -> Broadcast:
 def _load_broadcast(meta: str, raw: str, hom: str) -> Broadcast:
     slot_team = _atd_slot_team(ET.parse(meta).getroot())
     ball, players = _read_atd(Path(raw), len(slot_team), "broadcast")
-    frame, valid = np.loadtxt(hom, delimiter=",", skiprows=1, usecols=(0, 11), unpack=True)
+    with open(hom) as f:
+        names = f.readline().rstrip().split(",")
+    frame, valid = np.loadtxt(hom, delimiter=",", skiprows=1, usecols=(names.index("frame"), names.index("valid")),
+                              unpack=True)
     if not np.array_equal(frame, np.arange(len(ball))):
         raise ValueError(f"{Path(hom).name}: frames are not 0..{len(ball) - 1} in order")
     scale = np.array(games.GAMES[GAME]["pitch"], np.float64)
@@ -530,14 +557,29 @@ def broadcast_fill(g: Geometry, block: Block, offset: int, b: Broadcast) -> Geom
     cand = np.flatnonzero((f == fc) & np.isnan(g.ball_xy[:, 0]) & b.valid[fc] & np.isfinite(b.ball_xy[fc, 0])
                           & (np.isfinite(b.players_xy[fc, :, 0]).sum(1) >= _MATCH_PLAYERS))
     ok = np.zeros(len(cand), bool)
-    for lo in range(0, len(cand), 4096):
-        r = cand[lo:lo + 4096]
+    for lo in range(0, len(cand), _MATCH_CHUNK):
+        r = cand[lo:lo + _MATCH_CHUNK]
         cost, count = _match_cost(b.players_xy[fc[r]].astype(np.float32), b.slot_team, g.players_xy[r], g.slot_team)
-        ok[lo:lo + 4096] = (count >= _MATCH_PLAYERS) & (cost < _MATCH_M)
+        ok[lo:lo + _MATCH_CHUNK] = (count >= _MATCH_PLAYERS) & (cost < _MATCH_M)
     fill = cand[ok]
     ball = g.ball_xy.copy()
     ball[fill] = b.ball_xy[fc[fill]].astype(np.float32)
     return replace(g, ball_xy=ball)
+
+
+def broadcast_camera(g: Geometry, block: Block, offset: int, b: Broadcast) -> NDArray[np.int8]:
+    """Per row i of G, how many broadcast players at frame block.origin + i - OFFSET have a same-team tactical player
+    of row i (_match_cost's count) when that frame has a valid homography and their mean distance is under _MATCH_M,
+    so it shows the play at its live positions; 0 when it shows something else, -1 where no broadcast frame maps."""
+    f = block.origin + np.arange(g.n) - offset
+    fc = np.clip(f, 0, len(b.valid) - 1)
+    out = np.where(f == fc, 0, -1).astype(np.int8)
+    rows = np.flatnonzero((f == fc) & b.valid[fc] & np.isfinite(b.players_xy[fc, :, 0]).any(1))
+    for lo in range(0, len(rows), _MATCH_CHUNK):
+        r = rows[lo:lo + _MATCH_CHUNK]
+        cost, count = _match_cost(b.players_xy[fc[r]].astype(np.float32), b.slot_team, g.players_xy[r], g.slot_team)
+        out[r] = np.where(cost < _MATCH_M, count, 0)
+    return out
 
 
 def _anchor_cost(p: NDArray[np.float32], sb: NDArray[np.int8], pt: NDArray[np.float32],
@@ -548,7 +590,8 @@ def _anchor_cost(p: NDArray[np.float32], sb: NDArray[np.int8], pt: NDArray[np.fl
     for team in (HOME, AWAY):
         q = p[(sb == team) & np.isfinite(p[:, 0])]
         if len(q):
-            d = np.sqrt(((pt[:, None, st == team, :] - q[None, :, None, :]) ** 2).sum(-1))
+            t = pt[:, st == team]
+            d = np.sqrt((t[:, None, :, 0] - q[None, :, None, 0]) ** 2 + (t[:, None, :, 1] - q[None, :, None, 1]) ** 2)
             total += np.minimum(np.where(np.isnan(d), np.inf, d).min(2), _ANCHOR_CAP_M).sum(1)
             count += len(q)
     return total / max(count, 1)

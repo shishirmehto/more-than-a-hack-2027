@@ -691,10 +691,11 @@ def stoppage_fill_known_answer() -> None:
 
 
 def broadcast_fill_known_answer() -> None:
-    """challenge.broadcast_offsets and broadcast_fill on a synthetic broadcast that shows tactical row r at frame
-    r - offset of its block: both offsets come back, a missing tactical ball takes the broadcast ball where the frame
-    matches, and not where the homography is invalid or the frame shows other players; DecoderParams.broadcast_ball,
-    needs_broadcast and the save."""
+    """challenge.broadcast_offsets, broadcast_fill and broadcast_camera on a synthetic broadcast that shows tactical row
+    r at frame r - offset of its block: both offsets come back, a missing tactical ball takes the broadcast ball where
+    the frame matches, and not where the homography is invalid or the frame shows other players; the camera counts all
+    14 players where the frame matches, 0 on those two kinds of frame and -1 where no frame maps;
+    DecoderParams.broadcast_ball, needs_broadcast and the save."""
     lay, rng, offsets = challenge.layout(), np.random.default_rng(83), (1200, 3400)
     slots = np.array([0] * 7 + [1] * 7, np.int8)
     walk = (np.cumsum(rng.normal(0, 0.05, (lay.n_total, 14, 2)), axis=0) + rng.uniform(10, 60, (1, 14, 2))).astype(np.float32)
@@ -704,7 +705,7 @@ def broadcast_fill_known_answer() -> None:
     assert frames[0][-1] < frames[1][0], "the blocks' frames overlap"
     n_b = int(frames[1][-1]) + 1
     players, ball, valid = np.full((n_b, 14, 2), np.nan), np.full((n_b, 2), np.nan), np.zeros(n_b, bool)
-    expected = []
+    expected, blank = [], []
     for blk, f in zip(lay.blocks, frames):
         players[f] = walk[blk.origin:blk.origin + blk.n] + rng.normal(0, 0.05, (blk.n, 14, 2))
         valid[f] = True
@@ -715,22 +716,69 @@ def broadcast_fill_known_answer() -> None:
         players[f[other]] = np.nan
         players[f[other], :8] = walk[(blk.origin + other + 20_000) % lay.n_total, :8]
         expected.append(np.setdiff1d(seen, np.concatenate([invalid, other])))
+        blank.append(np.concatenate([invalid, other]))
     b = challenge.Broadcast(ball, players, slots, valid)
     assert challenge.broadcast_offsets(geoms, b) == offsets
-    for g, blk, off, f, rows in zip(geoms, lay.blocks, offsets, frames, expected):
+    for g, blk, off, f, rows, zero in zip(geoms, lay.blocks, offsets, frames, expected, blank):
         out = challenge.broadcast_fill(g, blk, off, b)
         assert np.flatnonzero(np.isfinite(out.ball_xy[:, 0])).tolist() == rows.tolist()
         assert np.array_equal(out.ball_xy[rows], ball[f[rows]].astype(np.float32))
         assert np.array_equal(out.players_xy, g.players_xy)
+        camera, want = challenge.broadcast_camera(g, blk, off, b), np.full(blk.n, 14, np.int8)
+        want[zero] = 0
+        assert camera.dtype == np.int8 and np.array_equal(camera, want)
+        assert (challenge.broadcast_camera(g, blk, off - n_b, b) == -1).all()
     base = Decoder(Tier0Emission(), DecoderParams(temper=1.0))
     model = base.replace(broadcast_ball=True)
-    assert model.needs_broadcast and model.needs_geometry and not base.needs_broadcast
+    assert model.needs_broadcast and not model.needs_geometry and not base.needs_broadcast
     with tempfile.TemporaryDirectory() as tmp:
         assert json.loads(model.save(Path(tmp) / "b.json", {}).read_text())["params"]["broadcast_ball"] is True
         assert "broadcast_ball" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
         assert Decoder.load(Path(tmp) / "b.json") == model
     _raises(ValueError, DecoderParams, broadcast_ball=1)
     _raises(ValueError, challenge.halves, "baseline_raw", broadcast=True)
+
+
+def camera_known_answer() -> None:
+    """decoder._shown_prefix as a prefix and on whole runs; the decode path through Half.camera: a run the camera shows
+    throughout stays live under both modes, a cut away ends the prefix and leaves camall's run dead, a camera of -1
+    changes nothing and None raises; the parameter guards, needs_camera and the save."""
+    unseen = np.array([0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 1, 1], bool)
+    shown = np.array([1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1], bool)
+    assert np.flatnonzero(decoder._shown_prefix(unseen, shown, False)).tolist() == [1, 2, 7, 8, 9]
+    assert np.flatnonzero(decoder._shown_prefix(unseen, shown, True)).tolist() == [7, 8, 9]
+
+    tok = np.full(40, HOME, np.int8)
+    tok[10:30] = NO_TEAM
+
+    def half(camera: np.ndarray | None) -> Half:
+        return Half(HalfId("cam", 1, 0), tok, camera=camera)
+
+    base = Decoder(Tier0Emission(), DecoderParams(temper=1.0, dead_min_run=5))
+    prefix = base.replace(dead_camera_players=6)
+    whole = prefix.replace(dead_camera_whole=True)
+    plain = base.decode(half(None)).codes
+    assert np.flatnonzero(plain == D).tolist() == list(range(10, 30))
+    on, cut = np.full(40, 8, np.int8), np.full(40, 8, np.int8)
+    cut[20:] = 0
+    assert (prefix.decode(half(on)).codes != D).all() and (whole.decode(half(on)).codes != D).all()
+    assert np.flatnonzero(prefix.decode(half(cut)).codes == D).tolist() == list(range(20, 30))
+    assert np.array_equal(whole.decode(half(cut)).codes, plain)
+    none = np.full(40, -1, np.int8)
+    assert np.array_equal(prefix.decode(half(none)).codes, plain) and np.array_equal(whole.decode(half(none)).codes, plain)
+    _raises(ValueError, prefix.decode, half(None))
+    assert prefix.needs_camera and not prefix.needs_geometry and not base.needs_camera
+    _raises(ValueError, DecoderParams, dead_camera_players=6)
+    _raises(ValueError, DecoderParams, dead_min_run=5, dead_camera_whole=True)
+    _raises(ValueError, DecoderParams, dead_min_run=5, dead_camera_players=6, dead_camera_whole=1)
+    _raises(ValueError, half, on.astype(np.int16))
+    _raises(ValueError, half, np.full(40, -2, np.int8))
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = json.loads(whole.save(Path(tmp) / "c.json", {}).read_text())["params"]
+        assert saved["dead_camera_players"] == 6 and saved["dead_camera_whole"] is True
+        assert not {"dead_camera_players", "dead_camera_whole"} & set(
+            json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"])
+        assert Decoder.load(Path(tmp) / "c.json") == whole
 
 
 def spell_merge_known_answer() -> None:
@@ -1679,6 +1727,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     handover_lag_known_answer,
     stoppage_fill_known_answer,
     broadcast_fill_known_answer,
+    camera_known_answer,
     spell_merge_known_answer,
     spell_push_known_answer,
     team_push_known_answer,

@@ -19,12 +19,11 @@ RUNS_DIR = Path(games.DATA_DIR) / "derived" / "runs"
 
 
 def make_submission(params: Path, out: Path) -> Path:
-    """baseline_raw.csv carries the tokens only; an emission that reads ball geometry decodes the halves
-    observed from the gated ATD instead (the same tokens, selfcheck atd_reproduces_baseline_raw)."""
+    """baseline_raw.csv carries the tokens only; a decoder that reads ball geometry, the broadcast ball or the camera
+    decodes the halves observed from the gated ATD instead (the same tokens, selfcheck atd_reproduces_baseline_raw),
+    through challenge.halves_for."""
     model = Decoder.load(params)
-    source = "atd" if model.needs_geometry else "baseline_raw"
-    preds = [model.decode(h).codes for h in challenge.halves(source, restart_tags=model.needs_tags,
-                                                             broadcast=model.needs_broadcast)]
+    preds = [model.decode(h).codes for h in challenge.halves_for(model)]
     return score.write_submission(challenge.layout(), preds, out)
 
 

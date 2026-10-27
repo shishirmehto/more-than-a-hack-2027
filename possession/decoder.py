@@ -278,6 +278,15 @@ class DecoderParams:
                         is taken from the broadcast ATD where its frame matches (challenge.broadcast_fill, E83).
                         The decode itself does not read the field; challenge.halves(broadcast=True) applies it, and a
                         dev source has no broadcast, so it changes nothing there.
+    dead_camera_players: 0 is off. Otherwise, in each run of frames whose ball is unseen, the frames from the run's
+                        start until its first frame where Half.camera is under this many count as seen when the
+                        dead_min_run rule finds its runs, before the dead_still, dead_pace and dead_outside cues add
+                        frames: a broadcast that keeps showing the play at its live positions after the ball vanishes
+                        means play goes on, and a cut away to a close-up or a replay ends the prefix (E84). Needs
+                        dead_min_run and a Half built with camera (challenge.halves); a Half with camera None raises.
+    dead_camera_whole:  False keeps the prefix. True counts a run as seen only when Half.camera reaches
+                        dead_camera_players on every frame of it, so a run with any cut away keeps every frame
+                        (E84's camall arm). Needs dead_camera_players.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -334,6 +343,8 @@ class DecoderParams:
     dead_end_cut: int = 0
     stoppage_fill: bool = False
     broadcast_ball: bool = False
+    dead_camera_players: int = 0
+    dead_camera_whole: bool = False
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -415,6 +426,13 @@ class DecoderParams:
             raise ValueError(f"stoppage_fill must be true or false, got {self.stoppage_fill!r}")
         if not isinstance(self.broadcast_ball, bool):
             raise ValueError(f"broadcast_ball must be true or false, got {self.broadcast_ball!r}")
+        _number("dead_camera_players", self.dead_camera_players, 0, math.inf, integer=True, lo_open=False)
+        if self.dead_camera_players and not self.dead_min_run:
+            raise ValueError("dead_camera_players acts only with dead_min_run > 0")
+        if not isinstance(self.dead_camera_whole, bool):
+            raise ValueError(f"dead_camera_whole must be true or false, got {self.dead_camera_whole!r}")
+        if self.dead_camera_whole and not self.dead_camera_players:
+            raise ValueError("dead_camera_whole acts only with dead_camera_players > 0")
         if self.spell_logit:
             if "a" not in self.spell_logit or not set(self.spell_logit) <= {"a", *SPELL_FEATURES}:
                 raise ValueError(f"spell_logit needs 'a' and takes only {', '.join(SPELL_FEATURES)}")
@@ -453,7 +471,7 @@ _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_ou
                     "dead_line_m": 0.0, "dead_line_min_run": 0, "dead_line_lead_cut": 0, "dead_end_lead": 0,
                     "dead_end_live_mps": 0.0, "dead_return_m": 0.0,
                     "dead_return_min_run": 0, "dead_end_cut": 0, "stoppage_fill": False,
-                    "broadcast_ball": False}
+                    "broadcast_ball": False, "dead_camera_players": 0, "dead_camera_whole": False}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -522,8 +540,7 @@ class Decoder:
         """True when decoding reads Half.geometry, Half.pace_mps or Half.push_mps, which only challenge.observe
         supplies."""
         p = self.params
-        return self.emission.needs_geometry or bool(p.spell_push_mps or p.spell_flip_p or p.stoppage_fill
-                                                    or p.broadcast_ball) or bool(
+        return self.emission.needs_geometry or bool(p.spell_push_mps or p.spell_flip_p or p.stoppage_fill) or bool(
             p.dead_min_run and (p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps))
 
     @property
@@ -536,6 +553,11 @@ class Decoder:
         """True when the halves must carry the broadcast ball in tactical gaps, which challenge.halves supplies with
         broadcast=True."""
         return self.params.broadcast_ball
+
+    @property
+    def needs_camera(self) -> bool:
+        """True when decoding reads Half.camera, which challenge.halves supplies with camera=True."""
+        return bool(self.params.dead_camera_players)
 
     def replace(self, **flat: object) -> "Decoder":
         """A copy with fields changed by flat name. Each key goes to the emission or the params,
@@ -859,6 +881,11 @@ def _lag_handovers(codes: NDArray[np.int8], lag: int) -> NDArray[np.int8]:
 def _dead_cues(half: Half, p: DecoderParams) -> NDArray[np.bool_]:
     """The frames the dead_min_run rule treats as missing: ball unseen, plus each enabled dead_* cue."""
     unseen = half.nearest_team == NO_TEAM
+    if p.dead_camera_players:
+        if half.camera is None:
+            raise ValueError(f"{half.id}: dead_camera_players reads Half.camera, which was never loaded; build the "
+                             "halves with challenge.halves(camera=True)")
+        unseen = unseen & ~_shown_prefix(unseen, half.camera >= p.dead_camera_players, p.dead_camera_whole)
     if (p.dead_outside_m or p.dead_still_mps) and half.geometry is None:
         raise ValueError(f"{half.id}: dead_outside_m and dead_still_mps read ball geometry and the Half has none; "
                          "observe it from a Geometry (challenge.halves('atd')), not from baseline_raw")
@@ -878,6 +905,17 @@ def _dead_cues(half: Half, p: DecoderParams) -> NDArray[np.bool_]:
     if p.dead_pace_live_mps:
         unseen = unseen & ~(half.pace_mps > p.dead_pace_live_mps)
     return unseen
+
+
+def _shown_prefix(unseen: NDArray[np.bool_], shown: NDArray[np.bool_], whole: bool) -> NDArray[np.bool_]:
+    """The frames of each run of UNSEEN from its start up to its first frame that is not SHOWN; with WHOLE, only the
+    runs SHOWN on every frame."""
+    out = np.zeros_like(unseen)
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], unseen.view(np.int8), [0]))))
+    for start, stop in zip(edges[::2], edges[1::2]):
+        k = shown[start:stop]
+        out[start:start + (len(k) if k.all() else 0 if whole else int(np.argmin(k)))] = True
+    return out
 
 
 def _missing_run_dead(codes: NDArray[np.int8], half: Half, p: DecoderParams) -> NDArray[np.int8]:
