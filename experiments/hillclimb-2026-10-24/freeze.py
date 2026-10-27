@@ -12,6 +12,7 @@ params/tier0_v1.json, so v1's public-window history is inherited and restated in
 import argparse
 import dataclasses
 import json
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -373,6 +374,8 @@ def main(argv):
     if a.broadcast_ball:
         changed = changed.replace("stoppage_fill", "stoppage_fill, broadcast_ball", 1)
         after = after.replace(" and stoppage_fill fields", ", stoppage_fill and broadcast_ball fields")
+    if missing := unnamed(model, changed):
+        ap.error(f"{', '.join(missing)} differ from {V1} but the provenance's changed list leaves them out")
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -433,6 +436,12 @@ def main(argv):
                          " Inherited from tier0_v1: " + v1_doc["provenance"]["public_window"],
     })
     print(a.out.read_text())
+
+
+def unnamed(model: Decoder, changed: str) -> list[str]:
+    """The fields where MODEL differs from tier0_v1 that CHANGED, the provenance's list, does not name."""
+    v1 = Decoder.load(V1).fields()
+    return [f for f, v in model.fields().items() if v != v1[f] and not re.search(rf"\b{f}\b", changed)]
 
 
 if __name__ == "__main__":
