@@ -30,9 +30,10 @@ from possession.half import D  # noqa: E402
 
 V10 = Path("params/tier0_v10.json")
 # E30's feature set: seen left out, and every SPELL_FEATURES entry added after E30.
-DROP = ("seen", "touch_own", "touch_other", "rel_own", "shape_own", "held_own", "goal_own", "goal_other")
+DROP = ("seen", "touch_own", "touch_other", "rel_own", "shape_own", "held_own", "goal_own", "goal_other", "kick_own",
+        "kick_other")
 # E69's feature set: E30's with E31's touch_own and touch_other kept.
-TOUCH_DROP = ("seen", "rel_own", "shape_own", "held_own", "goal_own", "goal_other")
+TOUCH_DROP = ("seen", "rel_own", "shape_own", "held_own", "goal_own", "goal_other", "kick_own", "kick_other")
 # Scored once after each refit and never used to choose it; a file not yet scored says so.
 SCORED = {
     "tier0_v13_pfffree.json": ("data/derived/runs/pfffree-pff.csv, pfffree-synth.csv", 

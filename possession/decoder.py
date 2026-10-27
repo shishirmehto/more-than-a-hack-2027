@@ -39,7 +39,7 @@ _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed",
                  "q_logit_goal")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
                   "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other",
-                  "rel_own", "shape_own", "held_own", "goal_own", "goal_other")
+                  "rel_own", "shape_own", "held_own", "goal_own", "goal_other", "kick_own", "kick_other")
 _SHAPE_LAG = 50
 _HELD_RADIUS_M = 1.0
 _TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
@@ -587,7 +587,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     (experiment 35's last team within 1 m); a frame with no such earlier frame counts as not own. goal_own,
     goal_other: mean of sign(u) ln(1 + |u|), u = BallGeometry.goal_mps clipped to +-40 m/s, over the run's
     own-token frames and over its other-token frames; positive means the ball moves toward the goal of the
-    token's team; 0 when there is none or the geometry has no goal_mps.
+    token's team; 0 when there is none or the geometry has no goal_mps. kick_own, kick_other: touch_own and
+    touch_other with the change of the ball's velocity vector (vx_mps, vy_mps) in place of the change of its
+    speed, so a redirect at equal speed counts; 0 when there is none or the geometry has no vx_mps.
     """
     g = half.geometry
     if g is None or half.push_mps is None:
@@ -600,6 +602,13 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     if half.n > 2 * s:
         dv[s:-s] = np.abs(v[2 * s:] - v[:-2 * s])
     touch = np.where(g.nearest_m <= _TOUCH_RADIUS_M, np.minimum(dv, _SPEED_CAP_MPS), np.nan)
+    kick = None
+    if g.vx_mps is not None and g.vy_mps is not None:
+        vx, vy = g.vx_mps.astype(np.float64), g.vy_mps.astype(np.float64)
+        dk = np.full(half.n, np.nan)
+        if half.n > 2 * s:
+            dk[s:-s] = np.hypot(vx[2 * s:] - vx[:-2 * s], vy[2 * s:] - vy[:-2 * s])
+        kick = np.where(g.nearest_m <= _TOUCH_RADIUS_M, np.minimum(dk, _SPEED_CAP_MPS), np.nan)
     goal = None
     if g.goal_mps is not None:
         u = np.clip(g.goal_mps.astype(np.float64), -_SPEED_CAP_MPS, _SPEED_CAP_MPS)
@@ -639,6 +648,10 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
         gown = gown[~np.isnan(gown)]
         goth = goal[a:b][tok == 1 - team] if goal is not None else np.empty(0)
         goth = goth[~np.isnan(goth)]
+        kown = kick[a:b][own] if kick is not None else np.empty(0)
+        kown = kown[~np.isnan(kown)]
+        koth = kick[lo:hi][half.nearest_team[lo:hi] == 1 - team] if kick is not None else np.empty(0)
+        koth = koth[~np.isnan(koth)]
         sign = 1.0 if team == H else -1.0
         prev = (int(codes[starts[k - 1]]), stops[k - 1] - starts[k - 1]) if k else (D, 0)
         nxt = (int(codes[starts[k + 1]]), stops[k + 1] - starts[k + 1]) if k + 1 < len(starts) else (D, 0)
@@ -657,7 +670,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
              sign * math.fsum(shape.tolist()) / len(shape) if len(shape) else 0.0,
              int((held[a:b] == team).sum()) / (b - a),
              math.fsum(gown.tolist()) / len(gown) if len(gown) else 0.0,
-             math.fsum(goth.tolist()) / len(goth) if len(goth) else 0.0)
+             math.fsum(goth.tolist()) / len(goth) if len(goth) else 0.0,
+             math.log1p(float(kown.max())) if len(kown) else 0.0,
+             math.log1p(float(koth.max())) if len(koth) else 0.0)
         out.append((a, b, team, tuple(round(v, 9) for v in x)))
     return out
 

@@ -241,6 +241,15 @@ def _ball_speed(ball: NDArray[np.float64]) -> NDArray[np.float64]:
     return np.nan_to_num(np.where(np.isnan(both), one, both), nan=0.0) * FPS
 
 
+def _ball_velocity(ball: NDArray[np.float64]) -> NDArray[np.float64]:
+    """[n, 2] m/s from _ball_speed's frames: t+2 against t-2, else t against whichever of them has a ball, else 0."""
+    k = _SPEED_STEP
+    pad = np.full((k, 2), np.nan)
+    back, fwd = np.vstack([pad, ball[:-k]])[:len(ball)], np.vstack([ball[k:], pad])[-len(ball):]
+    one = np.where(np.isnan(back), fwd - ball, ball - back) / k
+    return np.nan_to_num(np.where(np.isnan(fwd - back), one, (fwd - back) / (2 * k)), nan=0.0) * FPS
+
+
 def observe(g: Geometry, id: HalfId) -> Half:
     """Geometry -> Half, with the BallGeometry.
 
@@ -248,7 +257,10 @@ def observe(g: Geometry, id: HalfId) -> Half:
     first slot.
     """
     token, geometry = _nearest(g)
-    geometry = replace(geometry, goal_mps=_goal_velocity(g, id.kickoff, token))
+    vel = np.where((token == NO_TEAM)[:, None], np.nan,
+                   _ball_velocity(g.ball_xy.astype(np.float64))).astype(np.float32)
+    geometry = replace(geometry, goal_mps=_goal_velocity(g, id.kickoff, token),
+                       vx_mps=np.ascontiguousarray(vel[:, 0]), vy_mps=np.ascontiguousarray(vel[:, 1]))
     return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
                 push_mps=_team_push(g, id.kickoff), shape_lo=_team_shape(g, id.kickoff),
                 return_m=_gap_return(g.ball_xy.astype(np.float64)))

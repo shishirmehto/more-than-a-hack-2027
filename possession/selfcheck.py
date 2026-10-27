@@ -125,7 +125,8 @@ def permutation_invariance() -> None:
     geo = challenge.observe(tiny, HalfId("tiny", 1, 0)).geometry
     inf = np.inf
     for have, want in ((geo.margin_m, [1, 0.8, nan, inf, nan, 0]), (geo.nearest_m, [1, 0.1, nan, 5, nan, 1]),
-                       (geo.outside_m, [0, 0, nan, 0, nan, 0]), (geo.speed_mps, [0, 26.25, nan, 13.125, nan, 0])):
+                       (geo.outside_m, [0, 0, nan, 0, nan, 0]), (geo.speed_mps, [0, 26.25, nan, 13.125, nan, 0]),
+                       (geo.vx_mps, [0, -26.25, nan, -13.125, nan, 0]), (geo.vy_mps, [0, 0, nan, 0, nan, 0])):
         assert np.allclose(have, want, atol=1e-5, equal_nan=True), have
     t = np.arange(40, dtype=np.float32)
     walkers = np.zeros((40, 3, 2), np.float32)
@@ -149,7 +150,8 @@ def permutation_invariance() -> None:
         h = challenge.observe(g, HalfId("perm", 1, 0))
         assert np.array_equal(h.nearest_team, challenge.nearest_team(g))
         g = h.geometry
-        return [a.tobytes() for a in (h.nearest_team, g.margin_m, g.nearest_m, g.outside_m, g.speed_mps)]
+        return [a.tobytes() for a in (h.nearest_team, g.margin_m, g.nearest_m, g.outside_m, g.speed_mps, g.vx_mps,
+                                      g.vy_mps)]
 
     base_geometry = Geometry(ball.copy(), players.copy(), team.copy(), (105.3, 68.0))
     base, base_all = challenge.nearest_team(base_geometry), observed(base_geometry)
@@ -827,7 +829,7 @@ def spell_flip_known_answer() -> None:
     assert (a, b, team) == (5, 8, A)
     assert x == tuple(round(v, 9) for v in (math.log(3 / 25), 1.0, 1.0, 0.0, math.log1p(3.0), math.log1p(5.0),
                                             math.log1p(5.0), math.log1p(2.0), 0.0, 0.0, 1.0, math.log1p(5),
-                                            math.log1p(5), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)), x
+                                            math.log1p(5), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)), x
     held = decoder.SPELL_FEATURES.index("held_own")
     runs = np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8)
     assert decoder._spell_runs(runs, half("HHHHHAAAHHHHH", near=1.0), 4, np.zeros(13))[0][3][held] == 1.0
@@ -850,7 +852,7 @@ def spell_flip_known_answer() -> None:
     assert flip("HHHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHH"
     assert flip("HHHHHAAAHHHAAAHHHHH", 0.5) == "HHHHHHHHAAAHHHHHHHH"
     assert flip("HHHHHAAAHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHHHHHHHH"
-    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 2.2
+    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 2.4
     assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), {"a": 0.5, "len": 1.0}) == 1.5
     kick = half("HHHHHAAAHHHHH", near=1.0)
     speed = np.full(13, 5.0, np.float32)
@@ -871,8 +873,17 @@ def spell_flip_known_answer() -> None:
     gh = Half(kick.id, gtok, BallGeometry(g.margin_m, g.nearest_m, g.outside_m, g.speed_mps, None, None, goal),
               pace_mps=kick.pace_mps, push_mps=kick.push_mps)
     (*_, xg), = decoder._spell_runs(np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8), gh, 4, np.zeros(13))
-    assert xg[decoder.SPELL_FEATURES.index("goal_own"):] == \
+    assert xg[decoder.SPELL_FEATURES.index("goal_own"):decoder.SPELL_FEATURES.index("kick_own")] == \
         (round((math.log1p(3.0) + math.log1p(1.0)) / 2, 9), round(-math.log1p(1.0), 9)), xg
+    vx, vy = np.full(13, 5.0, np.float32), np.zeros(13, np.float32)
+    vx[10:], vy[10:] = 0.0, 5.0
+    five = np.full(13, 5.0, np.float32)
+    turn = Half(kick.id, kick.nearest_team, BallGeometry(g.margin_m, g.nearest_m, g.outside_m, five, vx_mps=vx,
+                vy_mps=vy), pace_mps=kick.pace_mps, push_mps=kick.push_mps)
+    (*_, xv), = decoder._spell_runs(np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8), turn, 4, np.zeros(13))
+    at = decoder.SPELL_FEATURES.index
+    assert (xv[at("touch_own")], xv[at("kick_own")], xv[at("kick_other")]) == \
+        (0.0, round(math.log1p(math.hypot(5.0, 5.0)), 9), 0.0), xv
     lo = np.zeros(80, np.float32)
     lo[55:58] = -2.0
     lo[58:70] = np.nan
