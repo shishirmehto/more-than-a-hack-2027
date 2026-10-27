@@ -207,6 +207,13 @@ cited:
 
 No file from it is committed. `possession/idsse/` reads a local copy fetched from the pysport mirror on Hugging Face (`pysport/idsse-data`).
 
+Another is SkillCorner Open Data (20 A-League 2024/25 matches of broadcast tracking with SkillCorner's
+possession group and phases of play), released under the MIT Licence by SkillCorner, who ask to be
+credited: **tracking and phase data courtesy of [SkillCorner](https://skillcorner.com), from
+[github.com/SkillCorner/opendata](https://github.com/SkillCorner/opendata).** No file from it is committed.
+`possession/skillcorner/` reads a local copy at commit `4340d27` and checks it against the sha256 list in
+`possession/skillcorner/manifest.json`.
+
 ```bibtex
 @misc{mtah2027,
   title  = {More than a Hack 2027: Phase 1 - Ball Possession},

@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 
-from . import challenge, dropout, idsse, metrica, pff, score
+from . import challenge, dropout, idsse, metrica, pff, score, skillcorner
 from .decoder import Decoded, Decoder, DecoderParams, Tier0Emission
 from .half import AWAY, HOME, A, D, H, NO_TEAM, X, CleanHalf, Half, Layout, check_codes
 from .dropout import DropoutParams
@@ -182,6 +182,8 @@ SOURCES: Mapping[str, DevSource] = {
     "pff": DevSource(pff.load, "pff_", {"pff_manifest_sha256": pff.MANIFEST_SHA256}, pff.native_seen),
     "pffsb": DevSource(statsbomb.load, "pffsb_", {"pff_manifest_sha256": pff.MANIFEST_SHA256,
                                                    "statsbomb_commit": statsbomb.COMMIT}, pff.native_seen),
+    "skillcorner": DevSource(skillcorner.load, "skillcorner_", {"skillcorner_revision": skillcorner.REVISION},
+                             skillcorner.native_seen),
 }
 
 
@@ -197,8 +199,9 @@ def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequen
     run shorter than BRIDGE_FRAMES counted as seen at the source's own ball position, because BAR-ATH's
     ATD bridges short occlusions (measured: 1 missing run between 1 and 5 s in the match against about 211
     per PFF game), keyed "{rule.key}_bridged". source names a SOURCES entry:
-    "idsse" builds them from the seven DFL matches and "pff" from the 64 World Cup 2022 games instead
-    of the three Metrica games (merge rules only), and every key gets the source's prefix ("idsse_m0_r1").
+    "idsse" builds them from the seven DFL matches, "pff" from the 64 World Cup 2022 games and
+    "skillcorner" from the 20 A-League matches instead of the three Metrica games (merge rules only, m0
+    only for skillcorner), and every key gets the source's prefix ("idsse_m0_r1").
     Each world's halves are observed as the loader yields a half, so a streaming loader (pff) never
     holds more than one game's geometry."""
     dev, out = SOURCES[source], {}
