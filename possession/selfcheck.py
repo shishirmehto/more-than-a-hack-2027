@@ -660,7 +660,7 @@ def stoppage_fill_known_answer() -> None:
     zeros, kick = np.zeros(n, np.float32), np.zeros(n, np.float32)
     kick[200:260] = 10.0
 
-    def half(vx: np.ndarray, rows: tuple[int, ...] = ()) -> Half:
+    def half(vx: np.ndarray, rows: tuple[int, ...] | None = ()) -> Half:
         geo = BallGeometry(margin_m=np.full(n, 5.0, np.float32), nearest_m=np.ones(n, np.float32), outside_m=zeros,
                            speed_mps=np.abs(vx), vx_mps=vx, vy_mps=zeros)
         return Half(HalfId("t2", 1, 0), tok, geometry=geo, restart_rows=rows)
@@ -679,6 +679,8 @@ def stoppage_fill_known_answer() -> None:
     plain, filled = base.decode(half(kick, (150,))).codes, model.decode(half(kick, (150,))).codes
     assert (plain == H).all() and np.flatnonzero(filled == D).tolist() == list(range(150, 200))
     assert np.array_equal(model.decode(half(kick)).codes, plain), "no restart rows, no change"
+    assert Half(HalfId("t2", 1, 0), tok).restart_rows is None
+    _raises(ValueError, model.decode, half(kick, None))
     with tempfile.TemporaryDirectory() as tmp:
         assert json.loads(model.save(Path(tmp) / "t2.json", {}).read_text())["params"]["stoppage_fill"] is True
         assert "stoppage_fill" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]

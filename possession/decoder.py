@@ -583,7 +583,12 @@ def _rules(codes: NDArray[np.int8], half: Half, p: DecoderParams,
     flipped = _push_flip(_missing_run_dead(codes, half, p), half, p)
     merged = _merge_spells(flipped, p.spell_merge_frames, p.spell_merge_tails)
     lagged = _lag_handovers(_spell_flip(merged, half, p, logodds), p.handover_lag)
-    return _stoppage_fill(lagged, half, half.restart_rows) if p.stoppage_fill else lagged
+    if not p.stoppage_fill:
+        return lagged
+    if half.restart_rows is None:
+        raise ValueError(f"{half.id}: stoppage_fill reads Half.restart_rows, which were never loaded; build the "
+                         "halves with challenge.halves(restart_tags=True)")
+    return _stoppage_fill(lagged, half, half.restart_rows)
 
 
 def _kick(half: Half, i: int) -> int | None:
