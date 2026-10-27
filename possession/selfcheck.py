@@ -690,6 +690,49 @@ def stoppage_fill_known_answer() -> None:
     _raises(ValueError, half, kick, (300, 150))
 
 
+def broadcast_fill_known_answer() -> None:
+    """challenge.broadcast_offsets and broadcast_fill on a synthetic broadcast that shows tactical row r at frame
+    r - offset of its block: both offsets come back, a missing tactical ball takes the broadcast ball where the frame
+    matches, and not where the homography is invalid or the frame shows other players; DecoderParams.broadcast_ball,
+    needs_broadcast and the save."""
+    lay, rng, offsets = challenge.layout(), np.random.default_rng(83), (1200, 3400)
+    slots = np.array([0] * 7 + [1] * 7, np.int8)
+    walk = (np.cumsum(rng.normal(0, 0.05, (lay.n_total, 14, 2)), axis=0) + rng.uniform(10, 60, (1, 14, 2))).astype(np.float32)
+    geoms = tuple(Geometry(np.full((blk.n, 2), np.nan, np.float32), walk[blk.origin:blk.origin + blk.n], slots, (105.0, 68.0))
+                  for blk in lay.blocks)
+    frames = [blk.origin + np.arange(blk.n) - off for blk, off in zip(lay.blocks, offsets)]
+    assert frames[0][-1] < frames[1][0], "the blocks' frames overlap"
+    n_b = int(frames[1][-1]) + 1
+    players, ball, valid = np.full((n_b, 14, 2), np.nan), np.full((n_b, 2), np.nan), np.zeros(n_b, bool)
+    expected = []
+    for blk, f in zip(lay.blocks, frames):
+        players[f] = walk[blk.origin:blk.origin + blk.n] + rng.normal(0, 0.05, (blk.n, 14, 2))
+        valid[f] = True
+        seen = np.arange(1000, blk.n - 1000, 997)
+        ball[f[seen]] = rng.uniform(0, 60, (len(seen), 2))
+        invalid, other = seen[::5], seen[1::5]
+        valid[f[invalid]] = False
+        players[f[other]] = np.nan
+        players[f[other], :8] = walk[(blk.origin + other + 20_000) % lay.n_total, :8]
+        expected.append(np.setdiff1d(seen, np.concatenate([invalid, other])))
+    b = challenge.Broadcast(ball, players, slots, valid)
+    assert challenge.broadcast_offsets(geoms, b) == offsets
+    for g, blk, off, f, rows in zip(geoms, lay.blocks, offsets, frames, expected):
+        out = challenge.broadcast_fill(g, blk, off, b)
+        assert np.flatnonzero(np.isfinite(out.ball_xy[:, 0])).tolist() == rows.tolist()
+        assert np.array_equal(out.ball_xy[rows], ball[f[rows]].astype(np.float32))
+        assert np.array_equal(out.players_xy, g.players_xy)
+    base = Decoder(Tier0Emission(), DecoderParams(temper=1.0))
+    model = base.replace(broadcast_ball=True)
+    assert model.needs_broadcast and model.needs_geometry and not base.needs_broadcast
+    with tempfile.TemporaryDirectory() as tmp:
+        assert json.loads(model.save(Path(tmp) / "b.json", {}).read_text())["params"]["broadcast_ball"] is True
+        assert "broadcast_ball" not in json.loads(base.save(Path(tmp) / "off.json", {}).read_text())["params"]
+        assert Decoder.load(Path(tmp) / "b.json") == model
+    _raises(ValueError, DecoderParams, broadcast_ball=1)
+    _raises(ValueError, challenge.halves, "baseline_raw", broadcast=True)
+
+
 def spell_merge_known_answer() -> None:
     """decoder._merge_spells: interior and tail merges, shortest first, D boundaries, mirroring, decode and save."""
     code = {"H": H, "A": A, "D": D}
@@ -1549,6 +1592,7 @@ CHECKS: tuple[Callable[[], None], ...] = (
     dead_run_rule_known_answer,
     handover_lag_known_answer,
     stoppage_fill_known_answer,
+    broadcast_fill_known_answer,
     spell_merge_known_answer,
     spell_push_known_answer,
     team_push_known_answer,

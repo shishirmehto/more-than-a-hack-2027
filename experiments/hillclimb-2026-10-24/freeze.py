@@ -250,6 +250,23 @@ E81 = ("dead_end_cut 20 and stoppage_fill come from pre-registered experiment E8
        "graded frames to D and changes possessions from 160 and 184 to 161 and 182 by half. T2 transfers only as far "
        "as BAR-ATH's automatic tags mark real stoppages. A confirmed alternative: whether it replaces tier0_v13 is "
        "the user's decision.")
+E83 = ("broadcast_ball comes from pre-registered experiment E83 on tier0_v20, a candidate outside rule v2. The "
+       "broadcast ATD (FAQ.md lets participants use it and leaves the mapping to them) is mapped onto tactical rows at "
+       "runtime: 60 broadcast frames evenly spaced over those with a valid homography and 12 or more players go to the "
+       "tactical row whose players sit nearest them, and each half's offset is the median over the confident ones, "
+       "computed on every build and never written in. A row whose tactical ball is missing takes the broadcast ball "
+       "when the mapped frame has a valid homography, a seen ball and 6 or more players within a mean 1.5 m of the "
+       "tactical ones; these are generic tolerances, never tuned. On BAR-ATH, label-free, it fills 4,000 graded rows "
+       "and, on tier0_v20, changes 244 frames to D, 2,755 from D and 939 between teams; 13 of 132 D runs of 2 s or "
+       "more reopen. No dev source has a second camera, so the field changes nothing on any rule v2 world and cannot "
+       "pass rule v2. Its dev evidence is E83's reveal worlds: on the five standard rules at dead_bias 2.6, seeds 0-4, "
+       "revealing 6.2% of the masked rows inside labelled-alive stretches gains +0.028 to +0.037 spellF1 and inside "
+       "labelled-D stretches costs 0.011 to 0.017, so the fill helps while under 0.68 to 0.73 of the filled rows are "
+       "dead (0.61 to 0.69 with the broadcast error doubled). On BAR-ATH, v19's and v20's own D cover 0.51 and 0.60 "
+       "of the filled rows. A candidate outside rule v2: whether it ships is the user's decision.")
+E83_PUBLIC = ("Two later reads, on 27 October, scored tier0_v19 alone at 07:03 IST and tier0_v20_pfffree, tier0_v20, "
+              "tier0_v13 and tier0_v19 at 19:24 IST; broadcast_ball came after both, and this file has not been scored "
+              "on the public window.")
 LAG = ("handover_lag comes from pre-registered experiment E7: matched dev possessions showed the hand-overs "
        "between the teams 10 to 22 frames early on every label source (median, probes.py spells), because the "
        "nearest-team token flips while a pass is in the air. Candidates were lag {0, 5, ..., 30} crossed with "
@@ -278,6 +295,7 @@ def main(argv):
     ap.add_argument("--dead-line", type=float, nargs=3, default=(0.0, 0, 0), metavar=("M", "RUN", "CUT"))
     ap.add_argument("--dead-end-cut", type=int, default=0, metavar="CUT", help="E72's end cut (E81)")
     ap.add_argument("--stoppage-fill", action="store_true", help="T2 at Smart Tagging throw-ins and goal kicks (E81)")
+    ap.add_argument("--broadcast-ball", action="store_true", help="the broadcast ATD's ball in tactical gaps (E83)")
     ap.add_argument("--spell-logit", type=float, nargs="+", default=None, metavar="W",
                     help="the intercept, then one weight per decoder.SPELL_FEATURES name in order; trailing "
                          "features left out weigh 0 and are not written")
@@ -304,10 +322,13 @@ def main(argv):
                                      dead_lead_cut=a.dead_lead_cut[0], dead_out_lead_cut=a.dead_lead_cut[1],
                                      spell_flip_adjacent=a.spell_flip_adjacent, dead_line_m=a.dead_line[0],
                                      dead_line_min_run=int(a.dead_line[1]), dead_line_lead_cut=int(a.dead_line[2]),
-                                     dead_end_cut=a.dead_end_cut, stoppage_fill=a.stoppage_fill)
+                                     dead_end_cut=a.dead_end_cut, stoppage_fill=a.stoppage_fill,
+                                     broadcast_ball=a.broadcast_ball)
     e81 = bool(a.dead_end_cut) and a.stoppage_fill
     if bool(a.dead_end_cut) != a.stoppage_fill:
         ap.error("--dead-end-cut and --stoppage-fill come from E81 together")
+    if a.broadcast_ball and not e81:
+        ap.error("--broadcast-ball was tested on tier0_v20 (E83), which carries E81's fields")
     lead = any(a.dead_lead_cut)
     logit = any(a.q_logit)
     no_seen = bool(a.spell_logit) and a.spell_logit[1 + SPELL_FEATURES.index("seen")] == 0
@@ -349,6 +370,9 @@ def main(argv):
     if e81:
         after = after.replace(" and dead_lead fields", ", dead_lead, dead_end_cut and stoppage_fill fields").replace(
             " and dead_line fields", ", dead_line, dead_end_cut and stoppage_fill fields")
+    if a.broadcast_ball:
+        changed = changed.replace("stoppage_fill", "stoppage_fill, broadcast_ball", 1)
+        after = after.replace(" and stoppage_fill fields", ", stoppage_fill and broadcast_ball fields")
     pins = {k: v for name in ("metrica", "idsse", "pff") for k, v in bench.SOURCES[name].pin.items()}
     model.save(a.out, {
         "command": shlex.join(["python", "experiments/hillclimb-2026-10-24/freeze.py", *argv]),
@@ -363,7 +387,8 @@ def main(argv):
                      (" " + ADJ if a.spell_flip_adjacent else "") +
                      (" " + LINE if a.dead_line[0] else "") + (LINE_ALT if a.dead_line[0] and not e54 and not goal else "") +
                      (" " + E54 if e54 else "") + (" " + E60 if goal else "") +
-                     (" " + E61 if goal and a.dead_line[0] else "") + (" " + E81 if e81 else ""),
+                     (" " + E61 if goal and a.dead_line[0] else "") + (" " + E81 if e81 else "") +
+                     (" " + E83 if a.broadcast_ball else ""),
         "evidence": "experiments/hillclimb-2026-10-24/REPORT.md; data/derived/runs/hc/deadrule-split-v1.csv and "
                     "deadrule-r1r4-v1.csv" + (", logit-synth.csv and logit-pff.csv" if logit else "") +
                     (", snap-synth.csv and snap-pff.csv" if a.handover_lag else "") +
@@ -395,6 +420,8 @@ def main(argv):
                     (", e72-synth.csv, e72-pff.csv, e72-pick.out, stoppagedose-v19.out, e80-synth.csv, e80-pff.csv, "
                      "e80-pick.out, e81-synth.csv, e81-pff.csv, e81-pick.out, e81-confirm-pff.csv, e81-confirm-pff.out, "
                      "e81-confirm-synth.csv, e81-confirm-synth.out, barathdiff-e81.out and t2identity.out" if e81 else "") +
+                    (", e83-dose.out, e83-fill.npz, e83-reveal.out, e83-reveal-x2.out, e83-reveal-x3.out and "
+                     "broadcast-state-v20.out" if a.broadcast_ball else "") +
                     " (local, gitignored)",
         "dropout_calibration": dataclasses.asdict(dropout.CALIBRATION),
         **pins,
@@ -402,8 +429,8 @@ def main(argv):
                          "correctness check, never inside a selection rule: tier0_v2, tier0_v7 and tier0_v0 at 09:32 "
                          "and 09:36 IST on 2026-10-24, and tier0_v8 at 11:40 IST. Every experiment from E17 on, "
                          "selection rules v3 and v4, spell_merge_frames, the spell_push fields, switch_penalty and " +
-                         after + " came after the first read. Inherited from "
-                         "tier0_v1: " + v1_doc["provenance"]["public_window"],
+                         after + " came after the first read." + (" " + E83_PUBLIC if a.broadcast_ball else "") +
+                         " Inherited from tier0_v1: " + v1_doc["provenance"]["public_window"],
     })
     print(a.out.read_text())
 

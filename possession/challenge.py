@@ -41,6 +41,10 @@ _SHAPE_MIN_PLAYERS, _SHAPE_CAP = 8, 10.0
 _PRESS_K, _PRESS_MIN_M = 3, 1.0
 
 _NORM_LIMIT = 2.0
+# The broadcast ATD's mapping onto tactical rows (E83): generic geometric tolerances, set once from the exploring
+# session's alignment statistics and never tuned on a decode.
+_ANCHORS, _ANCHOR_STRIDE, _ANCHOR_PLAYERS, _ANCHOR_CAP_M, _ANCHOR_BEST_M, _ANCHOR_AWAY = 60, 5, 12, 15.0, 1.5, 10 * FPS
+_MATCH_PLAYERS, _MATCH_M = 6, 1.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,16 +296,21 @@ def observe(g: Geometry, id: HalfId) -> Half:
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
-           data_dir: str | Path | None = None, *, restart_tags: bool = False) -> tuple[Half, Half]:
+           data_dir: str | Path | None = None, *, restart_tags: bool = False,
+           broadcast: bool = False) -> tuple[Half, Half]:
     """The two decoder inputs for BAR-ATH from the chosen source. restart_tags also fills Half.restart_rows
-    from Smart Tagging (decoders with stoppage_fill read them)."""
-    if source == "baseline_raw":
+    from Smart Tagging (decoders with stoppage_fill read them). broadcast takes the missing tactical ball from the
+    broadcast ATD where its frame matches (broadcast_fill; decoders with broadcast_ball want it), source 'atd' only."""
+    if source == "baseline_raw" and not broadcast:
         out = _halves_from_baseline_raw()
     elif source == "atd":
-        (g1, g2), (id1, id2) = load_geometry(data_dir), _half_ids()
-        out = observe(g1, id1), observe(g2, id2)
+        geoms, blocks = load_geometry(data_dir), layout().blocks
+        if broadcast:
+            b = load_broadcast(data_dir)
+            geoms = tuple(broadcast_fill(g, blk, off, b) for g, blk, off in zip(geoms, blocks, broadcast_offsets(geoms, b)))
+        out = tuple(observe(g, i) for g, i in zip(geoms, _half_ids()))
     else:
-        raise ValueError(f"unknown source {source!r}; have 'baseline_raw', 'atd'")
+        raise ValueError(f"source {source!r} with broadcast={broadcast}; have 'baseline_raw' and 'atd', broadcast with 'atd'")
     if restart_tags:
         out = tuple(replace(h, restart_rows=rows) for h, rows in zip(out, restart_rows(data_dir)))
     return out
@@ -427,13 +436,13 @@ def _atd_slot_team(meta: ET.Element) -> NDArray[np.int8]:
     return np.array([team_ids.index(p.get("teamId")) for p in players], np.int8)
 
 
-def _read_atd(raw: Path, n_slots: int) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+def _read_atd(raw: Path, n_slots: int, source: str = "tactical") -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Normalised ball [n, 2] and players [n, S, 2], NaN where unobserved; row i is frame_id i + 1.
 
     A line is "frame:x,y,speed;...(S groups):x,y,speed".
     """
     lines = raw.read_text().split()
-    n = games.source_frames("tactical", GAME)
+    n = games.source_frames(source, GAME)
     if len(lines) != n:
         raise ValueError(f"{raw.name}: {len(lines)} lines, expected {n}")
     width = 1 + 3 * n_slots + 3
@@ -451,3 +460,109 @@ def _read_atd(raw: Path, n_slots: int) -> tuple[NDArray[np.float64], NDArray[np.
     if max(np.nanmax(np.abs(ball)), np.nanmax(np.abs(players))) > _NORM_LIMIT:
         raise ValueError(f"{raw.name}: coordinates exceed {_NORM_LIMIT}, expected normalised")
     return ball, players
+
+
+@dataclass(frozen=True, slots=True)
+class Broadcast:
+    """The broadcast ATD on its own timeline, in metres: ball_xy [n, 2] and players_xy [n, S, 2], NaN where unobserved;
+    slot_team [S]; valid [n], the broadcast homography's flag. Row b is broadcast frame_id b + 1."""
+    ball_xy: NDArray[np.float64]
+    players_xy: NDArray[np.float64]
+    slot_team: NDArray[np.int8]
+    valid: NDArray[np.bool_]
+
+
+def load_broadcast(data_dir: str | Path | None = None) -> Broadcast:
+    """The broadcast ATD and its homography's valid flag. Raises IOError when the files are not on disk."""
+    meta, raw, hom = games.require(["atd_meta", "atd_raw", "homography"], GAME, data_dir, source="broadcast")
+    return _load_broadcast(str(Path(meta).resolve()), str(Path(raw).resolve()), str(Path(hom).resolve()))
+
+
+@functools.cache
+def _load_broadcast(meta: str, raw: str, hom: str) -> Broadcast:
+    slot_team = _atd_slot_team(ET.parse(meta).getroot())
+    ball, players = _read_atd(Path(raw), len(slot_team), "broadcast")
+    frame, valid = np.loadtxt(hom, delimiter=",", skiprows=1, usecols=(0, 11), unpack=True)
+    if not np.array_equal(frame, np.arange(len(ball))):
+        raise ValueError(f"{Path(hom).name}: frames are not 0..{len(ball) - 1} in order")
+    scale = np.array(games.GAMES[GAME]["pitch"], np.float64)
+    return Broadcast(ball * scale, players * scale, slot_team, valid == 1)
+
+
+def broadcast_offsets(geoms: tuple[Geometry, ...], b: Broadcast) -> tuple[int, ...]:
+    """Per layout() block, tactical row minus broadcast frame: the median over the confident anchors matched inside
+    that block, computed from the data on every call. Anchors are _ANCHORS broadcast frames evenly spaced over those
+    with a valid homography and _ANCHOR_PLAYERS or more players. Each goes to the tactical row whose players sit
+    nearest it (_anchor_cost) at stride _ANCHOR_STRIDE, then at stride 1 around that row. It is confident when the
+    cost is under _ANCHOR_BEST_M and every row more than _ANCHOR_AWAY away costs over twice that."""
+    lay = layout()
+    players_t = np.full((lay.n_total, len(geoms[0].slot_team), 2), np.nan, np.float32)
+    for blk, g in zip(lay.blocks, geoms):
+        players_t[blk.origin:blk.origin + blk.n] = g.players_xy
+    slot_t = geoms[0].slot_team
+    cand = np.flatnonzero(b.valid & (np.isfinite(b.players_xy[..., 0]).sum(1) >= _ANCHOR_PLAYERS))
+    strided = np.arange(0, lay.n_total, _ANCHOR_STRIDE)
+    pt, fits = players_t[strided], []
+    for f in cand[np.linspace(0, len(cand) - 1, _ANCHORS).round().astype(int)]:
+        p = b.players_xy[f].astype(np.float32)
+        cost = _anchor_cost(p, b.slot_team, pt, slot_t)
+        k = int(np.argmin(cost))
+        runner = float(cost[np.abs(strided - strided[k]) > _ANCHOR_AWAY].min())
+        fine = np.arange(max(strided[k] - _ANCHOR_STRIDE + 1, 0), min(strided[k] + _ANCHOR_STRIDE, lay.n_total))
+        fc = _anchor_cost(p, b.slot_team, players_t[fine], slot_t)
+        if fc.min() < _ANCHOR_BEST_M and runner > 2 * fc.min():
+            fits.append((int(fine[np.argmin(fc)]), int(f)))
+    out = []
+    for blk in lay.blocks:
+        off = [r - f for r, f in fits if blk.origin <= r < blk.origin + blk.n]
+        if not off:
+            raise ValueError(f"no confident broadcast anchor in tactical rows [{blk.origin}, {blk.origin + blk.n})")
+        out.append(int(np.round(np.median(off))))
+    return tuple(out)
+
+
+def broadcast_fill(g: Geometry, block: Block, offset: int, b: Broadcast) -> Geometry:
+    """G with its missing ball taken from the broadcast at frame block.origin + i - OFFSET wherever that frame has a
+    valid homography, a seen ball and _MATCH_PLAYERS or more players whose mean distance to the nearest same-team
+    tactical player of row i is under _MATCH_M (_match_cost). Players are left as they are."""
+    f = block.origin + np.arange(g.n) - offset
+    fc = np.clip(f, 0, len(b.valid) - 1)
+    cand = np.flatnonzero((f == fc) & np.isnan(g.ball_xy[:, 0]) & b.valid[fc] & np.isfinite(b.ball_xy[fc, 0])
+                          & (np.isfinite(b.players_xy[fc, :, 0]).sum(1) >= _MATCH_PLAYERS))
+    ok = np.zeros(len(cand), bool)
+    for lo in range(0, len(cand), 4096):
+        r = cand[lo:lo + 4096]
+        cost, count = _match_cost(b.players_xy[fc[r]].astype(np.float32), b.slot_team, g.players_xy[r], g.slot_team)
+        ok[lo:lo + 4096] = (count >= _MATCH_PLAYERS) & (cost < _MATCH_M)
+    fill = cand[ok]
+    ball = g.ball_xy.copy()
+    ball[fill] = b.ball_xy[fc[fill]].astype(np.float32)
+    return replace(g, ball_xy=ball)
+
+
+def _anchor_cost(p: NDArray[np.float32], sb: NDArray[np.int8], pt: NDArray[np.float32],
+                 st: NDArray[np.int8]) -> NDArray[np.float64]:
+    """Per tactical row of PT [R, St, 2] (teams ST), the mean over the broadcast players P [Sb, 2] (teams SB, NaN
+    skipped) of the distance to the nearest same-team tactical player, capped at _ANCHOR_CAP_M."""
+    total, count = np.zeros(len(pt)), 0
+    for team in (HOME, AWAY):
+        q = p[(sb == team) & np.isfinite(p[:, 0])]
+        if len(q):
+            d = np.sqrt(((pt[:, None, st == team, :] - q[None, :, None, :]) ** 2).sum(-1))
+            total += np.minimum(np.where(np.isnan(d), np.inf, d).min(2), _ANCHOR_CAP_M).sum(1)
+            count += len(q)
+    return total / max(count, 1)
+
+
+def _match_cost(pb: NDArray[np.float32], sb: NDArray[np.int8], pt: NDArray[np.float32],
+                st: NDArray[np.int8]) -> tuple[NDArray[np.float64], NDArray[np.int64]]:
+    """Per row, the mean over broadcast players PB [c, Sb, 2] (teams SB) of the distance to the nearest same-team
+    tactical player of PT [c, St, 2] (teams ST), and how many broadcast players had one."""
+    total, count = np.zeros(len(pb)), np.zeros(len(pb), int)
+    for team in (HOME, AWAY):
+        d = np.sqrt(((pb[:, sb == team, None, :] - pt[:, None, st == team, :]) ** 2).sum(-1))
+        d = np.where(np.isnan(d), np.inf, d).min(2)
+        ok = np.isfinite(d)
+        total += np.where(ok, d, 0.0).sum(1)
+        count += ok.sum(1)
+    return np.where(count > 0, total / np.maximum(count, 1), np.nan), count

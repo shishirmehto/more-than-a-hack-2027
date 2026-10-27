@@ -273,7 +273,11 @@ class DecoderParams:
                         i + 15 s where the seen ball moves faster than 5 m/s within 1 s after a seen ball slower
                         than 2 m/s; a row with no such frame adds nothing. The tag marks a stoppage the codes
                         missed. Window, share and speeds are the T2 proposal's, never gridded. Needs Half.geometry
-                        and a Half built with restart_tags (challenge.halves); dev Halves carry no rows.
+                        and a Half built with restart_tags (challenge.halves); a Half with restart_rows None raises.
+    broadcast_ball:     False is off. True declares that the decoder reads BAR-ATH halves whose missing tactical ball
+                        is taken from the broadcast ATD where its frame matches (challenge.broadcast_fill, E83).
+                        The decode itself does not read the field; challenge.halves(broadcast=True) applies it, and a
+                        dev source has no broadcast, so it changes nothing there.
 
     Under "map" a segment of state s lasts min + Geometric frames with mean poss_mean_s / dead_mean_s
     (shifted geometric), so mean > min is required. Minimums are converted to blocks by ceil(min / stride).
@@ -329,6 +333,7 @@ class DecoderParams:
     dead_end_live_mps: float = 0.0
     dead_end_cut: int = 0
     stoppage_fill: bool = False
+    broadcast_ball: bool = False
 
     def __post_init__(self) -> None:
         _number("temper", self.temper, 0, math.inf)
@@ -408,6 +413,8 @@ class DecoderParams:
             raise ValueError("spell_flip_adjacent acts only with spell_flip_p > 0")
         if not isinstance(self.stoppage_fill, bool):
             raise ValueError(f"stoppage_fill must be true or false, got {self.stoppage_fill!r}")
+        if not isinstance(self.broadcast_ball, bool):
+            raise ValueError(f"broadcast_ball must be true or false, got {self.broadcast_ball!r}")
         if self.spell_logit:
             if "a" not in self.spell_logit or not set(self.spell_logit) <= {"a", *SPELL_FEATURES}:
                 raise ValueError(f"spell_logit needs 'a' and takes only {', '.join(SPELL_FEATURES)}")
@@ -445,7 +452,8 @@ _OPTIONAL_PARAMS = {"dead_min_run": 0, "dead_trim": 0, "dead_close": 0, "dead_ou
                     "dead_out_lead_cut": 0, "dead_out_min_run": 0, "spell_flip_adjacent": False,
                     "dead_line_m": 0.0, "dead_line_min_run": 0, "dead_line_lead_cut": 0, "dead_end_lead": 0,
                     "dead_end_live_mps": 0.0, "dead_return_m": 0.0,
-                    "dead_return_min_run": 0, "dead_end_cut": 0, "stoppage_fill": False}
+                    "dead_return_min_run": 0, "dead_end_cut": 0, "stoppage_fill": False,
+                    "broadcast_ball": False}
 if _EMISSION_FIELDS & {f.name for f in dataclasses.fields(DecoderParams)}:
     raise ImportError("Tier0Emission and DecoderParams share a field name, so Decoder.replace cannot route it")
 
@@ -514,13 +522,20 @@ class Decoder:
         """True when decoding reads Half.geometry, Half.pace_mps or Half.push_mps, which only challenge.observe
         supplies."""
         p = self.params
-        return self.emission.needs_geometry or bool(p.spell_push_mps or p.spell_flip_p or p.stoppage_fill) or bool(
+        return self.emission.needs_geometry or bool(p.spell_push_mps or p.spell_flip_p or p.stoppage_fill
+                                                    or p.broadcast_ball) or bool(
             p.dead_min_run and (p.dead_outside_m or p.dead_still_mps or p.dead_pace_still_mps or p.dead_pace_live_mps))
 
     @property
     def needs_tags(self) -> bool:
         """True when decoding reads Half.restart_rows, which challenge.halves supplies with restart_tags=True."""
         return self.params.stoppage_fill
+
+    @property
+    def needs_broadcast(self) -> bool:
+        """True when the halves must carry the broadcast ball in tactical gaps, which challenge.halves supplies with
+        broadcast=True."""
+        return self.params.broadcast_ball
 
     def replace(self, **flat: object) -> "Decoder":
         """A copy with fields changed by flat name. Each key goes to the emission or the params,

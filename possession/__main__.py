@@ -23,7 +23,8 @@ def make_submission(params: Path, out: Path) -> Path:
     observed from the gated ATD instead (the same tokens, selfcheck atd_reproduces_baseline_raw)."""
     model = Decoder.load(params)
     source = "atd" if model.needs_geometry else "baseline_raw"
-    preds = [model.decode(h).codes for h in challenge.halves(source, restart_tags=model.needs_tags)]
+    preds = [model.decode(h).codes for h in challenge.halves(source, restart_tags=model.needs_tags,
+                                                             broadcast=model.needs_broadcast)]
     return score.write_submission(challenge.layout(), preds, out)
 
 
