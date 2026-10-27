@@ -181,6 +181,11 @@ e84pick CSV          E84's registered decision from e84grid's table
 e84noop PARAMS       E84's check that both camera arms equal base on every synthetic group (seed 0)
 e84starts PARAMS     E84's D-start read, label-reading on native PFF-A: each arm's start error on labelled stoppages
 e84why PARAMS        why E84 split, label-reading on PFF-A m0: labelled D share of camall's runs, native against renewal
+e85dose PARAMS       E85's dose, label-free on BAR-ATH: what camin (camall off runs whose ball left near a line) changes
+e85grid PARAMS       E85: PARAMS against camin on the worlds of --rule (B split off)
+e85pick CSV          E85's registered decision from e85grid's table
+e85noop PARAMS       E85's check that camin equals base on every synthetic group (seed 0)
+e85score PARAMS --out CSV  E85's confirmation table (every game, seeds of --seeds) for `confirm`
 e84score PARAMS --out CSV  E84's confirmation table (every game, seeds of --seeds) for `confirm`
 fkprecision PARAMS   label-reading on PFF-A: labelled D share on the free-kick cue's team-called runs
 fkdose PARAMS        label-free dose of a 9.15 m free-kick stoppage cue on BAR-ATH and native PFF-A
@@ -3879,6 +3884,26 @@ def _dev_camera(half):
     return np.ascontiguousarray(vis[pff.ticks(len(vis), fps)[:half.n]])
 
 
+def _line_gate(half, line_m):
+    """HALF's camera set to 0 on every ball-unseen run that opens the half or whose last seen ball lies within LINE_M
+    of a touchline or goal line, so camall never counts that run as seen (E85)."""
+    camera, line = half.camera.copy(), half.geometry.line_m
+    for s, e in zip(*_runs(half.nearest_team == NO_TEAM)):
+        if s == 0 or line[s - 1] < line_m:
+            camera[s:e] = 0
+    return camera
+
+
+@dataclasses.dataclass(frozen=True)
+class LineGated:
+    """BASE on each half with its camera passed through _line_gate at LINE_M."""
+    base: object
+    line_m: float
+
+    def decode(self, half):
+        return self.base.decode(dataclasses.replace(half, camera=_line_gate(half, self.line_m)))
+
+
 def dev_model(model):
     """MODEL as it decodes dev halves: through Tagged's pseudo-tags when it reads restart tags and Cammed's camera when
     it reads Half.camera, since dev halves load neither and such a decoder refuses them."""
@@ -4152,28 +4177,49 @@ def e84why(params):
     print(near.round(3).to_string())
 
 
-def e84noop(params):
-    """E84's no-op check: on seed 0 of each synthetic group (SEARCH at dead_bias 2.6), cam and camall decode every half
-    exactly as base, since Metrica and IDSSE carry no camera."""
-    models = e84_models(params)
+def e85_models(params):
+    """E85: PARAMS against camin, camall (dead_camera_players CAM_PLAYERS on whole runs) with the camera hidden on runs
+    whose ball left within CAM_LINE_M of a line (LineGated), through pseudo-tags and each dev source's camera."""
+    base = Decoder.load(params)
+    camall = base.replace(dead_camera_players=CAM_PLAYERS, dead_camera_whole=True)
+    inner = Tagged(camall) if camall.needs_tags else camall
+    return {"base": dev_model(base), "camin": Cammed(LineGated(inner, CAM_LINE_M))}
+
+
+def e85pick(path):
+    """E85's registered decision from e85grid's table at PATH: per group in E84_GROUPS the seed-mean spellF1 of base
+    and camin and the gain; camin is picked when the minimum gain exceeds 0.003."""
+    t = pd.read_csv(path).pivot_table(index="group", columns="variant", values="spell_f1", aggfunc="mean")
+    t = t.loc[list(E84_GROUPS)]
+    t["gain"] = t["camin"] - t["base"]
+    print(t.round(4).to_string())
+    print(f"minimum gain {t.gain.min():+.4f} -> {'SELECTED camin' if t.gain.min() > 0.003 else 'SELECTED base'}")
+
+
+def e84noop(params, models=None):
+    """E84's no-op check (E85's with E85's MODELS): on seed 0 of each synthetic group (SEARCH at dead_bias 2.6), every
+    arm decodes every half exactly as base, since Metrica and IDSSE carry no camera."""
+    models = models or e84_models(params)
     for world, cases in bench.dev_worlds(SEARCH, (2.6,), seeds=(0,)).items():
         halves = bench.pooled(cases).halves
-        for arm in ("cam", "camall"):
+        for arm in [m for m in models if m != "base"]:
             same = all(np.array_equal(models["base"].decode(h).codes, models[arm].decode(h).codes) for h in halves)
             print(f"{world}: {len(halves)} halves, {arm} equals base {same}")
             assert same, (world, arm)
 
 
-def camdose(params):
-    """E84's dose, label-free on BAR-ATH graded rows: PARAMS against cam and camall (e84_models' arms) on
-    challenge.halves_for, and against PARAMS on E83's filled halves. Per half and arm: the unseen rows the arm counts as
+def camdose(params, e85=False):
+    """E84's dose, label-free on BAR-ATH graded rows: PARAMS against cam and camall (e84_models' arms), or with E85
+    against camin (camall through LineGated), on challenge.halves_for, and against PARAMS on E83's filled halves. Per half and arm: the unseen rows the arm counts as
     seen; frames to D, from D and between teams; PARAMS's D runs of 2 s or more that the arm reopens (half their frames
     become H or A), and how many of them the fill reopens too; possessions; and, in the 5 s before each Smart Tagging
     restart, the unseen rows and the rows the arm counts as seen (a stoppage it may chip)."""
     from possession.decoder import _shown_prefix
     base = Decoder.load(params)
     cam = base.replace(dead_camera_players=CAM_PLAYERS)
-    arms = {"cam": cam, "camall": cam.replace(dead_camera_whole=True)}
+    camall = cam.replace(dead_camera_whole=True)
+    arms = ({"camin": (LineGated(camall, CAM_LINE_M), lambda h: _line_gate(h, CAM_LINE_M), True)} if e85 else
+            {"cam": (cam, lambda h: h.camera, False), "camall": (camall, lambda h: h.camera, True)})
     plain = challenge.halves_for(cam)
     filled = challenge.halves_for(base.replace(broadcast_ball=True))
     rows = []
@@ -4187,9 +4233,9 @@ def camdose(params):
         for t in challenge.tags():
             if t.restart and blk.origin <= t.start < blk.origin + blk.n:
                 pre[max(t.start - blk.origin - 5 * FPS, 0):t.start - blk.origin] = True
-        for arm, model in arms.items():
+        for arm, (model, camera_of, whole) in arms.items():
             x1 = model.decode(h).codes
-            shown = _shown_prefix(unseen, h.camera >= CAM_PLAYERS, model.params.dead_camera_whole)
+            shown = _shown_prefix(unseen, camera_of(h) >= CAM_PLAYERS, whole)
             opened = {(s, e) for s, e in long0 if float((x1[s:e] != D).mean()) >= 0.5}
             rows.append({"half": h.id.half, "arm": arm, "unseen": int(unseen.sum()), "seen_by_arm": int(shown.sum()),
                          "camera_unmapped": int((h.camera < 0).sum()), "to_D": int(((x1 == D) & (x0 != D)).sum()),
@@ -4569,7 +4615,7 @@ def pffcamera():
 
 
 # E84's registered camera thresholds: E83's player count, and the exploring session's extent of a wide shot
-CAM_PLAYERS, CAM_SPREAD_M = 6, 25.0
+CAM_PLAYERS, CAM_SPREAD_M, CAM_LINE_M = 6, 25.0, 3.0
 
 
 @functools.cache
@@ -6304,7 +6350,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "tagteam", "tagrestart", "tagcover", "takerdose", "takeroracle", "restartgaps", "restartcheck", "e78grid", "e78score", "takeracts", "pffcontrolled", "takerprecision", "e79grid", "e79", "stoppagedose", "e80grid", "e80score", "blackoutfit", "e81grid", "e81score", "fkdose", "fkprecision", "e82grid", "e82score", "barathdiff", "t2identity", "t2kicks", "falsetags", "falseacts", "deadclass", "broadcastdose", "e83reveal", "broadcaststate", "pffcamera", "camlr", "camdose", "e84grid", "e84pick", "e84noop", "e84starts", "e84why", "e84score"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "tagteam", "tagrestart", "tagcover", "takerdose", "takeroracle", "restartgaps", "restartcheck", "e78grid", "e78score", "takeracts", "pffcontrolled", "takerprecision", "e79grid", "e79", "stoppagedose", "e80grid", "e80score", "blackoutfit", "e81grid", "e81score", "fkdose", "fkprecision", "e82grid", "e82score", "barathdiff", "t2identity", "t2kicks", "falsetags", "falseacts", "deadclass", "broadcastdose", "e83reveal", "broadcaststate", "pffcamera", "camlr", "camdose", "e84grid", "e84pick", "e84noop", "e84starts", "e84why", "e84score", "e85dose", "e85grid", "e85pick", "e85noop", "e85score"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -6323,7 +6369,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "takerdose": lambda: takerdose(one), "takeroracle": lambda: takeroracle(one), "restartgaps": lambda: restartgaps(one), "restartcheck": restartcheck, "takeracts": lambda: takeracts(one), "pffcontrolled": lambda: pffcontrolled(a.params), "takerprecision": lambda: takerprecision(one), "e79grid": lambda: modelgrid(e79_models(one), a.out, a.dead_bias, a.rule), "e79": lambda: e79(one, a.params[1:]), "stoppagedose": lambda: stoppagedose(one), "blackoutfit": lambda: blackoutfit(one), "e80grid": lambda: modelgrid(e80_models(one), a.out, a.dead_bias, a.rule), "e80score": lambda: modelscore(e80_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81grid": lambda: modelgrid(e81_models(one), a.out, a.dead_bias, a.rule), "fkdose": lambda: fkdose(one), "fkprecision": lambda: fkprecision(one), "barathdiff": lambda: barathdiff(one), "t2identity": lambda: t2identity(one), "t2kicks": lambda: t2kicks(one), "falsetags": lambda: falsetags(one), "falseacts": lambda: falseacts(one), "deadclass": lambda: deadclass(a.params), "broadcastdose": lambda: broadcastdose(one, a.out), "e83reveal": lambda: e83reveal(one, *a.params[1:3]), "broadcaststate": lambda: broadcaststate(one), "pffcamera": pffcamera, "camlr": camlr, "camdose": lambda: camdose(one), "e84grid": lambda: modelgrid(e84_models(one), a.out, a.dead_bias, a.rule), "e84pick": lambda: e84pick(one), "e84noop": lambda: e84noop(one), "e84starts": lambda: e84starts(one), "e84why": lambda: e84why(one), "e84score": lambda: modelscore(e84_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e82grid": lambda: modelgrid(e82_models(one), a.out, a.dead_bias, a.rule), "e82score": lambda: modelscore(e82_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81score": lambda: modelscore(e81_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e78grid": lambda: modelgrid(e78_models(one), a.out, a.dead_bias, a.rule), "e78score": lambda: modelscore(e78_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "takerdose": lambda: takerdose(one), "takeroracle": lambda: takeroracle(one), "restartgaps": lambda: restartgaps(one), "restartcheck": restartcheck, "takeracts": lambda: takeracts(one), "pffcontrolled": lambda: pffcontrolled(a.params), "takerprecision": lambda: takerprecision(one), "e79grid": lambda: modelgrid(e79_models(one), a.out, a.dead_bias, a.rule), "e79": lambda: e79(one, a.params[1:]), "stoppagedose": lambda: stoppagedose(one), "blackoutfit": lambda: blackoutfit(one), "e80grid": lambda: modelgrid(e80_models(one), a.out, a.dead_bias, a.rule), "e80score": lambda: modelscore(e80_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81grid": lambda: modelgrid(e81_models(one), a.out, a.dead_bias, a.rule), "fkdose": lambda: fkdose(one), "fkprecision": lambda: fkprecision(one), "barathdiff": lambda: barathdiff(one), "t2identity": lambda: t2identity(one), "t2kicks": lambda: t2kicks(one), "falsetags": lambda: falsetags(one), "falseacts": lambda: falseacts(one), "deadclass": lambda: deadclass(a.params), "broadcastdose": lambda: broadcastdose(one, a.out), "e83reveal": lambda: e83reveal(one, *a.params[1:3]), "broadcaststate": lambda: broadcaststate(one), "pffcamera": pffcamera, "camlr": camlr, "camdose": lambda: camdose(one), "e84grid": lambda: modelgrid(e84_models(one), a.out, a.dead_bias, a.rule), "e84pick": lambda: e84pick(one), "e84noop": lambda: e84noop(one), "e84starts": lambda: e84starts(one), "e84why": lambda: e84why(one), "e85dose": lambda: camdose(one, e85=True), "e85grid": lambda: modelgrid(e85_models(one), a.out, a.dead_bias, a.rule), "e85pick": lambda: e85pick(one), "e85noop": lambda: e84noop(one, e85_models(one)), "e85score": lambda: modelscore(e85_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e84score": lambda: modelscore(e84_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e82grid": lambda: modelgrid(e82_models(one), a.out, a.dead_bias, a.rule), "e82score": lambda: modelscore(e82_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81score": lambda: modelscore(e81_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e78grid": lambda: modelgrid(e78_models(one), a.out, a.dead_bias, a.rule), "e78score": lambda: modelscore(e78_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
