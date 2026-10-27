@@ -149,6 +149,11 @@ targettiming         label-reading: targetconv's wrong-token frames by distance 
 tagteam PARAMS       label-free: Smart Tagging phase Team tags against PARAMS's codes and the tokens on BAR-ATH
 tagrestart PARAMS    label-free: Smart Tagging set pieces against PARAMS's D and the ball-missing runs on BAR-ATH
 tagcover             label-free: whether the TAG_SIDE phases cover set pieces and ball-missing runs on BAR-ATH
+takerdose PARAMS     label-free: the frames and spells the restart-taker rule T1 would change on BAR-ATH
+takeroracle PARAMS   label-reading: the taker's labelled spell after each PFF-A set piece, native m0 and m2
+restartgaps PARAMS   label-free: the ball-missing run around each team-tagged BAR-ATH restart, relative to the D end
+restartcheck         label-reading: E78's restart table (PFF, Metrica, IDSSE events) against m0 labels
+e78grid PARAMS       E78 arms: base, T1 (restart taker) on pseudo-tagged corners, and on corners, goal and free kicks
 doubling             label-free PFF source check behind pff.undouble: gaps between moving-ball position changes and
                      the share of player steps that repeat the frame before, periods 1 and 2 of all 64 games
 confirm CSV          a `score` run table: per-group margins over smooth50 for every model, and paired
@@ -159,6 +164,7 @@ label or the public window.
 """
 import argparse
 import dataclasses
+import functools
 import itertools
 import json
 import warnings
@@ -3326,6 +3332,298 @@ def tagrestart(params):
           f"{sorted(miss.gap_end_s.round(1).dropna().tolist())}")
 
 
+# The set-piece kinds whose Team tag names a team; throw-ins and kick-offs carry none on BAR-ATH.
+RESTART_KINDS = ("corner kick", "free kick", "goal kick")
+
+
+def takerdose(params):
+    """Label-free, BAR-ATH inputs only: what the exploring session's T1 (restart taker) would change on PARAMS's
+    codes. For each set piece of RESTART_KINDS with a team, the D run of PARAMS whose end e lies within 5 s before
+    to 15 s after the tag's start (the nearest); from e, the frames up to the first confident token of the other
+    team (nearest player within 1 m, margin 2 m or more) or the next D frame, whichever comes first, would go to
+    the tag's team, the taker. Per kind: tags, tags with such a D end, where e falls, the share whose first team
+    after e is the taker, is the last team before the D run (held through it), and the share whose last team
+    before the D run is the taker; then the tags where T1 changes frames, the seconds it changes, and what it does
+    to the spells (maximal runs of one team) around e: adds one, removes one by merging, or flips one."""
+    model, lay = Decoder.load(params), challenge.layout()
+    halves = [challenge.observe(g, hid) for g, hid in zip(challenge.load_geometry(), challenge._half_ids())]
+    codes = [model.decode(h).codes for h in halves]
+    spells = lambda x: int(np.sum((x != D) & np.r_[True, x[1:] != x[:-1]]))
+    rows = []
+    for t in challenge.tags():
+        if t.code != "set pieces" or t.kind not in RESTART_KINDS or t.team == NO_TEAM:
+            continue
+        for b, h, c in zip(lay.blocks, halves, codes):
+            if not b.origin <= t.start < b.origin + b.n:
+                continue
+            i, other = t.start - b.origin, 1 - t.team
+            starts, ends = _runs(c == D)
+            near = (ends >= i - 5 * FPS) & (ends <= i + 15 * FPS) & (ends < h.n)
+            row = {"kind": t.kind, "matched": bool(near.any())}
+            if near.any():
+                k = np.flatnonzero(near)[np.argmin(np.abs(ends[near] - i))]
+                s0, e = int(starts[k]), int(ends[k])
+                before = c[s0 - 1] if s0 > 0 else D
+                sure = (h.nearest_team == other) & (h.geometry.nearest_m <= 1.0) & (h.geometry.margin_m >= 2.0)
+                stop = np.flatnonzero(sure[e:] | (c[e:] == D))
+                f = e + (int(stop[0]) if len(stop) else h.n - e)
+                new = c.copy()
+                new[e:f] = t.team
+                lo, hi = max(e - 1, 0), min(f + 1, h.n)
+                changed, delta = int((c[e:f] == other).sum()), spells(new[lo:hi]) - spells(c[lo:hi])
+                row.update(end_s=(e - i) / FPS, first_taker=bool(c[e] == t.team), held=bool(c[e] == before),
+                           last_taker=bool(before == t.team), seen_at_end=bool(h.nearest_team[e] >= 0),
+                           changed_s=changed / FPS, adds=bool(changed and delta > 0),
+                           merges=bool(changed and delta < 0), flips=bool(changed and delta == 0))
+            rows.append(row)
+    t = pd.DataFrame(rows)
+    g = t.groupby("kind")
+    print(pd.DataFrame({"n": g.size(), "matched": g.matched.sum(), "end_s_median": g.end_s.median(),
+                        "first_taker": g.first_taker.mean(), "held": g.held.mean(), "last_taker": g.last_taker.mean(),
+                        "seen_at_end": g.seen_at_end.mean(),
+                        "t1_changes": g.changed_s.apply(lambda v: int((v > 0).sum())),
+                        "changed_s_total": g.changed_s.sum(), "adds": g.adds.sum(), "merges": g.merges.sum(),
+                        "flips": g.flips.sum()}).round(3).to_string())
+    m = t[t.matched]
+    print(f"\n{len(t)} restarts, {len(m)} with a D end in range; T1 changes frames at {int((m.changed_s > 0).sum())} "
+          f"for {m.changed_s.sum():.1f} s in all (median {m.changed_s[m.changed_s > 0].median():.1f} s where it acts); "
+          f"it adds a spell {int(m.adds.sum())} times, removes one by merging {int(m.merges.sum())} times and flips "
+          f"one {int(m.flips.sum())} times")
+
+
+def restartgaps(params):
+    """Label-free, BAR-ATH inputs only: the ball-missing run (no token) around each team-tagged restart, relative
+    to the end e of PARAMS's D run nearest the tag (as in takerdose), the shape a restart-masked dev world would
+    copy. Per kind: restarts with such an e, the share seen at e, and for the ball-missing run that covers e or
+    ends last before it, quantiles of its start and end relative to e (s)."""
+    model, lay = Decoder.load(params), challenge.layout()
+    halves = [challenge.observe(g, hid) for g, hid in zip(challenge.load_geometry(), challenge._half_ids())]
+    codes = [model.decode(h).codes for h in halves]
+    rows = []
+    for t in challenge.tags():
+        if t.code != "set pieces" or t.kind not in RESTART_KINDS or t.team == NO_TEAM:
+            continue
+        for b, h, c in zip(lay.blocks, halves, codes):
+            if not b.origin <= t.start < b.origin + b.n:
+                continue
+            i, ends = t.start - b.origin, _runs(c == D)[1]
+            ends = ends[(ends >= i - 5 * FPS) & (ends <= i + 15 * FPS) & (ends < h.n)]
+            if not len(ends):
+                continue
+            e = int(ends[np.argmin(np.abs(ends - i))])
+            starts, stops = _runs(h.nearest_team == NO_TEAM)
+            k = np.flatnonzero(starts <= e)
+            gap = (starts[k[-1]], stops[k[-1]]) if len(k) else (e, e)
+            rows.append({"kind": t.kind, "seen_at_e": bool(h.nearest_team[e] >= 0), "tag_s": (i - e) / FPS,
+                         "gap_start_s": (gap[0] - e) / FPS, "gap_end_s": (gap[1] - e) / FPS})
+    t = pd.DataFrame(rows)
+    g = t.groupby("kind")
+    qs = {f"{col}_p{int(k * 100)}": g[col].quantile(k) for col in ("tag_s", "gap_start_s", "gap_end_s")
+          for k in (0.25, 0.5, 0.75)}
+    print(pd.DataFrame({"n": g.size(), "seen_at_e": g.seen_at_e.mean(), **qs}).round(2).T.to_string())
+
+
+PFF_SETPIECES = {"C": "corner", "F": "free kick", "G": "goal kick", "T": "throw-in"}
+
+
+def _pff_setpieces(half):
+    """[(25 Hz frame, kind, taker team)] for one native PFF half: the set pieces of PFF_SETPIECES among the PFF
+    game events of its period, at frame round(startTime x fps) (exact against the tracking file's start_frame on
+    game 10502), mapped onto the half by pff.ticks; the taker is the event's team (gameEvents.homeTeam). The events
+    files carry no pin in pff's manifest; takeroracle prints their digest."""
+    from possession import pff
+    game, period = half.id.match.removeprefix("pff_"), half.id.half
+    with np.load(pff._cache(game, None)) as z:
+        frame0, fps, n = int(z[f"p{period}_frame0"]), float(z["fps"]), len(z[f"p{period}_ball_vis"])
+    index = pff.ticks(n, fps)[:half.n]
+    out = []
+    for e in json.loads((pff.root() / "events" / f"{game}.json").read_text()):
+        g = e.get("gameEvents") or {}
+        if g.get("period") == period and g.get("setpieceType") in PFF_SETPIECES:
+            j = int(np.searchsorted(index, round(e["startTime"] * fps) - frame0))
+            if 0 <= j < half.n:
+                out.append((j, PFF_SETPIECES[g["setpieceType"]], HOME if g["homeTeam"] else AWAY))
+    return out
+
+
+METRICA_RESTARTS = {"CORNER KICK": "corner", "FREE KICK": "free kick", "GOAL KICK": "goal kick"}
+IDSSE_RESTARTS = {"CornerKick": "corner", "FreeKick": "free kick", "GoalKick": "goal kick"}
+# BAR-ATH's team-tagged restarts against PFF's per-game medians (12 of 9 corners, 10 of 15 goal kicks, 5 of 28 free
+# kicks; the exploring session's estimate), and its tag-start-to-onset lead p25 to p75 in frames, both label-free.
+TAG_RECALL = {"corner": 1.0, "goal kick": 0.67, "free kick": 0.18}
+TAG_LEAD = (101, 178)
+
+
+def _metrica_restarts(half):
+    """[(frame, kind, taker)] from the Metrica sample's events, whose frames the tracking shares: SET PIECE rows for
+    corners and free kicks, and any row whose subtypes name a GOAL KICK (Metrica files goal kicks as passes)."""
+    game = int(half.id.match.removeprefix("metrica_g"))
+    parsed = metrica.raw.parse_game(game)
+    frame0, ev = parsed.periods[half.id.half - 1].frame0, parsed.events
+    ev = ev[ev.period == half.id.half]
+    out = []
+    for kind_type, team, subs, start in zip(ev.type, ev.team, ev.subtypes, ev.start):
+        kind = next((k for s, k in METRICA_RESTARTS.items() if s in subs and (kind_type == "SET PIECE" or k == "goal kick")),
+                    None)
+        if kind and 0 <= start - frame0 < half.n:
+            out.append((int(start - frame0), kind, int(team)))
+    return out
+
+
+@functools.cache
+def _idsse_m0_labels():
+    return {(h.id.match, h.id.half): h.labels for h in idsse.load(metrica.RuleV2.parse("m0"))}
+
+
+def _idsse_restarts(half):
+    """[(frame, kind, taker)] from the DFL event feed: StartFrame where the event has one, else EventTime counted
+    from its half's KickOff at the first live frame; then snapped to the nearest labelled dead-to-live change within
+    15 s (m0 labels; EventTime runs a median 5 s after StartFrame), dropped when there is none."""
+    import xml.etree.ElementTree as ET
+    from datetime import datetime
+    match = half.id.match.removeprefix("idsse_")
+    section = idsse.parse_match(match)[half.id.half - 1]
+    home, _, _ = idsse._teams(idsse.paths(match)["info"])
+    events = ET.parse(idsse.root() / f"DFL_03_02_events_raw_DFL-COM-{idsse.MATCHES[match]}_DFL-MAT-{match}.xml")
+    stamp = lambda e: datetime.fromisoformat(e.attrib["EventTime"]).timestamp()
+    name = idsse.SECTIONS[half.id.half - 1]
+    kick = next(stamp(e) for e in events.getroot().iter("Event")
+                if len(e) and e[0].tag == "KickOff" and e[0].attrib.get("GameSection") == name)
+    y = _idsse_m0_labels()[(half.id.match, half.id.half)]
+    live = np.flatnonzero((y[1:] != D) & (y[:-1] == D)) + 1
+    out = []
+    for e in events.getroot().iter("Event"):
+        if not len(e) or e[0].tag not in IDSSE_RESTARTS:
+            continue
+        j = (int(e.attrib["StartFrame"]) - section.n0 if "StartFrame" in e.attrib
+             else half.id.kickoff + round((stamp(e) - kick) * FPS))
+        if not 0 <= j < half.n or not len(live):
+            continue
+        k = live[np.argmin(np.abs(live - j))]
+        if abs(k - j) <= 15 * FPS:
+            out.append((int(k), IDSSE_RESTARTS[e[0].tag], HOME if e[0].attrib["Team"] == home else AWAY))
+    return out
+
+
+_RESTARTS = {}
+
+
+def _restarts(half):
+    """[(frame, kind, taker)] for a dev half of any source with set-piece events, memoised by match and half."""
+    key = (half.id.match, half.id.half)
+    if key not in _RESTARTS:
+        src = half.id.match.split("_")[0]
+        _RESTARTS[key] = (_pff_setpieces(half) if src == "pff" else _metrica_restarts(half) if src == "metrica"
+                          else _idsse_restarts(half) if src == "idsse" else [])
+    return _RESTARTS[key]
+
+
+def _pseudo_tags(half, kinds):
+    """[(tag start, taker)]: the half's restarts of KINDS, each kept with its kind's TAG_RECALL and started a
+    TAG_LEAD lead before the restart, both drawn from a generator seeded by the match, the half and the frame."""
+    import zlib
+    out = []
+    for j, kind, taker in _restarts(half):
+        if kind not in kinds:
+            continue
+        rng = np.random.default_rng([zlib.crc32(half.id.match.encode()), half.id.half, j])
+        if rng.random() < TAG_RECALL[kind]:
+            out.append((j - int(rng.integers(TAG_LEAD[0], TAG_LEAD[1] + 1)), taker))
+    return out
+
+
+def _taker_fill(codes, half, tags):
+    """T1 on CODES: for each (tag start i, taker), the D run whose end e lies within 5 s before to 15 s after i
+    (the nearest); from e to the taker's opponent's first confident token (nearest player within 1 m, margin 2 m or
+    more) or the next D frame, the taker. Returns (codes, frames changed)."""
+    out, ends = codes.copy(), _runs(codes == D)[1]
+    ends = ends[ends < half.n]
+    sure = (half.geometry.nearest_m <= 1.0) & (half.geometry.margin_m >= 2.0)
+    changed = 0
+    for i, taker in tags:
+        near = ends[(ends >= i - 5 * FPS) & (ends <= i + 15 * FPS)]
+        if not len(near):
+            continue
+        e = int(near[np.argmin(np.abs(near - i))])
+        stop = np.flatnonzero(((half.nearest_team[e:] == 1 - taker) & sure[e:]) | (codes[e:] == D))
+        f = e + (int(stop[0]) if len(stop) else half.n - e)
+        changed += int((out[e:f] != taker).sum())
+        out[e:f] = taker
+    return out, changed
+
+
+@dataclasses.dataclass(frozen=True)
+class TakerFill:
+    """E78's arm: BASE's codes with T1 applied from the half's pseudo-tags of KINDS."""
+    base: Decoder
+    kinds: tuple
+
+    def decode(self, half):
+        decoded = self.base.decode(half)
+        return dataclasses.replace(decoded, codes=_taker_fill(decoded.codes, half, _pseudo_tags(half, self.kinds))[0])
+
+
+def e78_models(params):
+    base = Decoder.load(params)
+    return {"base": base, "t1_corners": TakerFill(base, ("corner",)),
+            "t1_all": TakerFill(base, ("corner", "goal kick", "free kick"))}
+
+
+def restartcheck():
+    """The restart table behind E78's pseudo-tags, against m0 labels: per source and kind, restarts, the share whose
+    label at the restart frame plus 0.5 s is the taker (the events' team and timing), and the share kept as a tag."""
+    rows = []
+    for item in ("m0", "idsse:m0", "pff:m0:native"):
+        for world, cases in bench.dev_worlds([item], (2.6,), seeds=(0,)).items():
+            case = bench.pooled(cases)
+            for h, y in zip(case.halves, case.layout.cut(case.gt)):
+                kept = {i + lead for i, _ in _pseudo_tags(h, tuple(TAG_RECALL)) for lead in range(TAG_LEAD[0], TAG_LEAD[1] + 1)}
+                for j, kind, taker in _restarts(h):
+                    rows.append({"source": item.split(":")[0] if ":" in item else "metrica", "kind": kind,
+                                 "taker_at": y[min(j + FPS // 2, h.n - 1)] == taker, "kept": j in kept})
+            break
+    t = pd.DataFrame(rows)
+    g = t.groupby(["source", "kind"])
+    print(pd.DataFrame({"n": g.size(), "taker_at_half_s": g.taker_at.mean(), "kept": g.kept.mean()}).round(3).to_string())
+
+
+def takeroracle(params):
+    """Label-reading on native PFF-A, never a candidate: the taker's labelled spell after each PFF set piece, the
+    question T1 (experiment 146) hinges on. Per kind and native world (m0, m2): restarts, the share whose label at
+    the restart frame j, and 0.5 s later, is the taker, the taker spell's length from j (quantiles, s), the share a
+    2.5 s predicted spell aligned at j would match at IoU 0.3, 0.5 and 0.7, and PARAMS's first team after its D
+    run nearest j (end within 5 s before to 15 s after j), with the share of restarts that have one."""
+    import hashlib
+    from possession import pff
+    model, rows, digest = Decoder.load(params), [], hashlib.sha256()
+    for game in pff.GAMES[0::2]:
+        digest.update((pff.root() / "events" / f"{game}.json").read_bytes())
+    for world, case, labels, _ in native_a():
+        for h, y in zip(case.halves, labels):
+            c = model.decode(h).codes
+            ends = _runs(c == D)[1]
+            for j, kind, taker in _pff_setpieces(h):
+                run = np.flatnonzero(y[j:] != taker)
+                length = (int(run[0]) if len(run) else h.n - j) / FPS
+                near = ends[(ends >= j - 5 * FPS) & (ends <= j + 15 * FPS) & (ends < h.n)]
+                e = int(near[np.argmin(np.abs(near - j))]) if len(near) else -1
+                rows.append({"world": "m2" if "m2" in world else "m0", "kind": kind,
+                             "at_j": y[j] == taker, "at_half_s": y[min(j + FPS // 2, h.n - 1)] == taker,
+                             "length_s": length, "has_end": e >= 0, "first_taker": c[e] == taker if e >= 0 else np.nan})
+    t = pd.DataFrame(rows)
+    for p in (0.3, 0.5, 0.7):
+        t[f"iou{p}"] = (np.minimum(t.length_s, 2.5) / np.maximum(t.length_s, 2.5)) >= p
+    q = lambda v, k: v.quantile(k)
+    g = t.groupby(["world", "kind"])
+    out = pd.DataFrame({"n": g.size(), "at_j": g.at_j.mean(), "at_half_s": g.at_half_s.mean(),
+                        "len_p25": g.length_s.apply(q, k=0.25), "len_p50": g.length_s.median(),
+                        "len_p75": g.length_s.apply(q, k=0.75), "iou0.3": g["iou0.3"].mean(),
+                        "iou0.5": g["iou0.5"].mean(), "iou0.7": g["iou0.7"].mean(), "has_end": g.has_end.mean(),
+                        "first_taker": g.first_taker.mean()})
+    print(f"PFF-A games {len(pff.GAMES[0::2])}, events digest {digest.hexdigest()[:16]}")
+    print(out.round(3).to_string())
+
+
 def tagcover():
     """Label-free, BAR-ATH inputs only: whether the TAG_SIDE phases stop at dead time. The share of set pieces (but
     the opening kick-offs) whose start lies under such a phase, and the share of rows under one in each half's
@@ -4543,7 +4841,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "tagteam", "tagrestart", "tagcover"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "tagteam", "tagrestart", "tagcover", "takerdose", "takeroracle", "restartgaps", "restartcheck", "e78grid"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -4561,7 +4859,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "takerdose": lambda: takerdose(one), "takeroracle": lambda: takeroracle(one), "restartgaps": lambda: restartgaps(one), "restartcheck": restartcheck, "e78grid": lambda: modelgrid(e78_models(one), a.out, a.dead_bias, a.rule), "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
