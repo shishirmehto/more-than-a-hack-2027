@@ -438,7 +438,7 @@ def geometry_emission_known_answer() -> None:
 
 def dead_run_rule_known_answer() -> None:
     """decoder._missing_run_dead on hand-built halves: run length, trim, half edges, dead_close, kickoff,
-    the team fill, H/A mirroring and the lead cuts, each against a literal answer."""
+    the team fill, H/A mirroring and the lead and end cuts, each against a literal answer."""
     code = {"H": H, "A": A, "D": D}
     letter = {v: k for k, v in code.items()}
 
@@ -468,6 +468,10 @@ def dead_run_rule_known_answer() -> None:
     assert rule(h20, [range(0, 7)], dead_min_run=5, dead_trim=2, dead_lead_cut=2) == "DDDDDHHHHHHHHHHHHHHH"
     assert rule(h20, [range(5, 9)], dead_min_run=5, dead_trim=2, dead_lead_cut=2) == h20
     _raises(ValueError, DecoderParams, dead_min_run=5, dead_trim=2, dead_lead_cut=3)
+    assert rule(h20, two_runs, dead_min_run=5, dead_trim=1, dead_end_cut=1) == "HHHHHHDDDDHHHHHHHHHH"
+    assert rule(h20, [range(5, 12)], dead_min_run=5, dead_trim=2, dead_end_cut=1) == "HHHHHHHDDDDHHHHHHHHH"
+    assert rule(h20, [range(5, 9)], dead_min_run=5, dead_trim=2, dead_end_cut=2) == h20
+    _raises(ValueError, DecoderParams, dead_min_run=5, dead_trim=2, dead_end_cut=3)
     _raises(ValueError, DecoderParams, dead_min_run=5, dead_trim=2, dead_out_lead_cut=1)
 
     tok = np.full(20, HOME, np.int8)
