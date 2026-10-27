@@ -89,7 +89,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     scores.add_argument("--mode", choices=("renewal", "transplant", "native"), default="renewal",
                         help="how dev balls go missing: renewal dropout at each --dead-bias, a transplant of the "
                              "real BAR-ATH mask (ignores --dead-bias), or native, where the tracker did not see "
-                             "the ball (--source pff only; ignores --dead-bias and --seed)")
+                             "the ball (--source pff or skillcorner; ignores --dead-bias and --seed)")
     scores.add_argument("--bootstrap", type=int, default=0)
     scores.add_argument("--objective", type=int, default=None, metavar="WINDOW",
                         help="also print each model's seed-mean dev_pooled margin over baseline_smooth<WINDOW> per "
@@ -126,8 +126,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("score needs --dev, --public or both")
         if min(args.baseline, default=0) < 0:
             parser.error("--baseline windows must be >= 0")
-        if args.mode == "native" and args.source != "pff":
-            parser.error("--mode native needs --source pff, the only source with its own ball-visibility flag")
+        if args.mode == "native" and args.source not in ("pff", "skillcorner"):
+            parser.error("--mode native needs --source pff or skillcorner, the sources with their own ball-visibility flag")
         from . import bench
 
         names = [p.stem for p in args.params] + [bench.Smoother(w).name for w in dict.fromkeys(args.baseline)]
@@ -151,11 +151,12 @@ def _world_flags(p: argparse.ArgumentParser, *, rule: Sequence[str], dead_bias: 
     p.add_argument("--dead-bias", type=float, nargs="+", default=None,
                    help=f"generator dead_bias worlds (default: {dead_bias})")
     # bench.SOURCES spelled out: importing bench here would put pandas on make-submission's import path.
-    p.add_argument("--source", choices=("metrica", "idsse", "pff", "pffsb"), default="metrica",
+    p.add_argument("--source", choices=("metrica", "idsse", "pff", "pffsb", "skillcorner"), default="metrica",
                    help="dev games: the three Metrica samples, the seven IDSSE matches with the DFL feed's own "
                         "labels, the 64 PFF FC World Cup 2022 games with labels from PFF's game events, or the same "
-                        "games with StatsBomb's possession teams (IDSSE and PFF take merge rules only; files under "
-                        "<data dir>/external/idsse, /pff and /statsbomb_wc2022)")
+                        "games with StatsBomb's possession teams, or the 20 SkillCorner A-League matches with SkillCorner's possession "
+                        "group (IDSSE and PFF take merge rules only, SkillCorner m0 only; files under "
+                        "<data dir>/external/idsse, /pff, /statsbomb_wc2022 and /skillcorner)")
 
 
 def _fit_dev(args: argparse.Namespace, argv: Sequence[str]) -> int:

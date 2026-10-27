@@ -195,7 +195,8 @@ class Half:
 @dataclass(frozen=True, slots=True)
 class CleanHalf:
     """geometry:   ball_xy has NO NaN.
-    labels:     int8 [n] in {0,1,2}.
+    labels:     int8 [n] in {0,1,2}, or X where the source defines no label inside play (only SkillCorner,
+                whose possession group is null on some in-play frames); a Case's gt keeps it unscored.
     provenance: JSON-able record of everything that shaped the labels and the fill.
     Invariants: labels[:id.kickoff] all D; geometry.n == len(labels).
     """
@@ -205,7 +206,7 @@ class CleanHalf:
     provenance: Mapping[str, object]
 
     def __post_init__(self) -> None:
-        check_codes(self.labels, allow_x=False)
+        check_codes(self.labels, allow_x=True)
         n = len(self.labels)
         if self.geometry.n != n:
             raise ValueError(f"geometry has {self.geometry.n} frames, labels {n}")

@@ -889,6 +889,12 @@ penalty lowers the predicted count too, and I had read that ratio when I added Î
   reference is Bassek, Rein, Weber and Memmert (2025), "An integrated dataset of spatiotemporal and event
   data in elite soccer", Scientific Data 12, 195, doi:10.1038/s41597-025-04505-y. The README carries it under
   "Licence and citation". The same answer repeats that every constant must be chosen on other games.
+- **SkillCorner's credit.** SkillCorner Open Data (github.com/SkillCorner/opendata, MIT, 20 A-League
+  2024/25 matches) was approved as a dev source on 2026-10-27 and loads through `possession/skillcorner/`.
+  Its README asks users to credit SkillCorner, so the technical document and the README name it as the
+  source of that tracking and phase data. Its labels are SkillCorner's algorithmic possession group, a
+  convention unlike DFL's or PFF's. Whether it enters rule v2's veto or ranking is the team's decision; until
+  then it is a bench source only (`--rule skillcorner:m0`).
 - **The training-data list SUBMISSION.md now asks for.** Since upstream f8f2629 the document must list every
   labelled dataset, its source, who labelled it and how much, none from the provided game. The bullet above
   is the draft. Add the amounts: Metrica 3 games, IDSSE 7 matches, PFF 64 games split 32 selection and 32

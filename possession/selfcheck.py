@@ -20,7 +20,7 @@ import pandas as pd
 
 import games
 
-from . import bench, challenge, decoder, dropout, idsse, measure, metrica, pff, score
+from . import bench, challenge, decoder, dropout, idsse, measure, metrica, pff, score, skillcorner
 from .decoder import Decoder, DecoderParams, State, Tier0Emission
 from .half import (A, AWAY, D, H, HOME, NO_TEAM, X, BallGeometry, Block, CleanHalf, Geometry, Half, HalfId,
                    Layout, check_codes)
@@ -1361,6 +1361,92 @@ def idsse_reproduces_feed_counts() -> None:
     _raises(ValueError, idsse.load, metrica.RuleV2(hold_s=3.0, min_passes=3))
 
 
+def skillcorner_labels_known_answer() -> None:
+    """skillcorner._parse on a hand-built match: D outside every phase (phases half-open, so a phase's
+    frame_end is D unless the next phase starts there), H or A from possession.group inside one, X where
+    the group is null inside one; the ball flag is DETECTED, EXTRAPOLATED (is_detected false) or NO_BALL
+    (no position); frames with a null period are dropped, coordinates move to the top-left origin, and a
+    slot absent from a period is dropped. Unknown player ids, gaps in the frame numbers and rules other
+    than m0 raise."""
+    def frame(i: int, period: int | None, group: str | None, ball: tuple[float, float] | None,
+              detected: bool | None, players: list[tuple[int, float, float, bool]]) -> dict:
+        return {"frame": i, "timestamp": None, "period": period,
+                "ball_data": {"x": ball and ball[0], "y": ball and ball[1], "z": 0.0, "is_detected": detected},
+                "possession": {"player_id": None, "group": group}, "image_corners_projection": {},
+                "player_data": [{"x": x, "y": y, "player_id": pid, "is_detected": det} for pid, x, y, det in players]}
+
+    seen = [(10, -50.0, 30.0, True), (20, 10.0, 5.0, False)]
+    rows = [frame(0, None, None, None, None, []),
+            frame(1, 1, "home team", (0.0, 0.0), True, seen),
+            frame(2, 1, "home team", (1.0, 2.0), True, seen),
+            frame(3, 1, "away team", (2.0, 2.0), False, seen),
+            frame(4, 1, None, None, None, seen),
+            frame(5, 1, "away team", (3.0, 2.0), True, seen),
+            frame(6, 1, "home team", (4.0, 2.0), True, seen),
+            frame(7, 1, "home team", (5.0, 2.0), True, seen),
+            frame(8, 1, None, (6.0, 2.0), True, seen),
+            frame(9, 2, "away team", (0.0, 0.0), True, [(11, 0.0, 0.0, True), (20, 1.0, 1.0, True)]),
+            frame(10, 2, None, (0.0, 0.0), True, [(11, 0.0, 0.0, True)])]
+    match = {"pitch_length": 100, "pitch_width": 60, "home_team": {"id": 1}, "away_team": {"id": 2},
+             "players": [{"id": 10, "team_id": 1}, {"id": 11, "team_id": 1}, {"id": 20, "team_id": 2}]}
+    phases = "frame_start,frame_end,period\n2,5,1\n5,7,1\n9,10,2\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        files = {role: Path(tmp) / name for role, name in skillcorner.FILES.items()}
+
+        def write(tracking: list[dict]) -> None:
+            files["tracking"].write_text("".join(json.dumps(r) + "\n" for r in tracking))
+            files["phases"].write_text(phases)
+            files["match"].write_text(json.dumps(match))
+
+        write(rows)
+        p1, p2 = skillcorner._parse(files)
+        assert (p1.number, p1.frame0, p2.frame0) == (1, 1, 9)
+        assert p1.labels.tolist() == [D, H, A, X, A, H, D, D], p1.labels
+        assert p2.labels.tolist() == [A, D], p2.labels
+        assert p1.ball_det.tolist() == [1, 1, 2, 0, 1, 1, 1, 1], p1.ball_det
+        assert np.isnan(p1.ball_xy[3]).all() and p1.ball_xy[1].tolist() == [51.0, 28.0]
+        assert p1.slot_team.tolist() == [HOME, AWAY] and p2.slot_team.tolist() == [HOME, AWAY]
+        assert p1.players_xy[0].tolist() == [[0.0, 0.0], [60.0, 25.0]] and p1.players_det[0].tolist() == [True, False]
+        assert np.isnan(p2.players_xy[1, 1]).all() and p2.players_det[1].tolist() == [True, False]
+        write(rows[:3] + [frame(3, 1, None, None, None, [(99, 0.0, 0.0, True)])] + rows[4:])
+        _raises(ValueError, skillcorner._parse, files)
+        write(rows[:3] + rows[4:])
+        _raises(ValueError, skillcorner._parse, files)
+    assert skillcorner.label_frames(np.array([HOME, AWAY, -1, HOME], np.int8),
+                                    np.array([True, True, True, False])).tolist() == [H, A, X, D]
+    assert skillcorner.phase_mask(6, 10, [(11, 13), (13, 14), (20, 30)]).tolist() == [False, True, True, True,
+                                                                                      False, False]
+    _raises(ValueError, skillcorner.load, metrica.RuleV2(2.0))
+    _raises(ValueError, skillcorner.load, metrica.RuleV2(hold_s=3.0, min_passes=3))
+
+
+def skillcorner_reproduces_feed_counts() -> None:
+    try:
+        for match in skillcorner.MATCHES:
+            skillcorner.paths(match)
+    except IOError:
+        raise Skip(f"no SkillCorner data under {skillcorner.root()} (files in possession/skillcorner/manifest.json)") from None
+    # Counted 2026-10-27 at 10 fps by an independent probe straight from the JSONL and phases CSV (its own
+    # parse): possessions are maximal H or A runs, and a D or an X frame ends one. A phase counts only on
+    # frames of its own period: in 16 matches the last first-half phase runs on past half-time (881 frames).
+    halves = list(skillcorner.load())
+    assert [(h.id.match, h.id.half) for h in halves] == [(f"skillcorner_{m}", k) for m in skillcorner.MATCHES
+                                                         for k in (1, 2)]
+    spells = labelled = 0
+    for match in skillcorner.MATCHES:
+        for period in skillcorner.parse_match(match):
+            spells += _n_spells(np.where(period.labels == X, D, period.labels).astype(np.int8))
+            labelled += int(np.isin(period.labels, (H, A)).sum())
+    assert (spells, labelled) == (6481, 611_714), (spells, labelled)
+    for h in halves:
+        g = h.geometry
+        on_pitch = [(~np.isnan(g.players_xy[:, g.slot_team == team, 0])).sum(axis=1) for team in (HOME, AWAY)]
+        assert all(1 <= count.max() <= 11 for count in on_pitch), h.id
+        tokens, team = challenge.observe(g, h.id).nearest_team, np.isin(h.labels, (H, A))
+        seen = skillcorner.native_seen(h) & team
+        assert (tokens[seen] == h.labels[seen]).mean() > 0.6, h.id
+
+
 def pff_resample_known_answer() -> None:
     """pff.undouble and pff.at_ticks: a track held for two frames of each update comes back as a straight
     line, while a longer repeat (a still ball), a repeat before a gap and a slot that never moves stay; at_ticks
@@ -1525,6 +1611,8 @@ CHECKS: tuple[Callable[[], None], ...] = (
     idsse_reproduces_feed_counts,
     pff_resample_known_answer,
     pff_reproduces_feed_counts,
+    skillcorner_labels_known_answer,
+    skillcorner_reproduces_feed_counts,
     worlds_seed_axis,
     public_case_predict_equals_submission,
     submission_is_byte_stable,
