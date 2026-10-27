@@ -163,6 +163,8 @@ SEARCH = ["m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2"]
 NATIVE = ["pff:m0:native", "pff:m2:native"]
 SEEDS = [0, 1, 2, 3, 4]
 T90 = 1.69  # two-sided 90% t quantile for about 32 games; 1.67 at 64
+T90_BY_DF = {1: 6.314, 2: 2.920, 3: 2.353, 4: 2.132, 5: 2.015, 6: 1.943, 7: 1.895, 8: 1.860, 9: 1.833, 10: 1.812,
+             15: 1.753, 20: 1.725, 30: 1.697, 60: 1.671, 120: 1.658}
 CHUNK = 20000
 
 
@@ -2966,7 +2968,8 @@ def touchline(params):
 def lowtail(csv, a, b):
     """Model A minus model B in a `possession score --dev` CSV, per group: the pooled difference per seed, and over
     games (seeds averaged per game) the mean [90% t interval], games won, the 10th percentile and the worst game;
-    for PFF groups also over the held-out B games alone (confirm's split: every second game in table order)."""
+    for PFF groups also over the held-out B games alone (confirm's split: every second game in table order). The t
+    quantile is T90_BY_DF's at the nearest tabled df at or below the games minus 1, never narrower than the exact one."""
     t = pd.read_csv(csv)
     wide = t.pivot_table(index=["world", "case"], columns="model", values="spell_f1")
     d = (wide[a] - wide[b]).rename("d").reset_index().assign(group=lambda f: f.world.map(bench.group))
@@ -2978,7 +2981,7 @@ def lowtail(csv, a, b):
         print(f"  {grp}: pooled {pooled.mean():+.4f} over {len(pooled)} seeds (min {pooled.min():+.4f})")
         for tag, keep in [("per game", order)] + ([("B games", order[1::2])] if grp.startswith("pff_") else []):
             games = per_game.loc[keep].to_numpy()
-            h = T90 * games.std(ddof=1) / np.sqrt(len(games))
+            h = T90_BY_DF[max(k for k in T90_BY_DF if k <= len(games) - 1)] * games.std(ddof=1) / np.sqrt(len(games))
             print(f"    {tag} {games.mean():+.4f} [{games.mean() - h:+.4f}, {games.mean() + h:+.4f}], won "
                   f"{(games > 0).sum()}/{len(games)}, 10th percentile {np.quantile(games, 0.1):+.4f}, worst "
                   f"{games.min():+.4f}")

@@ -438,6 +438,8 @@ overstates how independent the B columns are:
   models), tier0_v18_pfffree's and tier0_v19_pfffree's one-time scores, and E68's and E70's confirmations. No
   pick read B. Seeds 15-24, the synthetic confirmation worlds, were read by E62's, E68's and E70's confirmations and by both
   PFF-free scores, so they are less fresh than their name suggests.
+- After v19's freeze, experiment 136's transplant measurement read B once more (all 64 PFF games, with the B
+  split reported). It chose nothing.
 
 ### Fork lineage
 
@@ -453,25 +455,31 @@ enters the hillclimb. The decision log's trace (27 October):
   exploring session's side note to its scan 12 check, E58's blur from another team's fork. My reply only noted it.
   The session's later vx check (log row 466) sized it. That check ran at my request on dev data and BAR-ATH only.
   The undoubling itself came from our own source scan. Experiments 114 to 120, 122, 123 and 125 to 135 read the
-  fixed loader. tier0_v19 and tier0_v19_pfffree were fitted, selected and confirmed on it, and v19 was frozen
+  fixed loader, and so do experiment 136's PFF groups. tier0_v19 and tier0_v19_pfffree were fitted, selected and confirmed on it, and v19 was frozen
   before the user ruled on it.
 - **Closed with no change.** E41 and E43 (F1), E47 (scan 6, another team's return-distance gap rule, sized by
   the exploring session's own measurement), E48 (scan 7, a competitor's model), E49 (scan 10), E50 (the survey's
-  idea 2) and E58 (scan 12) came from fork leads. E59's player dropout came from the session's own measurement, prompted by
-  another team's player gate (scan 16), and ran on E58's blurred worlds. P0 (log rows 397 and 414) is a
-  label-reading diagnostic that the session's scan 4 report motivated with another team's notes, and no
-  candidate came from it. E46 came from literature (Lang et al. 2022) through the same session. The touchline
-  and goal-kick probe (experiment 135) rests on the session's own analysis of our restart detector, made after
-  the fork scans stopped.
-- **The broadcast offsets** (the session's scan 2b, B1) came from a fork. Our own player-centroid
-  cross-correlation confirmed them, and no decoder reads the broadcast.
+  idea 2), E58 (scan 12) and E59 came from fork leads. E59 used another team's edge-weighted dropout weights (x26
+  off the pitch, x3.6 within 3 m; scan 16, log row 465) and ran on E58's blurred worlds. P0 (log rows 397 and
+  414) is a label-reading diagnostic that the session's scan 4 report motivated with another team's notes, and
+  no candidate came from it. E46 came from literature (Lang et al. 2022) through the same session.
+- **Experiment 135** changed nothing. Its touchline trigger is our own restart detector (log row 351) and the
+  Laws of the Game. Its goal-kick lead is the session's own BAR-ATH measurement against Smart Tagging's goal-kick
+  tags, made after its fork scans stopped and naming no fork. Several forks used set-piece tags as dead-ball
+  evidence, so that lead's independence rests on the session's word: fork-adjacent, unverified. The probe read
+  no tags.
+- **The broadcast offsets** (the session's scan 2b, B1) came from other teams' repositories. Our own
+  player-centroid cross-correlation confirmed them. They informed two checks (log rows 401 and 471), and no
+  decoder reads the broadcast.
 - **tier0_v17** is ours in idea (experiments 107 and 108). Under rule v2 on the old loader its native PFF-A
   gains (+0.0083 m0, +0.0058 m2) clear E32's clause, and PFF-B native m2 fails (+0.0027 [-0.0013, +0.0068]),
   so it misses confirmation with or without bridged mode.
 
-Whether the ruling also retires the dead line, bridged mode and the loader fix is the user's decision. Until then
-no new experiment is registered, because every one since experiment 113 reads the fixed loader. Diagnostic
-probes that register nothing still run, such as experiment 135. If the loader fix goes,
+Whether the ruling also retires the dead line, bridged mode and the loader fix is the user's decision. Log row 533 said no
+new experiment would run until then, because every one since experiment 113 reads the fixed loader. Two runs
+happened during the pause anyway, and neither registered or selected anything. Experiment 135 is a label-reading
+probe with bars set before it, so its closures prune the search on PFF-A labels. Experiment 136 is a measurement.
+Both read the fixed loader, so a Retire ruling would need their decoder side re-read. If the loader fix goes,
 E31's touch weights fitted on the old loader (`data/derived/runs/hc/e31-weights.json`) at a cut of 0.75 would show
 what of v19 survives.
 
@@ -612,8 +620,8 @@ what of v19 survives.
 | 132 | E73: the dead-run core re-selected one axis at a time on v19 (`probes.py deadcore`): `dead_outside_m` 0.25 and 1.0, `dead_close` 200 and 100, `dead_min_run` 151 and 101; `dead_trim` left out after E32 and E72; rule v2 | 126, 150 and 0.5 m were shaped on all 64 PFF games before the A/B split (experiments 3 to 12) and never re-selected after the later dead rules, the spell flip or the loader fix | `dead_outside_m` 0.25 +0.0014 and `dead_close` 200 +0.0011 tie (veto slack 0.0042 and 0.0003); `dead_min_run` 151 -0.0023 and 101 -0.0053; `dead_outside_m` 1.0 and `dead_close` 100 fail the veto (-0.0104 on PFF-A for the latter). A cue census beside it (`probes.py deadcues`, PFF-A labels): 97.7% of v19's false-D frames are ball-unseen, and E28's perfect veto of such runs was worth +0.003 | **no change**; the core survives, as the velocity constants did in E66 |
 | 133 | a touch-gated team switch (the exploring session's fork-free lead 1, from ELASTIC, arXiv:2608.30227), feasibility before any decoder arm against the lead's own bar: 85% of labelled direct H/A switches within 5 frames of a candidate (PFF-A native labels; BAR-ATH label-free) | E50's cheaper switch at contact lost on native PFF, and forbidding switches away from touches is the stricter form | a ball-gap edge or a touch (player within 3 m, speed change 1-3 m/s) lies within 5 frames of 46-53% of 5,874 m0 and 4,339 m2 switches, and 70-73% within 25, while firing 45-56 times per live minute; BAR-ATH 18-27 | **killed** before registration; DecoderParams also rejects the lead's other zero-code arm (`decode_rule` map) together with v19's switch penalty and flip |
 | 134 | E74: two run features for the spell flip, `goal_own` and `goal_other` (mean signed ln(1 + goalward ball speed) over own-token and other-token frames), refitted with E69's set on tier0_v10 (`probes.py spellflip --with goal_own goal_other`); stage-1 gate +0.002 out of fold over E69 at both cuts | P7 put about half of PFF-A's token errors on goalward balls, and the emission form missed native confirmation (v17), so a run-level form was the remaining route | univariate AUC 0.648, weight +0.196, but the out-of-fold lift moves only from +0.0112 to +0.0117 (seen>=0.8) and from +0.0158 to +0.0166 (seen>=0.65); BAR-ATH medians inside PFF-A's range | **killed** at stage 1; the features stay at weight 0 and are opt-in for `spellflip` |
-| 135 | `probes.py touchline` on tier0_v19, label-reading, never a candidate: held touchline triggers (a slot beyond a touchline by 0.5 m for 25 frames, 1 m for 25 or 1 m for 50) as a label-free D fill on the frames v19 calls a team, with labelled-D ceilings; and each labelled stoppage's restart class from the seen ball at its end (a geometric proxy) with a missed-stoppage fill per class; bars set before the run, +0.003 on both native PFF-A modes | the exploring session's own measurement of our restart detector on BAR-ATH (72 touchline episodes, 15 under 20% v19 D; goal kicks its weakest restart), made after its fork scans stopped | the fills lower m0 by 0.0005 to 0.0080 and m2 by 0.0009 to 0.0109, because only 50-61% of the trigger frames v19 calls a team are labelled D; their ceilings reach +0.0027 to +0.0046. Goal-area restarts: 52, v19 D share 0.64, 4 missed, fill -0.0001. The missed-stoppage fill on v19 is +0.0140 (m0) and +0.0135 (m2), mostly restarts with no seen ball (+0.0070) and other restarts (+0.0056) | **closed** at both bars; no decoder change |
-| 136 | tier0_v19 against tier0_v13 on transplant worlds, BAR-ATH's real ball mask on dev games: Metrica m0 and h3p3 and IDSSE m0 and m2 at seeds 0-2 (no PFF file read), PFF m0 and m2 at seed 0 on all 64 games (fixed loader); both PFF-free twins beside them (`possession score --mode transplant`, `probes.py lowtail`); a measurement, nothing selected | the transfer check the review asked for before any v19 recommendation; transplant mode is our own design (21 October), unlike E58's blurred worlds | v19 over v13 pooled: Metrica m0 +0.0067, h3p3 +0.0152, IDSSE m0 +0.0009, IDSSE m2 +0.0068, every seed above; PFF m0 +0.0022 [+0.0005, +0.0039], 37 of 64 games (B games +0.0028, 19 of 32), PFF m2 +0.0047 [+0.0030, +0.0064], 47 of 64 (B +0.0050, 23 of 32), about half its native PFF-B gain (+0.0059, +0.0072). Lower tail on PFF: 10th-percentile game -0.0087 (m0) and -0.0054 (m2), worst -0.0152 and -0.0162; IDSSE m0 wins 4 of 7 games. v19_pfffree over v13_pfffree +0.0016 to +0.0048 in all six groups | **measured**: the gain carries to the real mask in every group, smaller and with a lower tail; tier0_v13 stays the recommendation until the user rules |
+| 135 | `probes.py touchline` on tier0_v19, label-reading, never a candidate: held touchline triggers (a slot beyond a touchline by 0.5 m for 25 frames, 1 m for 25 or 1 m for 50) as a label-free D fill on the frames v19 calls a team, with labelled-D ceilings; and each labelled stoppage's restart class from the seen ball at its end (a geometric proxy) with a missed-stoppage fill per class; bars set before the run, +0.003 on both native PFF-A modes | the exploring session's own BAR-ATH measurements: our restart detector's touchline trigger (72 episodes, 15 under 20% v19 D) and goal kicks, its weakest restart against Smart Tagging's tags; see "Fork lineage" | the fills lower m0 by 0.0005 to 0.0080 and m2 by 0.0009 to 0.0109, because only 50-61% of the trigger frames v19 calls a team are labelled D; their ceilings reach +0.0027 to +0.0046. Goal-area restarts: 52, v19 D share 0.64 (corners 0.84, touchline restarts 0.39), 4 missed, fill -0.0001; at about +0.00006 per missed stoppage, even all 52 would only touch +0.003. The missed-stoppage fill on v19 is +0.0140 (m0) and +0.0135 (m2), mostly restarts with no seen ball (+0.0070) and other restarts (+0.0056) | **touchline closed** at its bar; the goal-kick lead is **untestable on PFF** with this proxy (52 of 2,987 stoppages), not refuted; no decoder change; reads the fixed loader |
+| 136 | tier0_v19 against tier0_v13 on transplant worlds, BAR-ATH's real ball mask on dev games: Metrica m0 and h3p3 and IDSSE m0 and m2 at seeds 0-2 (no PFF file read), PFF m0 and m2 at seed 0 on all 64 games (fixed loader); both PFF-free twins beside them (`possession score --mode transplant`, `probes.py lowtail`); a measurement, nothing selected | the transfer check the review asked for before any v19 recommendation; transplant mode is our own design (21 October), unlike E58's blurred worlds | v19 over v13 pooled: Metrica m0 +0.0067, h3p3 +0.0152, IDSSE m0 +0.0009, IDSSE m2 +0.0068, every seed above; PFF m0 +0.0022 [+0.0005, +0.0039], 37 of 64 games (B games +0.0028, 19 of 32), PFF m2 +0.0047 [+0.0030, +0.0064], 47 of 64 (B +0.0050, 23 of 32), 47% (m0) and 69% (m2) of its native PFF-B gain (+0.0059, +0.0072); under the crude widening for repeated B reads (t about 2.8) the B-game m0 interval is about [-0.0015, +0.0071] and m2 [+0.0010, +0.0090]. Lower tail on PFF: 10th-percentile game -0.0087 (m0) and -0.0054 (m2), worst -0.0152 and -0.0162; IDSSE m0 wins 4 of 7 games. v19_pfffree over v13_pfffree +0.0016 to +0.0048 in all six groups, but v19_pfffree is below v13 on PFF (-0.0063, -0.0058), IDSSE m0 (-0.0058), IDSSE m2 (-0.0019) and Metrica m0 (-0.0088) and above it on h3p3 (+0.0056) | **measured**, with no criterion set before the read: same sign in every group, IDSSE m0 indistinguishable from zero, the PFF m0 held-out bound near zero; PFF groups read the fixed loader; tier0_v13 stays the recommendation until the user rules |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames are traced in experiment 121: no official |
 
 ## What did not work, and why
@@ -696,7 +704,7 @@ that ceiling (+0.035), so the shortfall is discrimination. Pairwise feature prod
 span-share term did not rank runs better at equal flip count (E36), and inserting new short possessions from
 label-free candidates reaches under a third of a +0.058 ceiling (E37).
 
-On tier0_v19 the missed-stoppage fill is still worth +0.014 on PFF-A (experiment 135), as on v12. About half of it sits in restarts with no seen ball and most of the rest in restarts away from the lines, such as free kicks. A touchline trigger loses spellF1 as a D fill, and goal-area restarts are rarely missed.
+On tier0_v19 the missed-stoppage fill is still worth +0.014 on PFF-A (experiment 135), as on v12. About half of it sits in stoppages with no seen ball near the restart. Most of the rest sits in restarts that the seen-ball proxy places away from the lines and corners, which we infer are mostly free kicks (not measured). A touchline trigger loses spellF1 as a D fill. The proxy classifies too few goal-area restarts (52 of 2,987 stoppages) to test the goal-kick lead on PFF.
 
 The census (experiment 34, `probes.py census`, PFF selection games, m0) says where spells are lost. A labelled
 possession counts as matched when one predicted spell of its team overlaps it at IoU 0.5 or more.
