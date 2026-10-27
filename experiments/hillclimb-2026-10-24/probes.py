@@ -155,6 +155,10 @@ k1bsplit             label-reading: keeperruns split by the decoder's code befor
 e81summary           experiments 180 and 182's readings from the saved e81t and e81s tables
 atdspeed             label-free input check: the raw ATD ball speed channel against the speed from positions
 e86edges PARAMS      label-reading: deadedges on native PFF-A and on transplant Metrica, IDSSE and PFF-A m0 (E86 stage A)
+e87islands PARAMS    label-reading: islandruns on native PFF-A and the five synthetic groups at dead_bias 2.6, seed 0 (E87 stage A)
+ioucurve PARAMS      label-reading: spell F1 at each IoU threshold beside smooth50's, native PFF-A and the five synthetic groups
+boundoracle PARAMS   label-reading: predicted boundaries moved onto labelled ones within 25 or 50 frames, by kind
+lagfit PARAMS        E88 stage A1, label-reading on PFF-A m0: are hand-over offsets predictable from label-free cues
 tagteam PARAMS       label-free: Smart Tagging phase Team tags against PARAMS's codes and the tokens on BAR-ATH
 tagrestart PARAMS    label-free: Smart Tagging set pieces against PARAMS's D and the ball-missing runs on BAR-ATH
 tagcover             label-free: whether the TAG_SIDE phases cover set pieces and ball-missing runs on BAR-ATH
@@ -2318,7 +2322,7 @@ def _rules_off(model):
                          spell_merge_frames=0, spell_merge_tails=0, spell_push_mps=0.0, spell_push_frames=0,
                          spell_push_between=0, spell_push_unseen=0.0, spell_flip_p=0.0, spell_flip_frames=0,
                          spell_flip_seen=0.0, spell_logit={}, dead_lead_cut=0, dead_out_lead_cut=0, dead_out_min_run=0,
-                         spell_flip_adjacent=False)
+                         spell_flip_adjacent=False, stoppage_fill=False, dead_end_cut=0)
 
 
 def _pre_lag(model, chain, h):
@@ -2629,6 +2633,13 @@ def _stretches(flag, lo, hi, min_len):
             if a > 0 and lo + b < hi and min_len <= b - a < ISLAND_MAX]
 
 
+def _search_cases(items):
+    """(world, Case, its halves' labels) for ITEMS' worlds at dead_bias 2.6, seed 0, B halves dropped before any
+    decode: the extra worlds of deadedges and the E87-era probes."""
+    return [(world, case, case.layout.cut(case.gt)) for _, world, case in
+            scored_cases(bench.dev_worlds(list(items), (2.6,), seeds=(0,))) if not world.endswith("_B")]
+
+
 def _bursts(tok, host, lo, hi, min_len):
     """Spans from the first to the last other-team token of each group of ISLAND_BURST+ such tokens with no host
     token between them, inside [lo, hi) without touching its edges, MIN_LEN to ISLAND_MAX - 1 frames long."""
@@ -2648,26 +2659,32 @@ def _bursts(tok, host, lo, hi, min_len):
     return out
 
 
-def islandruns(params):
-    """E37 ceiling, label-reading, never a candidate: on native PFF-A m0 and m2, PARAMS's codes after its spell flip
-    and before its lag; label-free island candidates strictly inside one team run, clear of runs the push or spell
-    flip relabelled, from three generators (a: frames whose chain log-odds favour the other team; b: other-team
-    runs of a second chain at ISLAND_ALT with no rules; c: bursts of ISLAND_BURST+ other-team tokens), at minimum
-    lengths 75 and 50; left to right, an island takes the other team when that raises the half's matched-minus-F/2
-    value; plus the perfect-island line (labelled possessions of 50 to 249 frames inside a run of the other team,
-    at their labelled edges), each world on its own labels."""
-    from possession.decoder import _lag_handovers, _spell_flip
+def islandruns(params, items=()):
+    """E37 ceiling, label-reading, never a candidate: on native PFF-A m0 and m2, then on ITEMS' worlds at dead_bias
+    2.6, seed 0 (E87), PARAMS's codes after its spell flip and before its lag; label-free island candidates strictly
+    inside one team run, clear of runs the push or spell flip relabelled, from three generators (a: frames whose
+    chain log-odds favour the other team; b: other-team runs of a second chain at ISLAND_ALT with no rules; c: bursts
+    of ISLAND_BURST+ other-team tokens), at minimum lengths 75 and 50; left to right, an island takes the other team
+    when that raises the half's matched-minus-F/2 value; plus the perfect-island line (labelled possessions of 50 to
+    249 frames inside a run of the other team, at their labelled edges), each world on its own labels. A decoder with
+    stoppage_fill decodes each half with its pseudo-tags (Tagged) and refills its stoppages after the lag."""
+    from possession.decoder import _lag_handovers, _spell_flip, _stoppage_fill
     model, rows, per_game = Decoder.load(params), [], []
     p, chain = model.params, _rules_off(model)
     alt = chain.replace(**ISLAND_ALT)
-    lag = lambda x: _lag_handovers(x, p.handover_lag)
-    for world, pooled_a, labs, games_a in native_a():
-        halves = pooled_a.halves
+
+    def lag(x, h):
+        out = _lag_handovers(x, p.handover_lag)
+        return _stoppage_fill(out, h, h.restart_rows) if p.stoppage_fill else out
+
+    extra = [(world, case, labs, []) for world, case, labs in _search_cases(items)]
+    for world, pooled_a, labs, games_a in [*native_a(), *extra]:
+        halves = [Tagged(model).tag(h) for h in pooled_a.halves] if p.stoppage_fill else pooled_a.halves
         posts, cands = [], []
         for h, lab in zip(halves, labs):
             pre, lo = _pre_lag(model, chain, h)
             post = _spell_flip(pre, h, p, lo)
-            assert np.array_equal(lag(post), model.decode(h).codes), h.id
+            assert np.array_equal(lag(post, h), model.decode(h).codes), h.id
             relabelled = post != _missing_run_dead(chain.decode(h).codes, h, p)
             a_codes, tok = alt.decode(h).codes, h.nearest_team
             by = {}
@@ -2686,27 +2703,28 @@ def islandruns(params):
             posts.append(post)
             cands.append({k: sorted(v) for k, v in by.items()})
         runs_ = score.valid_runs(pooled_a.gt)
-        f13, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, [lag(c) for c in posts], runs_)
+        base = [lag(c, h) for c, h in zip(posts, halves)]
+        f13, _ = score.spell_f1(pooled_a.layout, pooled_a.gt, base, runs_)
 
         def value(lab, codes):
             s = score.pm.spell_scores(lab, codes, [(0, len(lab))])
             return np.mean([v["n_matched"] for v in s["per_iou"].values()]) - f13 / 2 * s["n_pred"]
 
-        variants, counts = {"base": [lag(c) for c in posts]}, {}
+        variants, counts = {"base": base}, {}
         for name in ("perfect",) + tuple(f"{g}{m}" for m in (75, 50) for g in "abc"):
             out, k, n_c = [], 0, 0
-            for c, lab, cd in zip(posts, labs, cands):
-                cur, best = c.copy(), value(lab, lag(c))
+            for c, h, lab, cd in zip(posts, halves, labs, cands):
+                cur, best = c.copy(), value(lab, lag(c, h))
                 for a, b, host in cd.get(name, []):
                     n_c += 1
                     if (cur[a:b] != host).any():
                         continue
                     trial = cur.copy()
                     trial[a:b] = 1 - host
-                    v = value(lab, lag(trial))
+                    v = value(lab, lag(trial, h))
                     if v > best:
                         cur, best, k = trial, v, k + 1
-                out.append(lag(cur))
+                out.append(lag(cur, h))
             variants[name], counts[name] = out, (k, n_c)
         for name, codes in variants.items():
             f1, n = score.spell_f1(pooled_a.layout, pooled_a.gt, codes, runs_)
@@ -4057,9 +4075,12 @@ class Tagged:
     base: Decoder
     kinds: tuple = BARATH_T2
 
-    def decode(self, half):
+    def tag(self, half):
         rows = sorted({i for i, _ in _pseudo_tags(half, self.kinds) if 0 <= i < half.n})
-        return self.base.decode(dataclasses.replace(half, restart_rows=tuple(rows)))
+        return dataclasses.replace(half, restart_rows=tuple(rows))
+
+    def decode(self, half):
+        return self.base.decode(self.tag(half))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -5808,8 +5829,7 @@ def deadedges(params, items=()):
     and for caught stretches only the start edge (labelled start to the first D frame) or only the end edge (last D
     frame to labelled end); prints the caught stretches' edge gaps in frames. PARAMS decodes through dev_model."""
     model, rows, per_game, gaps = dev_model(Decoder.load(params)), [], [], []
-    extra = [(world, case, case.layout.cut(case.gt), []) for _, world, case in
-             scored_cases(bench.dev_worlds(list(items), (2.6,), seeds=(0,))) if not world.endswith("_B")]
+    extra = [(world, case, labs, []) for world, case, labs in _search_cases(items)]
     for world, pooled_a, labs, games_a in [*native_a(), *extra]:
         halves = pooled_a.halves
         names = ("base", "missed", "half", "caught", "caught_start", "caught_end")
@@ -5859,6 +5879,175 @@ def deadedges(params, items=()):
         print(w[["start_gap", "end_gap"]].quantile([0.1, 0.25, 0.5, 0.75, 0.9]).to_string())
         print(f"decoder D already before the labelled start on {w.d_before.mean():.3f}, after the labelled end on "
               f"{w.d_after.mean():.3f}")
+
+
+def ioucurve(params, items=()):
+    """Label-reading, information only: PARAMS's spell F1 at each of the metric's IoU thresholds, beside smooth50's,
+    on native PFF-A m0 and m2 and on ITEMS' worlds at dead_bias 2.6, seed 0 (PFF's B games skipped before any
+    decode). smooth50's fall from 0.3 to 0.7 shows the metric's own slope, so the curve alone does not separate edge
+    error from missed spells (boundoracle measures the edges). PARAMS decodes through dev_model."""
+    name, rows = Path(params).stem, []
+    models = {name: dev_model(Decoder.load(params)), "smooth50": bench.Smoother(50)}
+    for world, case in [(w, c) for w, c, _, _ in native_a()] + [(w, c) for w, c, _ in _search_cases(items)]:
+        runs = score.valid_runs(case.gt)
+        for file, model in models.items():
+            pred = score._assemble_checked(case.layout, case.gt, [model.decode(h).codes for h in case.halves])
+            s = score.pm.spell_scores(case.gt, score.pm.fill_abstentions(pred, runs), runs)
+            rows.append({"world": world, "file": file, **{f"f1@{t}": v["f1"] for t, v in s["per_iou"].items()},
+                         "mean": s["mean_f1"], "n_pred": s["n_pred"], "n_gt": s["n_gt"]})
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+
+
+BOUND_KINDS = {"team-team": lambda b, a: b in (H, A) and a in (H, A), "team-D": lambda b, a: b in (H, A) and a == D,
+               "D-team": lambda b, a: b == D and a in (H, A)}
+
+
+def _snap_bounds(codes, lab, k0, reach, kinds):
+    """CODES with each boundary after K0 whose (before, after) codes satisfy one of KINDS moved onto the nearest
+    boundary of LAB with the same (before, after) within REACH frames, unless a boundary of CODES lies between."""
+    def bounds(c):
+        i = np.flatnonzero(c[k0 + 1:] != c[k0:-1]) + k0 + 1
+        return i, c[i - 1], c[i]
+
+    pi, pb, pa = bounds(codes)
+    li, lb, la = bounds(lab)
+    out = codes.copy()
+    for i, b, a in zip(pi, pb, pa):
+        if not any(k(b, a) for k in kinds):
+            continue
+        near = li[(lb == b) & (la == a) & (np.abs(li - i) <= reach)]
+        if not len(near):
+            continue
+        j = int(near[np.argmin(np.abs(near - i))])
+        lo, hi = min(i, j), max(i, j)
+        if not ((pi > lo) & (pi < hi)).any():
+            out[lo:hi] = b if j > i else a
+    return out
+
+
+def boundoracle(params, items=()):
+    """Label-reading, never a candidate: PARAMS's codes (through dev_model) on native PFF-A m0 and m2 and on ITEMS'
+    worlds at dead_bias 2.6, seed 0, with each predicted boundary of one BOUND_KINDS kind, then of all three, moved
+    onto the nearest labelled boundary of the same codes within 25 or 50 frames (_snap_bounds), each world on its
+    own labels; prints spellF1 and its gain over PARAMS. Spells are only moved, never added or removed."""
+    model, rows = dev_model(Decoder.load(params)), []
+    variants = {**{k: (k,) for k in BOUND_KINDS}, "all": tuple(BOUND_KINDS)}
+    for world, case, labs in [(w, c, lab) for w, c, lab, _ in native_a()] + _search_cases(items):
+        runs = score.valid_runs(case.gt)
+        base = [model.decode(h).codes for h in case.halves]
+        f0, n0 = score.spell_f1(case.layout, case.gt, base, runs)
+        rows.append({"world": world, "variant": "base", "reach": 0, "spell_f1": f0, "delta": 0.0, "n_pred": n0})
+        for reach in (25, 50):
+            for name, kinds in variants.items():
+                codes = [_snap_bounds(c, lab, h.id.kickoff, reach, [BOUND_KINDS[k] for k in kinds])
+                         for c, lab, h in zip(base, labs, case.halves)]
+                f1, n = score.spell_f1(case.layout, case.gt, codes, runs)
+                rows.append({"world": world, "variant": name, "reach": reach, "spell_f1": f1, "delta": f1 - f0,
+                             "n_pred": n})
+        print(world, flush=True)
+    print(pd.DataFrame(rows).round(4).to_string(index=False))
+
+
+LAGFIT_FEATURES = ("seen", "seen_2s", "speed", "nearest", "margin", "tta", "prev_len", "next_len", "first_close",
+                   "kick")
+LAGFIT_REACH, LAGFIT_CLOSE_M = 50, 1.5
+
+
+def _near_seen(x, i, reach=FPS):
+    """X at the frame nearest I within REACH frames where X is finite (the earlier on a tie), NaN when none is."""
+    lo, hi = max(i - reach, 0), min(i + reach + 1, len(x))
+    ok = np.flatnonzero(np.isfinite(x[lo:hi])) + lo
+    return float(x[ok[np.argmin(np.abs(ok - i))]]) if len(ok) else np.nan
+
+
+def _handover_rows(codes, h, k0):
+    """(frame, before, after, LAGFIT_FEATURES) per team-to-team change of CODES after K0, label-free. Run lengths
+    are ln(1 + frames); first_close counts frames from the change to the new team's first token within
+    LAGFIT_CLOSE_M, capped at LAGFIT_REACH; kick is the largest |speed(t + 2) - speed(t - 2)| over such frames in
+    the next second, 0 without one."""
+    g, tok, n = h.geometry, h.nearest_team, len(codes)
+    speed, margin = g.speed_mps.astype(np.float64), np.minimum(g.margin_m, MARGIN_CAP_M).astype(np.float64)
+    dspeed = np.full(n, np.nan)
+    dspeed[2:-2] = np.abs(speed[4:] - speed[:-4])
+    bounds = np.flatnonzero(codes[k0 + 1:] != codes[k0:-1]) + k0 + 1
+    edges, out = np.r_[k0, bounds, n], []
+    for k, i in enumerate(bounds):
+        b, a = int(codes[i - 1]), int(codes[i])
+        if b not in (H, A) or a not in (H, A):
+            continue
+        with np.errstate(invalid="ignore"):
+            close = np.flatnonzero((tok[i:i + LAGFIT_REACH] == a) & (g.nearest_m[i:i + LAGFIT_REACH] < LAGFIT_CLOSE_M))
+        kicks = dspeed[i + close[close < FPS]]
+        sp, near = _near_seen(speed, i), _near_seen(g.nearest_m.astype(np.float64), i)
+        out.append((int(i), b, a, (float(tok[i] != NO_TEAM), float((tok[max(i - FPS, 0):i + FPS] != NO_TEAM).mean()),
+                                   sp, near, _near_seen(margin, i), min(near / sp, 3.0) if sp > 0 else 3.0,
+                                   np.log1p(i - edges[k]), np.log1p(edges[k + 2] - i),
+                                   float(close[0]) if len(close) else float(LAGFIT_REACH),
+                                   float(np.nanmax(kicks)) if np.isfinite(kicks).any() else 0.0)))
+    return out
+
+
+def _ridge_ls(x, y, lam=1.0):
+    """Least-squares intercept and weights on raw X, fitted on standardised columns with a ridge LAM on the weights."""
+    mu, sd = x.mean(axis=0), x.std(axis=0)
+    sd[sd == 0] = 1.0
+    z = (x - mu) / sd
+    w = np.linalg.solve(z.T @ z + lam * np.eye(z.shape[1]), z.T @ (y - y.mean()))
+    return y.mean() - (w / sd * mu).sum(), w / sd
+
+
+def lagfit(params):
+    """E88 stage A1, label-reading on native PFF-A m0, never a candidate: at each team-to-team change of PARAMS's
+    codes after its spell flip and before its lag, the offset to the nearest labelled change with the same codes
+    within LAGFIT_REACH frames of the lagged position; a ridge regression of the offset on LAGFIT_FEATURES (NaN to
+    the column median), 2-fold game-OOF, against the constant handover_lag. Registered mark: OOF R squared 0.15 or
+    more and OOF mean absolute error at least 2 frames under the constant lag's."""
+    from possession.decoder import _lag_handovers, _spell_flip, _stoppage_fill
+    model = Decoder.load(params)
+    p, chain = model.params, _rules_off(model)
+    world, pooled_a, labs, _ = next(native_a())
+    halves = [Tagged(model).tag(h) for h in pooled_a.halves] if p.stoppage_fill else pooled_a.halves
+    games, table, n_all = list(dict.fromkeys(h.id.match for h in halves)), [], 0
+    for h, lab in zip(halves, labs):
+        pre, lo = _pre_lag(model, chain, h)
+        post = _spell_flip(pre, h, p, lo)
+        out = _lag_handovers(post, p.handover_lag)
+        out = _stoppage_fill(out, h, h.restart_rows) if p.stoppage_fill else out
+        assert np.array_equal(out, model.decode(h).codes), h.id
+        k0 = h.id.kickoff
+        li = np.flatnonzero(lab[k0 + 1:] != lab[k0:-1]) + k0 + 1
+        lb, la = lab[li - 1], lab[li]
+        for i, b, a, x in _handover_rows(post, h, k0):
+            n_all += 1
+            near = li[(lb == b) & (la == a) & (np.abs(li - (i + p.handover_lag)) <= LAGFIT_REACH)]
+            if len(near):
+                j = int(near[np.argmin(np.abs(near - (i + p.handover_lag)))])
+                table.append({"fold": games.index(h.id.match) % 2, "y": float(j - i), **dict(zip(LAGFIT_FEATURES, x))})
+    t = pd.DataFrame(table)
+    t[list(LAGFIT_FEATURES)] = t[list(LAGFIT_FEATURES)].fillna(t[list(LAGFIT_FEATURES)].median())
+    x_all, y = t[list(LAGFIT_FEATURES)].to_numpy(np.float64), t.y.to_numpy()
+    oof, med = np.zeros(len(t)), np.zeros(len(t))
+    for f in (0, 1):
+        tr, te = (t.fold != f).to_numpy(), (t.fold == f).to_numpy()
+        b0, w = _ridge_ls(x_all[tr], y[tr])
+        oof[te], med[te] = b0 + x_all[te] @ w, np.median(y[tr])
+    r2 = 1 - ((y - oof) ** 2).sum() / ((y - y.mean()) ** 2).sum()
+    mae = {"constant lag": np.abs(y - p.handover_lag).mean(), "OOF median": np.abs(y - med).mean(),
+           "ridge OOF": np.abs(y - oof).mean()}
+    print(f"{world}: {n_all} team-to-team changes, {len(t)} with a labelled change within {LAGFIT_REACH} frames of "
+          f"the lagged position; offset mean {y.mean():.1f}, quartiles {np.percentile(y, [25, 50, 75]).round(1)}")
+    print("mean absolute error: " + ", ".join(f"{k} {v:.2f}" for k, v in mae.items()) + f"; ridge OOF R squared {r2:.3f}")
+    for s, name in ((1.0, "seen"), (0.0, "unseen")):
+        m = (t.seen == s).to_numpy()
+        print(f"  ball {name} at the change: {m.sum()} changes, constant lag {np.abs(y[m] - p.handover_lag).mean():.2f},"
+              f" ridge OOF {np.abs(y[m] - oof[m]).mean():.2f}")
+    print("Spearman with the offset: " + ", ".join(f"{k} {t[k].rank().corr(t.y.rank()):+.3f}"
+                                                for k in LAGFIT_FEATURES))
+    b0, w = _ridge_ls(x_all, y)
+    print("all-A weights per column sd: " + ", ".join(f"{k} {v * s:+.2f}" for k, v, s in
+                                                     zip(LAGFIT_FEATURES, w, x_all.std(axis=0))) + f", intercept {b0:.2f}")
+    ok = r2 >= 0.15 and mae["ridge OOF"] <= mae["constant lag"] - 2
+    print(f"A1 mark (R squared >= 0.15 and MAE at least 2 under the constant lag): {'pass' if ok else 'fail'}")
 
 
 def deadstarts(params):
@@ -6800,7 +6989,7 @@ def pick(synth_csv, pff_csv, base, prefer, wide=()):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "posconv", "e81transplant", "keeperhold", "e81split", "keeperruns", "k1bsplit", "e81summary", "atdspeed", "e86edges", "tagteam", "tagrestart", "tagcover", "takerdose", "takeroracle", "restartgaps", "restartcheck", "e78grid", "e78score", "takeracts", "pffcontrolled", "takerprecision", "e79grid", "e79", "stoppagedose", "e80grid", "e80score", "blackoutfit", "e81grid", "e81score", "fkdose", "fkprecision", "e82grid", "e82score", "barathdiff", "t2identity", "t2kicks", "falsetags", "falseacts", "deadclass", "broadcastdose", "e83reveal", "broadcaststate", "pffcamera", "camlr", "camdose", "e84grid", "e84pick", "e84noop", "e84starts", "e84why", "e84score", "e85dose", "e85grid", "e85pick", "e85noop", "e85score", "camcoupling", "e85decomp", "e83decomp", "fillagree"))
+    ap.add_argument("probe", choices=("oracle", "geometry", "pff-geometry", "barath-geometry", "close", "deadrule", "chain", "confirm", "select", "edges", "logit", "speed", "spells", "lag", "snap", "chain5", "speedlogit", "masked", "still", "stillgrid", "dead6", "motion", "pacegrid", "push", "lag7", "deadlogit", "pick", "combo", "census", "hold", "holdgrid", "deadcues", "versions", "merge", "jitter", "restart", "pushgap", "equiv", "spellpush", "pushflip", "pushunseen", "barath-push", "pff-push-tokens", "subs", "switchpen", "spellmass", "equivpath", "mergedose", "deadruns", "flipruns", "spellflip", "spellveto", "barath-spell", "spellseen", "deadsplit", "deadcensus", "deadedges", "deadstarts", "leadgrid", "deadends", "slotcheck", "outrungrid", "contest", "stepfeas", "insertruns", "insertfit", "flipindep", "spellmodel", "islandruns", "cutgrid", "ttitoken", "postd", "postfill", "restartdet", "flippairs", "adjgrid", "seedwins", "e41grid", "e60grid", "e61grid", "e62grid", "e64grid", "e65grid", "velgrid", "velfield", "e67grid", "e68grid", "e69grid", "e70grid", "penaltygrid", "endcut", "e74grid", "deadcore", "officials", "linegrid", "linelead", "linefull", "endlead", "returngrid", "touchline", "lowtail", "doubling", "press", "e75grid", "e76grid", "restartsplit", "pressconv", "e77grid", "targetconv", "targettiming", "posconv", "e81transplant", "keeperhold", "e81split", "keeperruns", "k1bsplit", "e81summary", "atdspeed", "e86edges", "e87islands", "ioucurve", "boundoracle", "lagfit", "tagteam", "tagrestart", "tagcover", "takerdose", "takeroracle", "restartgaps", "restartcheck", "e78grid", "e78score", "takeracts", "pffcontrolled", "takerprecision", "e79grid", "e79", "stoppagedose", "e80grid", "e80score", "blackoutfit", "e81grid", "e81score", "fkdose", "fkprecision", "e82grid", "e82score", "barathdiff", "t2identity", "t2kicks", "falsetags", "falseacts", "deadclass", "broadcastdose", "e83reveal", "broadcaststate", "pffcamera", "camlr", "camdose", "e84grid", "e84pick", "e84noop", "e84starts", "e84why", "e84score", "e85dose", "e85grid", "e85pick", "e85noop", "e85score", "camcoupling", "e85decomp", "e83decomp", "fillagree"))
     ap.add_argument("params", nargs="*")
     ap.add_argument("--prefer", nargs="+", default=[], help="pick: the registered tie order after the base")
     ap.add_argument("--only", nargs="+", default=[], help="switchpen: decode base and these variants only")
@@ -6819,7 +7008,7 @@ if __name__ == "__main__":
     one = a.params[0] if a.params else None
     {"oracle": lambda: oracle(one, a.dead_bias, a.rule), "geometry": geometry, "pff-geometry": pff_geometry, "barath-geometry": barath_geometry,
      "close": lambda: close(one), "deadrule": lambda: deadrule(one, a.out, a.dead_bias, a.rule),
-     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "posconv": posconv, "keeperhold": lambda: keeperhold(one), "keeperruns": lambda: keeperruns(one), "e81summary": e81summary, "atdspeed": atdspeed, "e86edges": lambda: deadedges(one, E86_ITEMS), "k1bsplit": lambda: keeperruns(one, (1.0,), (0, 1, 2), True, {("Metrica", "m0"), ("IDSSE", "m0")}), "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "takerdose": lambda: takerdose(one), "takeroracle": lambda: takeroracle(one), "restartgaps": lambda: restartgaps(one), "restartcheck": restartcheck, "takeracts": lambda: takeracts(one), "pffcontrolled": lambda: pffcontrolled(a.params), "takerprecision": lambda: takerprecision(one), "e79grid": lambda: modelgrid(e79_models(one), a.out, a.dead_bias, a.rule), "e79": lambda: e79(one, a.params[1:]), "stoppagedose": lambda: stoppagedose(one), "blackoutfit": lambda: blackoutfit(one), "e80grid": lambda: modelgrid(e80_models(one), a.out, a.dead_bias, a.rule), "e80score": lambda: modelscore(e80_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81grid": lambda: modelgrid(e81_models(one), a.out, a.dead_bias, a.rule), "fkdose": lambda: fkdose(one), "fkprecision": lambda: fkprecision(one), "barathdiff": lambda: barathdiff(one), "t2identity": lambda: t2identity(one), "t2kicks": lambda: t2kicks(one), "falsetags": lambda: falsetags(one), "falseacts": lambda: falseacts(one), "deadclass": lambda: deadclass(a.params), "broadcastdose": lambda: broadcastdose(one, a.out), "e83reveal": lambda: e83reveal(one, *a.params[1:3]), "broadcaststate": lambda: broadcaststate(one), "pffcamera": pffcamera, "camlr": camlr, "camdose": lambda: camdose(one), "e84grid": lambda: modelgrid(e84_models(one), a.out, a.dead_bias, a.rule), "e84pick": lambda: e84pick(one), "e84noop": lambda: e84noop(one), "e84starts": lambda: e84starts(one), "e84why": lambda: e84why(one), "e85dose": lambda: camdose(one, e85=True), "camcoupling": lambda: camcoupling(one), "e85decomp": lambda: e85decomp(one), "e83decomp": lambda: e83decomp(one, a.params[1]), "fillagree": fillagree, "e85grid": lambda: modelgrid(e85_models(one), a.out, a.dead_bias, a.rule), "e85pick": lambda: e85pick(one), "e85noop": lambda: e84noop(one, e85_models(one)), "e85score": lambda: modelscore(e85_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e84score": lambda: modelscore(e84_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e82grid": lambda: modelgrid(e82_models(one), a.out, a.dead_bias, a.rule), "e82score": lambda: modelscore(e82_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81score": lambda: modelscore(e81_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81transplant": lambda: modelscore(e81t_models(a.params), a.out, a.dead_bias, a.rule, a.seeds), "e81split": lambda: modelscore({Path(one).stem + "_untagged": Tagged(Decoder.load(one), ())}, a.out, a.dead_bias, a.rule, a.seeds), "e78grid": lambda: modelgrid(e78_models(one), a.out, a.dead_bias, a.rule), "e78score": lambda: modelscore(e78_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
+     "chain": lambda: chain_grid(one), "confirm": lambda: confirm(one, a.halves), "jitter": lambda: jitter(a.params), "restart": lambda: restart(one), "pushgap": lambda: pushgap(one), "equiv": lambda: equiv(*a.params), "spellpush": lambda: spellpush(one), "barath-push": barath_push, "pff-push-tokens": pff_push_tokens, "subs": lambda: subs(a.params), "switchpen": lambda: switchpen(one, a.out, a.dead_bias, a.rule, a.only), "spellmass": lambda: spellmass(one, a.only), "equivpath": lambda: equivpath(*a.params), "pushflip": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_GRID), "pushunseen": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, PUSH_UNSEEN_GRID), "mergedose": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, DOSE_GRID), "leadgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LEAD_GRID), "outrungrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, OUTRUN_GRID), "cutgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, CUT_GRID), "adjgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, ADJ_GRID), "e41grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e41_grid()), "e60grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e60_grid()), "e61grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, E61_GRID), "e62grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e62_grid()), "e64grid": lambda: modelgrid(e64_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e65grid": lambda: modelgrid(e65_models(one), a.out, a.dead_bias, a.rule), "velgrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "velfield": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, VELOCITY_GRID), "e67grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, CHAIN_GOAL_GRID), "e68grid": lambda: modelgrid(e68_models(one, a.params[1]), a.out, a.dead_bias, a.rule), "e69grid": lambda: modelgrid(e69_models(one, *a.params[1:3]), a.out, a.dead_bias, a.rule), "e70grid": lambda: modelgrid(e68_models(one, a.params[1], (0.8, 0.75, 0.7, 0.65), "touch refit"), a.out, a.dead_bias, a.rule), "penaltygrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, PENALTY_GRID), "endcut": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_CUT_GRID), "e74grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "goal refit"), a.out, a.dead_bias, a.rule), "e75grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "kick refit"), a.out, a.dead_bias, a.rule), "e76grid": lambda: modelgrid(e68_models(one, a.params[1], (0.75, 0.8, 0.7), "press refit"), a.out, a.dead_bias, a.rule), "deadcore": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, DEAD_CORE_GRID), "linegrid": lambda: rulegrid(one, a.out, a.dead_bias, a.rule, LINE_GRID), "linelead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_LEAD_GRID), "linefull": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, LINE_FULL_GRID), "endlead": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, END_LEAD_GRID), "returngrid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, RETURN_GRID), "deadruns": lambda: deadruns(*a.params), "flipruns": lambda: flipruns(one), "spellflip": lambda: spellflip(one, a.out, a.drop + [f for f in LATE_SPELL if f not in a.keep], a.split), "barath-spell": lambda: barath_spell(one), "spellseen": lambda: spellseen(one), "deadsplit": lambda: deadsplit(one), "deadcensus": lambda: deadcensus(one), "deadedges": lambda: deadedges(one), "deadstarts": lambda: deadstarts(one), "deadends": lambda: deadends(one), "slotcheck": slotcheck, "officials": officials, "contest": contest, "stepfeas": lambda: stepfeas(one), "insertruns": lambda: insertruns(one), "insertfit": lambda: insertfit(one, a.out), "flipindep": lambda: flipindep(one), "spellmodel": lambda: spellmodel(one), "islandruns": lambda: islandruns(one), "ttitoken": ttitoken, "postd": lambda: postd(one), "postfill": lambda: postfill(one), "restartdet": lambda: restartdet(one), "touchline": lambda: touchline(one), "flippairs": lambda: flippairs(one), "seedwins": lambda: seedwins(*a.params), "lowtail": lambda: lowtail(*a.params), "doubling": doubling, "press": press, "pressconv": pressconv, "targetconv": targetconv, "targettiming": targettiming, "posconv": posconv, "keeperhold": lambda: keeperhold(one), "keeperruns": lambda: keeperruns(one), "e81summary": e81summary, "atdspeed": atdspeed, "e86edges": lambda: deadedges(one, E86_ITEMS), "e87islands": lambda: islandruns(one, SEARCH), "ioucurve": lambda: ioucurve(one, SEARCH), "boundoracle": lambda: boundoracle(one, SEARCH), "lagfit": lambda: lagfit(one), "k1bsplit": lambda: keeperruns(one, (1.0,), (0, 1, 2), True, {("Metrica", "m0"), ("IDSSE", "m0")}), "tagteam": lambda: tagteam(one), "tagrestart": lambda: tagrestart(one), "tagcover": tagcover, "takerdose": lambda: takerdose(one), "takeroracle": lambda: takeroracle(one), "restartgaps": lambda: restartgaps(one), "restartcheck": restartcheck, "takeracts": lambda: takeracts(one), "pffcontrolled": lambda: pffcontrolled(a.params), "takerprecision": lambda: takerprecision(one), "e79grid": lambda: modelgrid(e79_models(one), a.out, a.dead_bias, a.rule), "e79": lambda: e79(one, a.params[1:]), "stoppagedose": lambda: stoppagedose(one), "blackoutfit": lambda: blackoutfit(one), "e80grid": lambda: modelgrid(e80_models(one), a.out, a.dead_bias, a.rule), "e80score": lambda: modelscore(e80_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81grid": lambda: modelgrid(e81_models(one), a.out, a.dead_bias, a.rule), "fkdose": lambda: fkdose(one), "fkprecision": lambda: fkprecision(one), "barathdiff": lambda: barathdiff(one), "t2identity": lambda: t2identity(one), "t2kicks": lambda: t2kicks(one), "falsetags": lambda: falsetags(one), "falseacts": lambda: falseacts(one), "deadclass": lambda: deadclass(a.params), "broadcastdose": lambda: broadcastdose(one, a.out), "e83reveal": lambda: e83reveal(one, *a.params[1:3]), "broadcaststate": lambda: broadcaststate(one), "pffcamera": pffcamera, "camlr": camlr, "camdose": lambda: camdose(one), "e84grid": lambda: modelgrid(e84_models(one), a.out, a.dead_bias, a.rule), "e84pick": lambda: e84pick(one), "e84noop": lambda: e84noop(one), "e84starts": lambda: e84starts(one), "e84why": lambda: e84why(one), "e85dose": lambda: camdose(one, e85=True), "camcoupling": lambda: camcoupling(one), "e85decomp": lambda: e85decomp(one), "e83decomp": lambda: e83decomp(one, a.params[1]), "fillagree": fillagree, "e85grid": lambda: modelgrid(e85_models(one), a.out, a.dead_bias, a.rule), "e85pick": lambda: e85pick(one), "e85noop": lambda: e84noop(one, e85_models(one)), "e85score": lambda: modelscore(e85_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e84score": lambda: modelscore(e84_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e82grid": lambda: modelgrid(e82_models(one), a.out, a.dead_bias, a.rule), "e82score": lambda: modelscore(e82_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81score": lambda: modelscore(e81_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e81transplant": lambda: modelscore(e81t_models(a.params), a.out, a.dead_bias, a.rule, a.seeds), "e81split": lambda: modelscore({Path(one).stem + "_untagged": Tagged(Decoder.load(one), ())}, a.out, a.dead_bias, a.rule, a.seeds), "e78grid": lambda: modelgrid(e78_models(one), a.out, a.dead_bias, a.rule), "e78score": lambda: modelscore(e78_models(one), a.out, a.dead_bias, a.rule, a.seeds), "e77grid": lambda: fieldgrid(one, a.out, a.dead_bias, a.rule, e77_grid()), "restartsplit": lambda: restartsplit(one), "spellveto": lambda: spellveto(a.params[0], a.params[1], a.out, a.dead_bias, a.rule), "select": lambda: select(a.params),
      "edges": lambda: edges_grid(one, a.out, a.dead_bias, a.rule),
      "logit": lambda: logit_grid(one, a.out, a.dead_bias, a.rule), "speed": speed_probe,
      "spells": lambda: spells_probe(one, a.dead_bias, a.rule),
