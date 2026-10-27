@@ -2965,18 +2965,23 @@ def touchline(params):
 
 def lowtail(csv, a, b):
     """Model A minus model B in a `possession score --dev` CSV, per group: the pooled difference per seed, and over
-    games (seeds averaged per game) the mean [90% t interval], games won, the 10th percentile and the worst game."""
+    games (seeds averaged per game) the mean [90% t interval], games won, the 10th percentile and the worst game;
+    for PFF groups also over the held-out B games alone (confirm's split: every second game in table order)."""
     t = pd.read_csv(csv)
     wide = t.pivot_table(index=["world", "case"], columns="model", values="spell_f1")
     d = (wide[a] - wide[b]).rename("d").reset_index().assign(group=lambda f: f.world.map(bench.group))
     print(f"{a} - {b}")
     for grp, f in d.groupby("group"):
         pooled = f[f.case == "dev_pooled"].d.to_numpy()
-        games = f[f.case != "dev_pooled"].groupby("case").d.mean().to_numpy()
-        h = T90 * games.std(ddof=1) / np.sqrt(len(games))
-        print(f"  {grp}: pooled {pooled.mean():+.4f} over {len(pooled)} seeds (min {pooled.min():+.4f}); per game "
-              f"{games.mean():+.4f} [{games.mean() - h:+.4f}, {games.mean() + h:+.4f}], won {(games > 0).sum()}/"
-              f"{len(games)}, 10th percentile {np.quantile(games, 0.1):+.4f}, worst {games.min():+.4f}")
+        per_game = f[f.case != "dev_pooled"].groupby("case").d.mean()
+        order = list(dict.fromkeys(t[t.world.map(bench.group).eq(grp) & (t.case != "dev_pooled")].case))
+        print(f"  {grp}: pooled {pooled.mean():+.4f} over {len(pooled)} seeds (min {pooled.min():+.4f})")
+        for tag, keep in [("per game", order)] + ([("B games", order[1::2])] if grp.startswith("pff_") else []):
+            games = per_game.loc[keep].to_numpy()
+            h = T90 * games.std(ddof=1) / np.sqrt(len(games))
+            print(f"    {tag} {games.mean():+.4f} [{games.mean() - h:+.4f}, {games.mean() + h:+.4f}], won "
+                  f"{(games > 0).sum()}/{len(games)}, 10th percentile {np.quantile(games, 0.1):+.4f}, worst "
+                  f"{games.min():+.4f}")
 
 
 
