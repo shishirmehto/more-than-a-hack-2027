@@ -39,7 +39,8 @@ _LOGIT_FIELDS = ("q_logit_a", "q_logit_dist", "q_logit_margin", "q_logit_speed",
                  "q_logit_goal")
 SPELL_FEATURES = ("len", "seen", "own_tok", "other_tok", "closest_own", "speed_med", "speed_max", "margin_own",
                   "push", "logodds", "sandwiched", "prev_len", "next_len", "next_to_d", "touch_own", "touch_other",
-                  "rel_own", "shape_own", "held_own", "goal_own", "goal_other", "kick_own", "kick_other")
+                  "rel_own", "shape_own", "held_own", "goal_own", "goal_other", "kick_own", "kick_other",
+                  "press_own")
 _SHAPE_LAG = 50
 _HELD_RADIUS_M = 1.0
 _TOUCH_STEP, _TOUCH_RADIUS_M, _TOUCH_SLACK = 5, 1.5, 25
@@ -589,7 +590,9 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
     own-token frames and over its other-token frames; positive means the ball moves toward the goal of the
     token's team; 0 when there is none or the geometry has no goal_mps. kick_own, kick_other: touch_own and
     touch_other with the change of the ball's velocity vector (vx_mps, vy_mps) in place of the change of its
-    speed, so a redirect at equal speed counts; 0 when there is none or the geometry has no vx_mps.
+    speed, so a redirect at equal speed counts; 0 when there is none or the geometry has no vx_mps. press_own:
+    mean Half.press_mps toward the run's team over its frames with a token, clipped to +-5 m/s; positive means the
+    run's team closes on the ball more than the other; 0 when none is present or the Half has no press_mps.
     """
     g = half.geometry
     if g is None or half.push_mps is None:
@@ -652,6 +655,8 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
         kown = kown[~np.isnan(kown)]
         koth = kick[lo:hi][half.nearest_team[lo:hi] == 1 - team] if kick is not None else np.empty(0)
         koth = koth[~np.isnan(koth)]
+        press = half.press_mps[a:b][seen].astype(np.float64) if half.press_mps is not None else np.empty(0)
+        press = press[np.isfinite(press)]
         sign = 1.0 if team == H else -1.0
         prev = (int(codes[starts[k - 1]]), stops[k - 1] - starts[k - 1]) if k else (D, 0)
         nxt = (int(codes[starts[k + 1]]), stops[k + 1] - starts[k + 1]) if k + 1 < len(starts) else (D, 0)
@@ -672,7 +677,8 @@ def _spell_runs(codes: NDArray[np.int8], half: Half, frames: int,
              math.fsum(gown.tolist()) / len(gown) if len(gown) else 0.0,
              math.fsum(goth.tolist()) / len(goth) if len(goth) else 0.0,
              math.log1p(float(kown.max())) if len(kown) else 0.0,
-             math.log1p(float(koth.max())) if len(koth) else 0.0)
+             math.log1p(float(koth.max())) if len(koth) else 0.0,
+             min(max(sign * math.fsum(press.tolist()) / len(press), -5.0), 5.0) if len(press) else 0.0)
         out.append((a, b, team, tuple(round(v, 9) for v in x)))
     return out
 

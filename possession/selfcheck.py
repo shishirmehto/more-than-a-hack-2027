@@ -135,6 +135,12 @@ def permutation_invariance() -> None:
     paced = Geometry(np.zeros((40, 2), np.float32), walkers, np.array([HOME, AWAY, HOME], np.int8), (105.3, 68.0))
     want = [nan] * 12 + [1.0] * 6 + [1.25] + [1.0] * 9 + [nan] * 12
     assert np.allclose(challenge.observe(paced, HalfId("pace", 1, 0)).pace_mps, want, atol=1e-5, equal_nan=True)
+    walk = np.zeros((40, 4, 2), np.float32)
+    walk[:, 0, 0], walk[:, 1, 0], walk[:, 2, 0], walk[:, 3, 0] = 10 - t / 25, 12 - t / 25, -10 - t / 25, -12 - t / 25
+    pressed = Geometry(np.zeros((40, 2), np.float32), walk, np.array([HOME, HOME, AWAY, AWAY], np.int8),
+                       (105.3, 68.0))
+    want = [nan] * 12 + [2.0] * 16 + [nan] * 12
+    assert np.allclose(challenge.observe(pressed, HalfId("press", 1, 0)).press_mps, want, atol=1e-5, equal_nan=True)
     off = Geometry(np.array([[-3, -4], [106.3, 34], [50, 70]], np.float32), np.zeros((3, 2, 2), np.float32),
                    np.array([HOME, AWAY], np.int8), (105.3, 68.0))
     assert np.allclose(challenge.observe(off, HalfId("off", 1, 0)).geometry.outside_m, [5, 1, 2], atol=1e-5)
@@ -161,6 +167,8 @@ def permutation_invariance() -> None:
     whole = Geometry(ball.copy(), players[:, perm].copy(), team[perm].copy(), (105.3, 68.0))
     assert np.array_equal(challenge.nearest_team(whole), base)
     assert observed(whole) == base_all
+    press = lambda g: challenge.observe(g, HalfId("perm", 1, 0)).press_mps.tobytes()
+    assert press(whole) == press(base_geometry)
 
     within = players.copy()
     for t in (HOME, AWAY):
@@ -175,6 +183,7 @@ def permutation_invariance() -> None:
     pad_team = np.concatenate([team, np.zeros(10, np.int8)])
     assert np.array_equal(challenge.nearest_team(Geometry(ball.copy(), padded, pad_team, (105.3, 68.0))), base)
     assert observed(Geometry(ball.copy(), padded, pad_team, (105.3, 68.0))) == base_all
+    assert press(Geometry(ball.copy(), padded, pad_team, (105.3, 68.0))) == press(base_geometry)
 
     swapped = observed(Geometry(ball.copy(), players.copy(), (1 - team).astype(np.int8), (105.3, 68.0)))
     assert swapped[1:] == base_all[1:], "BallGeometry must not change when the teams swap"
@@ -829,7 +838,8 @@ def spell_flip_known_answer() -> None:
     assert (a, b, team) == (5, 8, A)
     assert x == tuple(round(v, 9) for v in (math.log(3 / 25), 1.0, 1.0, 0.0, math.log1p(3.0), math.log1p(5.0),
                                             math.log1p(5.0), math.log1p(2.0), 0.0, 0.0, 1.0, math.log1p(5),
-                                            math.log1p(5), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)), x
+                                            math.log1p(5), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                            0.0)), x
     held = decoder.SPELL_FEATURES.index("held_own")
     runs = np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8)
     assert decoder._spell_runs(runs, half("HHHHHAAAHHHHH", near=1.0), 4, np.zeros(13))[0][3][held] == 1.0
@@ -852,7 +862,7 @@ def spell_flip_known_answer() -> None:
     assert flip("HHHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHH"
     assert flip("HHHHHAAAHHHAAAHHHHH", 0.5) == "HHHHHHHHAAAHHHHHHHH"
     assert flip("HHHHHAAAHHHAAAHHHHH", 0.5, adjacent=True) == "HHHHHHHHHHHHHHHHHHH"
-    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 2.4
+    assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), dict.fromkeys(zero, 0.1)) == 2.5
     assert decoder._spell_z((1.0,) * len(decoder.SPELL_FEATURES), {"a": 0.5, "len": 1.0}) == 1.5
     kick = half("HHHHHAAAHHHHH", near=1.0)
     speed = np.full(13, 5.0, np.float32)
@@ -884,6 +894,11 @@ def spell_flip_known_answer() -> None:
     at = decoder.SPELL_FEATURES.index
     assert (xv[at("touch_own")], xv[at("kick_own")], xv[at("kick_other")]) == \
         (0.0, round(math.log1p(math.hypot(5.0, 5.0)), 9), 0.0), xv
+    pressing = np.zeros(13, np.float32)
+    pressing[5:8] = (1.0, np.nan, 3.0)
+    ph = dataclasses.replace(kick, press_mps=pressing)
+    (*_, xp), = decoder._spell_runs(np.array([code[c] for c in "HHHHHAAAHHHHH"], np.int8), ph, 4, np.zeros(13))
+    assert xp[at("press_own")] == -2.0, xp
     lo = np.zeros(80, np.float32)
     lo[55:58] = -2.0
     lo[58:70] = np.nan

@@ -36,6 +36,7 @@ _PACE_STEP = 12
 # player-position session (in-sample accuracy 0.827). No PFF or BAR-ATH data entered them.
 _SHAPE_W = (0.0453, -0.0656, 0.0253, 0.0926, 0.15, 0.2108)
 _SHAPE_MIN_PLAYERS, _SHAPE_CAP = 8, 10.0
+_PRESS_K, _PRESS_MIN_M = 3, 1.0
 
 _NORM_LIMIT = 2.0
 
@@ -197,6 +198,28 @@ def _team_push(g: Geometry, kickoff: int) -> NDArray[np.float32]:
     return (push[:, HOME] - push[:, AWAY]).astype(np.float32)
 
 
+def _team_press(g: Geometry) -> NDArray[np.float32]:
+    k, press = _PACE_STEP, np.full((g.n, 2), np.nan)
+    for lo in range(k, g.n - k, _CHUNK):
+        hi = min(lo + _CHUNK, g.n - k)
+        v = (g.players_xy[lo + k:hi + k].astype(np.float64) - g.players_xy[lo - k:hi - k].astype(np.float64)) \
+            / (2 * k) * FPS
+        rel = g.ball_xy[lo:hi, None, :].astype(np.float64) - g.players_xy[lo:hi].astype(np.float64)
+        d = np.hypot(rel[..., 0], rel[..., 1])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            toward = (v * rel).sum(-1) / d
+            far = np.where(d >= _PRESS_MIN_M, d, np.inf)
+        for team in (HOME, AWAY):
+            cols = g.slot_team == team
+            order = np.argsort(far[:, cols], axis=1, kind="stable")[:, :_PRESS_K]
+            pick = np.where(np.isfinite(np.take_along_axis(far[:, cols], order, 1)),
+                            np.take_along_axis(toward[:, cols], order, 1), np.nan)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                press[lo:hi, team] = np.nanmean(pick, axis=1)
+    return (press[:, HOME] - press[:, AWAY]).astype(np.float32)
+
+
 def _team_shape(g: Geometry, kickoff: int) -> NDArray[np.float32]:
     rows, out, signs = np.arange(g.n), [], _attack_signs(g, kickoff)
     for team in (HOME, AWAY):
@@ -263,7 +286,7 @@ def observe(g: Geometry, id: HalfId) -> Half:
                        vx_mps=np.ascontiguousarray(vel[:, 0]), vy_mps=np.ascontiguousarray(vel[:, 1]))
     return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
                 push_mps=_team_push(g, id.kickoff), shape_lo=_team_shape(g, id.kickoff),
-                return_m=_gap_return(g.ball_xy.astype(np.float64)))
+                return_m=_gap_return(g.ball_xy.astype(np.float64)), press_mps=_team_press(g))
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
