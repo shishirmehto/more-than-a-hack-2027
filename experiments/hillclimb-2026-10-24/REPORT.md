@@ -190,6 +190,16 @@ on native m2 (-0.0115 [-0.0181, -0.0048]), while ahead of it in bridged mode. On
 group, 0.1682, is above v18's 0.1568: it leads on 5 of the 6 IDSSE groups (the sixth by -0.0001) and trails on all nine Metrica groups. Its CSV
 hashes to `792f0dc1156c6c83…`.
 
+`params/tier0_v19_pfffree.json` (27 October) is the same refit on tier0_v19, with E31's touch features kept in
+the spell fit (`pfffree.py --touch`). IDSSE and Metrica fit a `touch_own` weight of -0.634 against PFF-A's
+-0.650. It was scored once, after the refit. On held-out PFF it is below v19 on both native legs (m0 -0.0135
+[-0.0173, -0.0097], 2 of 32 games won; m2 -0.0138 [-0.0179, -0.0097], 3 of 32) and slightly above
+tier0_v13_pfffree (m0 +0.0008 [+0.0002, +0.0013], m2 +0.0010 [+0.0004, +0.0017]). v19's two changes over v13,
+the touch features and the 0.75 cut, gain +0.006 to +0.007 on PFF-B with PFF-fitted weights and +0.001 with
+these weights. On synthetic seeds 15-24 its worst group, 0.1054, sits between v19's 0.1123 and
+tier0_v13_pfffree's 0.1038: it is below v19 in all 15 groups and above tier0_v13_pfffree in all 15. On BAR-ATH
+it changes 5,016 of v19's frames and 3,191 of v13's. Its CSV hashes to `8960eeac30ddc6ba…`.
+
 What follows describes tier0_v13.
 
 - v13's held-out gain over v12 (PFF-B m0 +0.0031 [+0.0022, +0.0041], 29 of 32 games; m2 +0.0033 [+0.0023,
@@ -425,7 +435,8 @@ overstates how independent the B columns are:
   E26's six. E26's (speed, length) points were E25's top three on PFF-A, and E26's tie between 2 and 3 m/s
   over 250 frames went to 2 m/s on the higher PFF-A minimum, by 0.00004.
 - On 27 October B was read again after the loader fix: v13, v15, v17 and v18 rescored, E62's confirmation (six
-  models), tier0_v18_pfffree's one-time score, and E68's and E70's confirmations. No pick read B.
+  models), tier0_v18_pfffree's and tier0_v19_pfffree's one-time scores, and E68's and E70's confirmations. No
+  pick read B.
 
 ### Fork lineage
 
@@ -578,6 +589,9 @@ Whether the ruling also retires the dead line, bridged mode and the loader fix i
 | 125 | E69: E31's touch features (`touch_own`, `touch_other`) in the spell flip, refitted on the fixed loader (`probes.py spellflip --drop seen rel_own shape_own held_own` on tier0_v10); arms base, control refit (E30's features, E68's weights) and touch refit at v13's cut (`probes.py e69grid`); rule v2, native PFF ranks | E31 (experiment 58) tied v12 inside the band and lifted all 15 synthetic groups, but its features are changes of ball speed, fitted when PFF's velocity jittered | stage 1 OOF seen>=0.8 +0.0112 [+0.0083, +0.0140], 29/32, against the control's +0.0073 (`touch_own` weight -0.650); stage 2 native m0 0.1555 against 0.1529 and m2 0.1955 against 0.1923 (+0.0026, +0.0032), control 0.1521 and 0.1912; touch lifts all 15 synthetic groups (+0.0029 to +0.0189, IDSSE m0 included); the BAR-ATH range check passes (`touch_own` median 1.596 inside PFF-A's 0 to 2.641) | **no change**: +0.0026 sits inside the 0.003 band |
 | 126 | a flight gate and a touch term for the emission, reach and calibration before any registration (PFF-A m0 native labels, diagnostic; BAR-ATH label-free) | P6 (experiment 107) put the wrong-team stretches at a moving ball with no close player, and the literature credits possession at touches | the gate (ball speed 4 or 6 m/s, nearest player 1 or 2 m away) would flatten 30-49% of BAR-ATH's seen frames, where the token is right 70-76% of the time on PFF-A; touch tokens are right 0.950-0.956 against 0.949-0.951 on close frames without a touch | **killed** before registration: the gate discards mostly correct evidence and a touch term has nothing to add |
 | 127 | E70: E69's touch weights at `spell_flip_p` 0.8, 0.75, 0.7 and 0.65 on v13 (`probes.py e70grid`); rule v2, ties to base, then the higher cut; confirmation on PFF-B native and seeds 15-24 | E69's weights are the first spell weights to lift IDSSE m0, the group that stopped every earlier lower cut (E29, E38, E68) | native PFF-A minimum 0.1575 at 0.75 against 0.1529 (+0.0046), every synthetic group above v13 (IDSSE m0 +0.0017 to +0.0024); 0.7 led at 0.1595 and tied; 0.65 failed the veto on IDSSE m0. Held out over v13: PFF-B native m0 +0.0059 [+0.0033, +0.0085] 27/32, m2 +0.0072 [+0.0043, +0.0100] 27/32 (A: +0.0044, +0.0057); seeds 15-24 above v13 in all 15 groups (IDSSE m0 +0.0012 to +0.0023) and on 145 of 150 worlds. Label-free on BAR-ATH: 2,255 of 158,857 graded frames change, all H and A swaps; the flip takes 15.3% of BAR-ATH's 274 candidate runs against 9.2% on PFF-A (v13: 8.0% and 6.2%) | **tier0_v19**, frozen as a confirmed alternative; it reads the fixed loader, whose lineage is open, and the weights and the ranking both read PFF-A |
+| 128 | three touch anchors on tier0_v19, diagnostic before any registration (PFF-A m0 native labels; BAR-ATH label-free): the restart call from the first touch near each D stretch's end, a hand-over snapped to the receiving team's first touch, and a D stretch ended at the first touch after it | a restart or a hand-over is a touch, so a touch might date it better than the chain or the trimmed dead run | the touch's restart call is right 0.788-0.830 against the first call's 0.792-0.830 on the same 3,137 stretches; the snap lands farther from the labelled hand-over on 57-61% of the 41-67% it fires on; the end touch lands farther on 75-76% (mean offset 75-78 frames against 41). v19's D ends sit a median 15 frames before the labelled end (p25 -38, p75 +30) | **killed**; the end offsets motivated E72 |
+| 129 | E71: `switch_penalty` 0.75, 0.5 and 0.25 on v19 (`probes.py penaltygrid`); rule v2 | E27's penalty cut weak islands when the flip could not tell wrong short runs from real ones; the touch-aware flip might let a lower penalty keep more real short possessions | all four arms pass the veto and tie within 0.003 on the native PFF-A minimum (base 0.1575, 0.25 0.1574, 0.75 0.1573, 0.5 0.1572) | **no change** |
+| 130 | `params/tier0_v19_pfffree.json`: v19 with the emission and the spell flip fitted on IDSSE and Metrica only, E31's touch features kept (`pfffree.py --base params/tier0_v19.json --touch`); scored once | the PFF-free twin of v19, for the open licence question | PFF-B native below v19 by 0.0135 (m0) and 0.0138 (m2), above tier0_v13_pfffree by 0.0008 and 0.0010; seeds 15-24 worst group 0.1054 against v19's 0.1123 | **fallback**, not a candidate; see "PFF-free fallback" |
 | 65 | BAR-ATH track-slot check, label-free, inputs only (`probes.py slotcheck`), suggested by a session that surveyed other teams' forks | other forks fixed keepers in the wrong team and filtered slot jumps | both keeper-like slots (23 home, 45 away) sit in the box their own team defends in both halves; the slot nearest the ball jumps faster than 15 m/s on 0.02% and 0.06% of frames; a team shows more than 11 slots on 2.6% to 8.9% of frames | nothing to fix; the over-11 frames are traced in experiment 121: no official |
 
 ## What did not work, and why
@@ -852,6 +866,8 @@ python experiments/hillclimb-2026-10-24/pfffree.py --out params/tier0_v13_pfffre
 python -m possession make-submission --params params/tier0_v13_pfffree.json --out tier0_v13_pfffree.csv
 python experiments/hillclimb-2026-10-24/pfffree.py --base params/tier0_v15.json --goal --out params/tier0_v18_pfffree.json
 python -m possession make-submission --params params/tier0_v18_pfffree.json --out tier0_v18_pfffree.csv
+python experiments/hillclimb-2026-10-24/pfffree.py --base params/tier0_v19.json --touch --out params/tier0_v19_pfffree.json
+python -m possession make-submission --params params/tier0_v19_pfffree.json --out tier0_v19_pfffree.csv
 ```
 
 Each selection reruns from its probe, for example `python experiments/hillclimb-2026-10-24/probes.py logit

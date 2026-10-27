@@ -3,13 +3,16 @@
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/pfffree.py --out params/tier0_v13_pfffree.json
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/pfffree.py --base params/tier0_v15.json --goal \
         --out params/tier0_v18_pfffree.json
+    PYTHONPATH=. python experiments/hillclimb-2026-10-24/pfffree.py --base params/tier0_v19.json --touch \
+        --out params/tier0_v19_pfffree.json
 
 A fallback for the open PFF licence question, not a recommendation. It reads no PFF file. q_logit is E5's
 logistic of P(token == labelled team) on alive frames after kickoff of IDSSE and Metrica m0, with E60's
 goalward-ball term when --goal is given. spell_logit is E30's target and features (seen and every feature
-added after E30 left out) on IDSSE m0 and Metrica m0 renewal worlds at generator dead_bias 2.6, seeds 0-4, decoded by
-tier0_v10 carrying the new q_logit. Every other value is the base's, and those were chosen by ranking on PFF-A,
-so the file is free of PFF-fitted weights but not of PFF-informed selection.
+added after E30 left out, except E31's touch features with --touch) on IDSSE m0 and Metrica m0 renewal
+worlds at generator dead_bias 2.6, seeds 0-4, decoded by tier0_v10 carrying the new q_logit. Every other
+value is the base's, and those were chosen by ranking on PFF-A, so the file is free of PFF-fitted weights
+but not of PFF-informed selection.
 """
 import argparse
 import json
@@ -28,6 +31,8 @@ from possession.half import D  # noqa: E402
 V10 = Path("params/tier0_v10.json")
 # E30's feature set: seen left out, and every SPELL_FEATURES entry added after E30.
 DROP = ("seen", "touch_own", "touch_other", "rel_own", "shape_own", "held_own")
+# E69's feature set: E30's with E31's touch_own and touch_other kept.
+TOUCH_DROP = ("seen", "rel_own", "shape_own", "held_own")
 # Scored once after each refit and never used to choose it; a file not yet scored says so.
 SCORED = {
     "tier0_v13_pfffree.json": ("data/derived/runs/pfffree-pff.csv, pfffree-synth.csv", 
@@ -46,6 +51,14 @@ SCORED = {
         "seeds 15-24: worst-group margin over baseline_smooth50 0.1682 against tier0_v18 0.1568 and tier0_v13_pfffree "
         "0.1038; above tier0_v18 in 5 of the 6 IDSSE groups (the sixth -0.0001) and below it in all 9 Metrica groups "
         "by 0.013 to 0.032. Above baseline_smooth50 in every group and on all 64 PFF games."),
+    "tier0_v19_pfffree.json": ("data/derived/runs/v19pfffree-pff.csv, v19pfffree-synth.csv",
+        "Scored once after the refit, never used to choose it. Against tier0_v19 on held-out PFF-B: native m0 "
+        "-0.0135 [-0.0173, -0.0097], 2 of 32 games won; native m2 -0.0138 [-0.0179, -0.0097], 3 of 32. Against "
+        "tier0_v13_pfffree on PFF-B: native m0 +0.0008 [+0.0002, +0.0013] and m2 +0.0010 [+0.0004, +0.0017], "
+        "tier0_v13_pfffree ahead in 4 of 32 games each. Synthetic seeds 15-24: worst-group margin over "
+        "baseline_smooth50 0.1054 against tier0_v19 0.1123 and tier0_v13_pfffree 0.1038; below tier0_v19 in all "
+        "15 groups by 0.0030 to 0.0175 and above tier0_v13_pfffree in all 15 by 0.0016 to 0.0072. Above "
+        "baseline_smooth50 in every group and on all 64 PFF games."),
 }
 NOT_SCORED = ("", "Not yet scored.")
 
@@ -70,7 +83,7 @@ def fit_q_logit(goal=False):
     return {name: round(float(v), 6) for name, v in zip(names, w)}
 
 
-def fit_spell_logit(base):
+def fit_spell_logit(base, drop=DROP):
     """E30's flip-helps target on synthetic IDSSE and Metrica worlds, fitted where the token share is 0.5 or more."""
     p, chain = base.params, probes._rules_off(base)
     rows = []
@@ -92,8 +105,8 @@ def fit_spell_logit(base):
                 rows.append([1.0, *x, float(value(_lag_handovers(trial, p.handover_lag)) > v0)])
     t = np.array(rows)
     seen = t[:, 1 + SPELL_FEATURES.index("seen")] >= probes.SPELL_SEEN["seen"]
-    w = probes._spell_weights(t[seen, :-1], t[seen, -1], DROP)
-    return {k: v for k, v in w.items() if k not in DROP}, int(seen.sum())
+    w = probes._spell_weights(t[seen, :-1], t[seen, -1], drop)
+    return {k: v for k, v in w.items() if k not in drop}, int(seen.sum())
 
 
 def main():
@@ -101,15 +114,18 @@ def main():
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--base", type=Path, default=Path("params/tier0_v13.json"))
     ap.add_argument("--goal", action="store_true", help="add E60's goalward-ball term to q_logit")
+    ap.add_argument("--touch", action="store_true", help="keep E31's touch features in spell_logit (E69)")
     args = ap.parse_args()
     q = fit_q_logit(args.goal)
-    spell, n_runs = fit_spell_logit(Decoder.load(V10).replace(**q))
+    drop = TOUCH_DROP if args.touch else DROP
+    spell, n_runs = fit_spell_logit(Decoder.load(V10).replace(**q), drop)
     inherited = json.loads(args.base.read_text())["provenance"]
     model = Decoder.load(args.base).replace(**q, spell_logit=spell)
     command = ["PYTHONPATH=. python experiments/hillclimb-2026-10-24/pfffree.py"]
     if args.base != Path("params/tier0_v13.json"):
         command.append("--base " + shlex.quote(str(args.base)))
     command += ["--goal"] if args.goal else []
+    command += ["--touch"] if args.touch else []
     evidence, evaluation = SCORED.get(args.out.name, NOT_SCORED)
     provenance = {
         "base": f"{args.base} (every value except {', '.join(q)} and spell_logit)",
@@ -118,7 +134,7 @@ def main():
         "fitted": (f"q_logit: E5's logistic of P(token == labelled team) on alive frames after kickoff of IDSSE and "
                    f"Metrica m0 (probes._newton){', with E60 goalward-ball term' if args.goal else ''}. "
                    f"spell_logit: E30's flip-helps target and features without "
-                   f"{', '.join(DROP)}, a ridge-1 Newton logistic over {n_runs} candidate runs with token share 0.5 or "
+                   f"{', '.join(drop)}, a ridge-1 Newton logistic over {n_runs} candidate runs with token share 0.5 or "
                    "more on IDSSE m0 and Metrica m0 renewal worlds at dead_bias 2.6, seeds 0-4, decoded by tier0_v10 "
                    "with the new q_logit; weights rounded to 4 places. No PFF or StatsBomb file is read."),
         "inherited_selection": (f"Every other value is {args.base.stem}'s and was selected by ranking on PFF-A labels "
