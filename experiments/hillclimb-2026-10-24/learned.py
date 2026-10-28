@@ -53,18 +53,20 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent))
 from possession import bench, score  # noqa: E402
 from possession.decoder import Decoder  # noqa: E402
-from possession.half import AWAY, HOME, NO_TEAM, A, D, H  # noqa: E402
+from possession.half import AWAY, FPS, HOME, NO_TEAM, A, D, H  # noqa: E402
 
 V20 = "params/tier0_v20.json"
 TREES, RATE, DEPTH, BINS, RIDGE, MIN_LEAF = 200, 0.1, 6, 64, 1.0, 100
 TRAIN_ITEMS = ("pff:m0:native", "pff:m0", "m0", "idsse:m0")
 TRANSPLANT_ITEMS = ("pff:m0:native", "pff:m0:transplant", "m0:transplant", "idsse:m0:transplant")
 STEP = {"pff": 10, "metrica": 4, "idsse": 5}
+SOURCES = ("pff", "metrica", "idsse")
 SYNTH = ("m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2")
 GRID = [(t, s) for t in (0.03, 0.1, 0.3) for s in (0.0, 1.0, 3.0)]
 E90_GRID = [(t, k) for t in (0.1, 0.3) for k in (0.4, 0.8, 1.6)]
 E89B = "t0.3_s3"
 E93_TEMPERS = (0.1, 0.2, 0.3)
+FLOOR_GRID = [(0.3, 1, 1), *((t, p, d) for t in (0.3, 0.1) for p in (25, 50, 75, 100) for d in (1, 50))]
 CAP = 750.0
 WORKERS = int(os.environ.get("MTAH_WORKERS", "3"))
 
@@ -488,6 +490,7 @@ def all_features(h, v20_codes, touch=False, shape=False):
 # ---- data -----------------------------------------------------------------------------------------------------
 
 def _source(world):
+    """The tracker of a world key or a match id."""
     return "pff" if world.startswith("pff") else "idsse" if world.startswith("idsse") else "metrica"
 
 
@@ -536,9 +539,14 @@ def _fold_map():
     return fold
 
 
-def _v20():
+def _dev_decoder(path):
+    """The params file at PATH as dev worlds decode it (probes.dev_model: pseudo-tags and camera where it reads them)."""
     from probes import dev_model
-    return dev_model(Decoder.load(V20))
+    return dev_model(Decoder.load(path))
+
+
+def _v20():
+    return _dev_decoder(V20)
 
 
 def _switch_target(lab, k0):
@@ -554,10 +562,22 @@ def _switch_target(lab, k0):
     return out
 
 
-def rows(out, gaps="renewal", touch=False, um_blocks=None, shape_rd=False):
+def _ranked(x):
+    """E103 arm r: each column of X as its mid-rank percentile among the half's non-NaN values; NaN stays NaN."""
+    out = np.full_like(x, np.nan)
+    for j in range(x.shape[1]):
+        ok = ~np.isnan(x[:, j])
+        v = x[ok, j]
+        srt = np.sort(v)
+        out[ok, j] = (np.searchsorted(srt, v, "left") + np.searchsorted(srt, v, "right")) / (2 * max(len(v), 1))
+    return out
+
+
+def rows(out, gaps="renewal", touch=False, um_blocks=None, shape_rd=False, rank=False):
     """E89's training rows from TRAIN_ITEMS at dead_bias 2.6, seed 0 (or TRANSPLANT_ITEMS): every STEP-th graded
     frame after kickoff, with unseen_features' named UM_BLOCKS as "u" (the names as "u_blocks") when given, and
-    E97's shape columns in R's and Dm's blocks when SHAPE_RD."""
+    E97's shape columns in R's and Dm's blocks when SHAPE_RD; with RANK (E103) every column as its percentile in
+    the half (_ranked)."""
     assert touch or not shape_rd, "shape columns follow touch columns; each model reads its leading columns"
     items = {"renewal": TRAIN_ITEMS, "transplant": TRANSPLANT_ITEMS}[gaps]
     worlds = bench.dev_worlds(list(items), (2.6,), seeds=(0,))
@@ -567,20 +587,23 @@ def rows(out, gaps="renewal", touch=False, um_blocks=None, shape_rd=False):
         for c in _games(_game_cases(world, cases)):
             for h, lab in zip(c.halves, c.layout.cut(c.gt)):
                 r, d = all_features(h, v20.decode(h).codes, touch, shape_rd)
+                u = unseen_features(h, d, um_blocks) if um_blocks else None
+                if rank:
+                    r, d, u = _ranked(r), _ranked(d), None if u is None else _ranked(u)
                 k0 = h.id.kickoff
                 pick = np.arange(k0, h.n, STEP[src])
                 pick = pick[lab[pick] != 3]
                 parts.append(dict(r=r[pick], d=d[pick], lab=lab[pick], tok=h.nearest_team[pick],
                                   sw=_switch_target(lab, k0)[pick],
-                                  src=np.full(len(pick), ("pff", "metrica", "idsse").index(src), np.int8),
+                                  src=np.full(len(pick), SOURCES.index(src), np.int8),
                                   fold=np.full(len(pick), fold[h.id.match], np.int8),
-                                  **({"u": unseen_features(h, d, um_blocks)[pick]} if um_blocks else {})))
+                                  **({"u": u[pick]} if um_blocks else {})))
         print(world, sum(len(p["lab"]) for p in parts), flush=True)
     cat = {}
     for k in list(parts[0]):
         cat[k] = np.concatenate([p.pop(k) for p in parts])
     np.savez(out, **cat, **({"u_blocks": np.array(um_blocks)} if um_blocks else {}),
-             **({"shape_rd": np.array([True])} if shape_rd else {}))
+             **({"shape_rd": np.array([True])} if shape_rd else {}), **({"rank": np.array([True])} if rank else {}))
 
 
 def _weights(src, mask):
@@ -593,8 +616,12 @@ def _weights(src, mask):
 
 
 def _train(z, fold):
-    """Rows of Z outside FOLD, every row for "all"."""
-    return np.ones(len(z["lab"]), bool) if fold == "all" else z["fold"] != int(fold)
+    """Rows of Z outside FOLD: every row for "all", the other trackers' rows for "no<source>" (E100)."""
+    if fold == "all":
+        return np.ones(len(z["lab"]), bool)
+    if fold.startswith("no"):
+        return z["src"] != SOURCES.index(fold.removeprefix("no"))
+    return z["fold"] != int(fold)
 
 
 def fit(rows_path, fold, out):
@@ -613,7 +640,8 @@ def fit(rows_path, fold, out):
     shape = "shape_rd" in z.files
     np.savez(out, **rel.save("rel"), **dead.save("dead"), prior=np.array([prior]),
              touch=np.array([len(rel.edges) > len(REL_FEATURES)]),
-             **({"shape": np.array([True])} if shape else {}), **(_fit_um(z, train) if "u" in z.files else {}))
+             **({"shape": np.array([True])} if shape else {}), **({"rank": z["rank"]} if "rank" in z.files else {}),
+             **(_fit_um(z, train) if "u" in z.files else {}))
     print(f"saved {out}: D prior {prior:.4f}, {time.time() - t0:.0f} s", flush=True)
 
 
@@ -661,6 +689,7 @@ class Models:
     um: Trees | None = None
     shape: bool = False
     um_blocks: tuple | None = None
+    rank: bool = False
 
     @classmethod
     def load(cls, path):
@@ -671,7 +700,7 @@ class Models:
             blocks = tuple(z["um_blocks"].tolist()) if "um_blocks" in z.files else UM_BY_WIDTH[len(um.edges)]
             assert len(um.edges) == sum(len(UM_BLOCKS[b]) for b in blocks), "Um was fitted on other columns"
         return cls(Trees.load(z, "rel"), Trees.load(z, "dead"), float(z["prior"][0]),
-                   bool(z["touch"][0]) if "touch" in z.files else False, um, "shape" in z.files, blocks)
+                   bool(z["touch"][0]) if "touch" in z.files else False, um, "shape" in z.files, blocks, "rank" in z.files)
 
     def parts(self, h, v20_codes):
         """(q, p_dead) per frame: q = P(reference team = true team), the reference team being the token's where the
@@ -680,13 +709,16 @@ class Models:
 
     def split(self, h, r, d):
         """parts() from built feature blocks: R and Dm read the leading columns they were fitted on (_bin), Um its
-        named UM_BLOCKS."""
+        named UM_BLOCKS, each as its percentile in the half when the model was fitted on ranked rows."""
         seen = h.nearest_team != NO_TEAM
+        u = unseen_features(h, d, self.um_blocks) if self.um is not None and not seen.all() else None
+        if self.rank:
+            r, d, u = _ranked(r), _ranked(d), None if u is None else _ranked(u)
         q = np.full(h.n, np.nan)
         if seen.any():
             q[seen] = self.rel.prob(r[seen])
-        if self.um is not None and not seen.all():
-            q[~seen] = self.um.prob(unseen_features(h, d, self.um_blocks)[~seen])
+        if u is not None:
+            q[~seen] = self.um.prob(u[~seen])
         return q, self.dead.prob(d)
 
 
@@ -752,8 +784,16 @@ class Arm:
 
 
 def arm_params(name):
-    """The Arm named t<temper>_s<switch> (E89b), team_t<temper>_s<switch> (E89c), sw_t<temper>_k<scale> (E90) or
-    tt<team temper>_td<dead temper>_s<switch> (E93)."""
+    """The Arm named t<temper>_s<switch> (E89b), team_t<temper>_s<switch> (E89c), sw_t<temper>_k<scale> (E90),
+    tt<team temper>_td<dead temper>_s<switch> (E93) or map_t<temper>_p<frames>_d<frames> (E101: the decoder's MAP
+    path with hard minimum possession and D lengths, each chain mean lengthened by its floor less one frame so the
+    geometric tail after the floor keeps its hazard)."""
+    if name.startswith("map_"):
+        t, p, d = (float(v[1:]) for v in name.removeprefix("map_").split("_"))
+        base = chain_params(t, 0.0)
+        return Arm(dataclasses.replace(base, decode_rule="map", min_poss_frames=int(p), min_dead_frames=int(d),
+                                       poss_mean_s=base.poss_mean_s + (p - 1) / FPS,
+                                       dead_mean_s=base.dead_mean_s + (d - 1) / FPS))
     if name.startswith("sw_"):
         t, k = (float(v[1:]) for v in name.removeprefix("sw_").split("_"))
         return Arm(chain_params(t, 0.0), sw=k)
@@ -770,6 +810,8 @@ def arms(kind):
         return [E89B, *(f"sw_t{t:g}_k{k:g}" for t, k in E90_GRID)]
     if kind == "e93":
         return [E89B, *(f"tt{a:g}_td{b:g}_s3" for a in E93_TEMPERS for b in E93_TEMPERS)]
+    if kind == "floors":
+        return [E89B, *(f"map_t{t:g}_p{p}_d{d}" for t, p, d in FLOOR_GRID)]
     prefix = {"b": "", "c": "team_"}[kind]
     return [f"{prefix}t{t:g}_s{s:g}" for t, s in GRID]
 
@@ -826,10 +868,11 @@ def _oof_models(m0, m1):
     return {0: Models.load(m0), 1: Models.load(m1)}
 
 
-def _native_pff():
-    """(world, per-game A cases) for native PFF m0 and m2; both share the same halves."""
+def _native_pff(part="A"):
+    """(world, per-game cases) for native PFF m0 and m2, A games or with PART "B" the others; both share the same
+    halves."""
     worlds = bench.dev_worlds(["pff:m0:native", "pff:m2:native"], (2.6,), seeds=(0,))
-    return {w: _game_cases(w, c) for w, c in sorted(worlds.items(), key=lambda kv: "_m2_" in kv[0])}
+    return {w: _game_cases(w, c, part) for w, c in sorted(worlds.items(), key=lambda kv: "_m2_" in kv[0])}
 
 
 def stagea(m0, m1):
@@ -879,15 +922,13 @@ def _evidence(cases, models_for, v20, memo=None, sw_for=None):
     return out
 
 
-def _score_world(world, cases, ev, arms, rows_, per_game):
-    """Pooled and per-game spellF1 of v20 and each arm on CASES (a world list with its pooled case); EV follows the
-    halves of _games(CASES) in order."""
+def _score_world(world, cases, by_arm, rows_, per_game):
+    """Pooled and per-game spellF1 of each BY_ARM name's codes on CASES (a world list with its pooled case); each name
+    holds one code array per half of _games(CASES), in order."""
     pooled = bench.pooled(cases)
     runs = score.valid_runs(pooled.gt)
-    by_arm = {"tier0_v20": [e[3] for e in ev]}
-    for arm, spec in arms.items():
-        by_arm[arm] = [decode_arm(e, spec) for e in ev]
-    keys = [(e[0].id.match, e[0].id.half) for e in ev]
+    keys = [(h.id.match, h.id.half) for c in _games(cases) for h in c.halves]
+    game_runs = {c.name: score.valid_runs(c.gt) for c in _games(cases)}
     for arm, codes in by_arm.items():
         by_key = dict(zip(keys, codes))
         f1, n_pred = score.spell_f1(pooled.layout, pooled.gt, [by_key[(h.id.match, h.id.half)] for h in pooled.halves],
@@ -896,54 +937,95 @@ def _score_world(world, cases, ev, arms, rows_, per_game):
         for c in _games(cases):
             gc = [by_key[(h.id.match, h.id.half)] for h in c.halves]
             per_game.append({"world": world, "game": c.name, "model": arm,
-                             "spell_f1": score.spell_f1(c.layout, c.gt, gc, score.valid_runs(c.gt))[0]})
+                             "spell_f1": score.spell_f1(c.layout, c.gt, gc, game_runs[c.name])[0]})
 
 
 def _sw_models(paths):
     return {f: Trees.load(np.load(path), "sw") for f, path in enumerate(paths)}
 
 
-def _worker_init(m0, m1, sw, names, fold):
+def _arm_codes(games, memo):
+    """tier0_v20's codes and each grid arm's on GAMES' halves, from the worker's models (_evidence)."""
+    ev = _evidence(games, _W.models_for, _W.v20, memo, _W.sw_for)
+    return {"tier0_v20": [e[3] for e in ev], **{a: [decode_arm(e, spec) for e in ev] for a, spec in _W.grid.items()}}
+
+
+def _rule_codes(games, memo):
+    """Each params file's codes on GAMES' halves, tier0_v20 first; MEMO, keyed by (match, half), reuses halves that
+    native m0 and m2 share."""
+    out = {}
+    for h in (h for c in games for h in c.halves):
+        key = (h.id.match, h.id.half)
+        if key not in memo:
+            memo[key] = {n: dec.decode(h).codes for n, dec in _W.decs.items()}
+        for n, codes in memo[key].items():
+            out.setdefault(n, []).append(codes)
+    return out
+
+
+def _worker_init(models, group, sw, names):
+    """Worker state for _arm_codes: each half decoded by MODELS[GROUP[its match]], the fold model fitted without its
+    game, or with source groups (E100) the model fitted without its tracker."""
     global _W
-    oof = _oof_models(m0, m1)
+    loaded = {g: Models.load(path) for g, path in models.items()}
     swm = _sw_models(sw) if sw else None
-    _W = SimpleNamespace(v20=_v20(), grid={n: arm_params(n) for n in names},
-                         models_for=lambda h: oof[fold[h.id.match]],
-                         sw_for=(lambda h: swm[fold[h.id.match]]) if swm else None)
+    _W = SimpleNamespace(codes=_arm_codes, v20=_v20(), grid={n: arm_params(n) for n in names},
+                         models_for=lambda h: loaded[group[h.id.match]],
+                         sw_for=(lambda h: swm[group[h.id.match]]) if swm else None)
+
+
+def _rules_init(paths):
+    """Worker state for _rule_codes: tier0_v20 and each params file in PATHS, decoded as on dev."""
+    global _W
+    _W = SimpleNamespace(codes=_rule_codes,
+                         decs={"tier0_v20": _v20(), **{Path(p).stem: _dev_decoder(p) for p in paths}})
 
 
 def _score_task(task):
-    """One unit of a stage's OOF scoring: ("native",) for native PFF-A m0 and m2, which share each half's evidence, or
-    (item, dead_bias, seeds, mode) for one bench.dev_worlds call. (rows, per-game rows) in world order."""
+    """One unit of a stage's scoring, (rows, per-game rows) in world order: ("native",) for native PFF-A m0 and m2,
+    which share each half's codes, ("native", "B") for their B games (worlds suffixed _pffb; no fold model holds
+    them out, so only _rule_codes reads them), or (item, dead_bias, seeds, mode) for one bench.dev_worlds call."""
     rows_, per_game, memo = [], [], {}
-    native = task == ("native",)
-    worlds = _native_pff() if native else bench.dev_worlds([task[0]], task[1], seeds=task[2], mode=task[3])
+    native = task[0] == "native"
+    if native:
+        worlds = {w + "_pffb" * (task[1:] == ("B",)): c for w, c in _native_pff(*task[1:]).items()}
+    else:
+        worlds = {w: _game_cases(w, c)
+                  for w, c in bench.dev_worlds([task[0]], task[1], seeds=task[2], mode=task[3]).items()}
     for world, cases in worlds.items():
-        cases = cases if native else _game_cases(world, cases)
-        ev = _evidence(_games(cases), _W.models_for, _W.v20, memo if native else None, _W.sw_for)
-        _score_world(world, cases, ev, _W.grid, rows_, per_game)
+        _score_world(world, cases, _W.codes(_games(cases), memo if native else {}), rows_, per_game)
         print(world, flush=True)
     return rows_, per_game
 
 
-def _run_tasks(tasks, m0, m1, sw, names):
-    """_score_task over TASKS on up to WORKERS spawned processes, results joined in task order, so the rows match a
-    serial run's exactly."""
-    args = (m0, m1, sw, tuple(names), _fold_map())
+def _run_tasks(tasks, init, args):
+    """_score_task over TASKS after INIT(*ARGS), on up to WORKERS spawned processes. The PFF tasks, the longest, start
+    first; results are joined in task order, so the rows match a serial run's exactly."""
     if WORKERS <= 1:
-        _worker_init(*args)
+        init(*args)
         results = [_score_task(t) for t in tasks]
     else:
-        with multiprocessing.get_context("spawn").Pool(min(WORKERS, len(tasks)), _worker_init, args) as pool:
-            results = pool.map(_score_task, tasks, chunksize=1)
+        order = sorted(range(len(tasks)), key=lambda i: not str(tasks[i][0]).startswith(("native", "pff")))
+        with multiprocessing.get_context("spawn").Pool(min(WORKERS, len(tasks)), init, args) as pool:
+            done = dict(zip(order, pool.map(_score_task, [tasks[i] for i in order], chunksize=1)))
+        results = [done[i] for i in range(len(tasks))]
     return [r for rs, _ in results for r in rs], [g for _, gs in results for g in gs]
 
 
-def stageb(m0, m1, m_all, out, kind="b", sw=None):
-    tasks = [("native",)] + [(item, (rho,), (0, 1, 2), "renewal") for item in SYNTH for rho in (1.0, 2.6, 4.0)]
-    rows_, per_game = _run_tasks(tasks, m0, m1, sw, arms(kind))
-    pd.DataFrame(rows_).to_csv(out, index=False)
+def _save(out, rows_, per_game):
+    """A stage's rows written to OUT, its per-game rows beside it (-games.csv); the rows as a DataFrame."""
+    t = pd.DataFrame(rows_)
+    t.to_csv(out, index=False)
     pd.DataFrame(per_game).to_csv(str(out).replace(".csv", "-games.csv"), index=False)
+    return t
+
+
+def _stageb_tasks():
+    """Stage B's worlds: native PFF-A and SYNTH's renewal worlds at dead_bias 1, 2.6 and 4, seeds 0 to 2."""
+    return [("native",)] + [(item, (rho,), (0, 1, 2), "renewal") for item in SYNTH for rho in (1.0, 2.6, 4.0)]
+
+def stageb(m0, m1, m_all, out, kind="b", sw=None):
+    _save(out, *_run_tasks(_stageb_tasks(), _worker_init, ({0: m0, 1: m1}, _fold_map(), sw, tuple(arms(kind)))))
     pick_b(out, "tier0_v20" if kind in ("b", "c") else E89B)
 
 
@@ -982,16 +1064,17 @@ def merge_pick(new, base, out):
 INFO_ITEMS = {"transplant": ((*SYNTH, "pff:m0"), (0, 1, 2)), "bridged": (("pff:m0", "pff:m2"), (0,))}
 
 
+def _info_tasks(gaps):
+    items, seeds = INFO_ITEMS[gaps]
+    return [(item, (2.6,), seeds, gaps) for item in items]
+
+
 def transplant(m0, m1, out, gaps="transplant"):
     """Every E89b and E89c arm against tier0_v20, OOF, on transplant worlds (a seeded cyclic window of BAR-ATH's real
     ball mask that carries no labelled D edge) for the five synthetic groups and PFF-A m0, seeds 0 to 2, or with
     GAPS "bridged" on native PFF-A m0 and m2 with every gap under BRIDGE_FRAMES counted as seen."""
-    items, seeds = INFO_ITEMS[gaps]
-    tasks = [(item, (2.6,), seeds, gaps) for item in items]
-    rows_, per_game = _run_tasks(tasks, m0, m1, None, [*arms("b"), *arms("c")])
-    t = pd.DataFrame(rows_)
-    t.to_csv(out, index=False)
-    pd.DataFrame(per_game).to_csv(str(out).replace(".csv", "-games.csv"), index=False)
+    t = _save(out, *_run_tasks(_info_tasks(gaps), _worker_init,
+                               ({0: m0, 1: m1}, _fold_map(), None, (*arms("b"), *arms("c")))))
     t["group"] = t.world.map(bench.group)
     base = t[t.model == "tier0_v20"].set_index("world").spell_f1
     t["margin"] = t.spell_f1 - t.world.map(base)
@@ -1001,6 +1084,24 @@ def transplant(m0, m1, out, gaps="transplant"):
 
 CODEX_COHORT = ("dev_g3", "dev_J03WOY", "dev_J03WPY", "dev_J03WQQ", "dev_J03WR9")
 
+
+def _loso_tasks():
+    """E100's worlds: stage B's and the transplant worlds."""
+    return [*_stageb_tasks(), *_info_tasks("transplant")]
+
+
+def loso(nopff, nometrica, noidsse, out):
+    """E100: every b arm and tier0_v20 on _loso_tasks' worlds, each half decoded by the model fitted without its
+    tracker's rows (fit --fold no<source>)."""
+    group = {m: _source(m) for m in _fold_map()}
+    _save(out, *_run_tasks(_loso_tasks(), _worker_init,
+                           (dict(zip(SOURCES, (nopff, nometrica, noidsse))), group, None, tuple(arms("b")))))
+
+
+def rulefiles(out, *paths):
+    """Rule v3's comparators (E100 gate 5): tier0_v20 and each params file in PATHS on _loso_tasks' worlds and PFF-B,
+    decoded as on dev (_dev_decoder)."""
+    _save(out, *_run_tasks([*_loso_tasks(), ("native", "B")], _rules_init, (paths,)))
 
 def cohort(m0, m1, out, arm_names):
     """OOF per-game spellF1 of tier0_v20 and ARM_NAMES on the games Codex holds out of its training (Metrica g3 and
@@ -1077,25 +1178,28 @@ def e90check(m_all):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("stage", choices=("selftest", "rows", "fit", "fitsw", "fitum", "compose", "e90check", "stagea", "stageb", "stagec",
-                                      "pickb", "transplant", "cohort", "mergepick"))
+                                      "pickb", "transplant", "cohort", "mergepick", "loso",
+                                      "rulefiles"))
     ap.add_argument("paths", nargs="*")
     ap.add_argument("--out")
     ap.add_argument("--fold", default="all")
     ap.add_argument("--arm", action="append", default=[])
-    ap.add_argument("--arms", choices=("b", "c", "e90", "e93"), default="b")
+    ap.add_argument("--arms", choices=("b", "c", "e90", "e93", "floors"), default="b")
     ap.add_argument("--sw", nargs="+")
     ap.add_argument("--touch", action="store_true")
     ap.add_argument("--unseen", action="store_true")
     ap.add_argument("--shape-parts", action="store_true")
     ap.add_argument("--shape-rd", action="store_true")
+    ap.add_argument("--rank", action="store_true")
     ap.add_argument("--trees", type=int, default=TREES)
     ap.add_argument("--um-alive", action="store_true")
     ap.add_argument("--gaps", choices=("renewal", "transplant", "bridged"), default=None)
     a = ap.parse_args()
     {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal", a.touch,
-                         (("base", "parts") if a.shape_parts else ("base",)) if a.unseen else None, a.shape_rd), "fit": lambda: fit(a.paths[0], a.fold, a.out),
+                         (("base", "parts") if a.shape_parts else ("base",)) if a.unseen else None, a.shape_rd, a.rank), "fit": lambda: fit(a.paths[0], a.fold, a.out),
      "fitsw": lambda: fit_switch(a.paths[0], a.fold, a.out), "compose": lambda: compose(a.out, *a.paths), "fitum": lambda: fit_unseen(a.paths[0], a.fold, a.paths[1], a.out, a.trees, a.um_alive), "e90check": lambda: e90check(*a.paths),
      "stagea": lambda: stagea(*a.paths), "stageb": lambda: stageb(*a.paths, a.out, a.arms, a.sw),
      "stagec": lambda: stagec(*a.paths, a.sw[0] if a.sw else None, a.out), "pickb": lambda: pick_b(a.paths[0]),
      "transplant": lambda: transplant(*a.paths, a.out, a.gaps or "transplant"),
-     "cohort": lambda: cohort(*a.paths, a.out, a.arm), "mergepick": lambda: merge_pick(*a.paths, a.out)}[a.stage]()
+     "cohort": lambda: cohort(*a.paths, a.out, a.arm), "mergepick": lambda: merge_pick(*a.paths, a.out),
+     "loso": lambda: loso(*a.paths, a.out), "rulefiles": lambda: rulefiles(a.out, *a.paths)}[a.stage]()
