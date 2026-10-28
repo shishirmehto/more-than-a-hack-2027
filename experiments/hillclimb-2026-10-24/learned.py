@@ -562,22 +562,10 @@ def _switch_target(lab, k0):
     return out
 
 
-def _ranked(x):
-    """E103 arm r: each column of X as its mid-rank percentile among the half's non-NaN values; NaN stays NaN."""
-    out = np.full_like(x, np.nan)
-    for j in range(x.shape[1]):
-        ok = ~np.isnan(x[:, j])
-        v = x[ok, j]
-        srt = np.sort(v)
-        out[ok, j] = (np.searchsorted(srt, v, "left") + np.searchsorted(srt, v, "right")) / (2 * max(len(v), 1))
-    return out
-
-
-def rows(out, gaps="renewal", touch=False, um_blocks=None, shape_rd=False, rank=False):
+def rows(out, gaps="renewal", touch=False, um_blocks=None, shape_rd=False):
     """E89's training rows from TRAIN_ITEMS at dead_bias 2.6, seed 0 (or TRANSPLANT_ITEMS): every STEP-th graded
     frame after kickoff, with unseen_features' named UM_BLOCKS as "u" (the names as "u_blocks") when given, and
-    E97's shape columns in R's and Dm's blocks when SHAPE_RD; with RANK (E103) every column as its percentile in
-    the half (_ranked)."""
+    E97's shape columns in R's and Dm's blocks when SHAPE_RD."""
     assert touch or not shape_rd, "shape columns follow touch columns; each model reads its leading columns"
     items = {"renewal": TRAIN_ITEMS, "transplant": TRANSPLANT_ITEMS}[gaps]
     worlds = bench.dev_worlds(list(items), (2.6,), seeds=(0,))
@@ -587,9 +575,6 @@ def rows(out, gaps="renewal", touch=False, um_blocks=None, shape_rd=False, rank=
         for c in _games(_game_cases(world, cases)):
             for h, lab in zip(c.halves, c.layout.cut(c.gt)):
                 r, d = all_features(h, v20.decode(h).codes, touch, shape_rd)
-                u = unseen_features(h, d, um_blocks) if um_blocks else None
-                if rank:
-                    r, d, u = _ranked(r), _ranked(d), None if u is None else _ranked(u)
                 k0 = h.id.kickoff
                 pick = np.arange(k0, h.n, STEP[src])
                 pick = pick[lab[pick] != 3]
@@ -597,13 +582,13 @@ def rows(out, gaps="renewal", touch=False, um_blocks=None, shape_rd=False, rank=
                                   sw=_switch_target(lab, k0)[pick],
                                   src=np.full(len(pick), SOURCES.index(src), np.int8),
                                   fold=np.full(len(pick), fold[h.id.match], np.int8),
-                                  **({"u": u[pick]} if um_blocks else {})))
+                                  **({"u": unseen_features(h, d, um_blocks)[pick]} if um_blocks else {})))
         print(world, sum(len(p["lab"]) for p in parts), flush=True)
     cat = {}
     for k in list(parts[0]):
         cat[k] = np.concatenate([p.pop(k) for p in parts])
     np.savez(out, **cat, **({"u_blocks": np.array(um_blocks)} if um_blocks else {}),
-             **({"shape_rd": np.array([True])} if shape_rd else {}), **({"rank": np.array([True])} if rank else {}))
+             **({"shape_rd": np.array([True])} if shape_rd else {}))
 
 
 def _weights(src, mask):
@@ -640,8 +625,7 @@ def fit(rows_path, fold, out):
     shape = "shape_rd" in z.files
     np.savez(out, **rel.save("rel"), **dead.save("dead"), prior=np.array([prior]),
              touch=np.array([len(rel.edges) > len(REL_FEATURES)]),
-             **({"shape": np.array([True])} if shape else {}), **({"rank": z["rank"]} if "rank" in z.files else {}),
-             **(_fit_um(z, train) if "u" in z.files else {}))
+             **({"shape": np.array([True])} if shape else {}), **(_fit_um(z, train) if "u" in z.files else {}))
     print(f"saved {out}: D prior {prior:.4f}, {time.time() - t0:.0f} s", flush=True)
 
 
@@ -689,7 +673,6 @@ class Models:
     um: Trees | None = None
     shape: bool = False
     um_blocks: tuple | None = None
-    rank: bool = False
 
     @classmethod
     def load(cls, path):
@@ -700,7 +683,7 @@ class Models:
             blocks = tuple(z["um_blocks"].tolist()) if "um_blocks" in z.files else UM_BY_WIDTH[len(um.edges)]
             assert len(um.edges) == sum(len(UM_BLOCKS[b]) for b in blocks), "Um was fitted on other columns"
         return cls(Trees.load(z, "rel"), Trees.load(z, "dead"), float(z["prior"][0]),
-                   bool(z["touch"][0]) if "touch" in z.files else False, um, "shape" in z.files, blocks, "rank" in z.files)
+                   bool(z["touch"][0]) if "touch" in z.files else False, um, "shape" in z.files, blocks)
 
     def parts(self, h, v20_codes):
         """(q, p_dead) per frame: q = P(reference team = true team), the reference team being the token's where the
@@ -709,16 +692,13 @@ class Models:
 
     def split(self, h, r, d):
         """parts() from built feature blocks: R and Dm read the leading columns they were fitted on (_bin), Um its
-        named UM_BLOCKS, each as its percentile in the half when the model was fitted on ranked rows."""
+        named UM_BLOCKS."""
         seen = h.nearest_team != NO_TEAM
-        u = unseen_features(h, d, self.um_blocks) if self.um is not None and not seen.all() else None
-        if self.rank:
-            r, d, u = _ranked(r), _ranked(d), None if u is None else _ranked(u)
         q = np.full(h.n, np.nan)
         if seen.any():
             q[seen] = self.rel.prob(r[seen])
-        if u is not None:
-            q[~seen] = self.um.prob(u[~seen])
+        if self.um is not None and not seen.all():
+            q[~seen] = self.um.prob(unseen_features(h, d, self.um_blocks)[~seen])
         return q, self.dead.prob(d)
 
 
@@ -1190,13 +1170,12 @@ if __name__ == "__main__":
     ap.add_argument("--unseen", action="store_true")
     ap.add_argument("--shape-parts", action="store_true")
     ap.add_argument("--shape-rd", action="store_true")
-    ap.add_argument("--rank", action="store_true")
     ap.add_argument("--trees", type=int, default=TREES)
     ap.add_argument("--um-alive", action="store_true")
     ap.add_argument("--gaps", choices=("renewal", "transplant", "bridged"), default=None)
     a = ap.parse_args()
     {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal", a.touch,
-                         (("base", "parts") if a.shape_parts else ("base",)) if a.unseen else None, a.shape_rd, a.rank), "fit": lambda: fit(a.paths[0], a.fold, a.out),
+                         (("base", "parts") if a.shape_parts else ("base",)) if a.unseen else None, a.shape_rd), "fit": lambda: fit(a.paths[0], a.fold, a.out),
      "fitsw": lambda: fit_switch(a.paths[0], a.fold, a.out), "compose": lambda: compose(a.out, *a.paths), "fitum": lambda: fit_unseen(a.paths[0], a.fold, a.paths[1], a.out, a.trees, a.um_alive), "e90check": lambda: e90check(*a.paths),
      "stagea": lambda: stagea(*a.paths), "stageb": lambda: stageb(*a.paths, a.out, a.arms, a.sw),
      "stagec": lambda: stagec(*a.paths, a.sw[0] if a.sw else None, a.out), "pickb": lambda: pick_b(a.paths[0]),
