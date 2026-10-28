@@ -39,7 +39,6 @@ _PACE_STEP = 12
 _SHAPE_W = (0.0453, -0.0656, 0.0253, 0.0926, 0.15, 0.2108)
 _SHAPE_MIN_PLAYERS, _SHAPE_CAP = 8, 10.0
 _PRESS_K, _PRESS_MIN_M = 3, 1.0
-_BALL_NEAR_M, _RUN_MPS, _BALL_MARGIN_CAP_M, _CV_OFF_PITCH_M, _CV_MIN_SPREAD = 10.0, 1.5, 30.0, 5.0, 0.01
 
 _NORM_LIMIT = 2.0
 # The broadcast ATD's mapping onto tactical rows (E83): generic geometric tolerances, set once from the exploring
@@ -254,55 +253,6 @@ def _team_shape(g: Geometry, kickoff: int) -> tuple[NDArray[np.float32], NDArray
             np.concatenate(out, axis=1).astype(np.float32))
 
 
-def _ball_estimates(g: Geometry, kickoff: int) -> NDArray[np.float32]:
-    """Half.ball_est, float32 [n, 11]. Three guesses at where the ball is on each frame: on the line from its last
-    seen position to its next one at the frame's place in the gap (bi; the ball itself where seen), those two
-    positions held (bl, bn), and the least-squares point nearest every running player's line of motion (cv; each
-    player's velocity from frames t-12 and t+12, weighted by speed; NaN when the lines are close to parallel or the
-    point is off the pitch). Columns: bi margin, near, adv; bl margin; bn margin; bl adv; bn adv; cv margin, near,
-    adv; the distance from cv to bi. Margin is the away team's nearest player distance minus the home team's, capped
-    at 30 m; near is home minus away players within 10 m; adv is x from halfway toward the goal home attacks."""
-    n, ball, xy = g.n, g.ball_xy.astype(np.float64), g.players_xy.astype(np.float64)
-    home, (length, width) = g.slot_team == HOME, g.pitch_m
-    sign = _attack_signs(g, kickoff)[HOME] or np.nan
-    seen = ~np.isnan(ball[:, 0])
-    t = np.arange(n)
-    a = np.maximum.accumulate(np.where(seen, t, -1))
-    b = np.minimum.accumulate(np.where(seen, t, n)[::-1])[::-1]
-    pa = np.where((a >= 0)[:, None], ball[np.maximum(a, 0)], np.nan)
-    pb = np.where((b < n)[:, None], ball[np.minimum(b, n - 1)], np.nan)
-    f = ((t - a) / np.maximum(b - a, 1))[:, None]
-    bi = np.where(np.isnan(pa), pb, np.where(np.isnan(pb), pa, pa + f * (pb - pa)))
-
-    k = _PACE_STEP
-    v = np.full_like(xy, np.nan)
-    v[k:n - k] = (xy[2 * k:] - xy[:n - 2 * k]) / (2 * k) * FPS
-    with np.errstate(invalid="ignore", divide="ignore"):
-        speed = np.hypot(v[..., 0], v[..., 1])
-        run = speed > _RUN_MPS
-        w = np.where(run, speed, 0.0)
-        ux, uy = np.where(run, v[..., 0] / speed, 0.0), np.where(run, v[..., 1] / speed, 0.0)
-        px, py = np.where(run, xy[..., 0], 0.0), np.where(run, xy[..., 1], 0.0)
-        m11, m22, m12 = (w * (1 - ux ** 2)).sum(1), (w * (1 - uy ** 2)).sum(1), -(w * ux * uy).sum(1)
-        c1, c2 = (w * ((1 - ux ** 2) * px - ux * uy * py)).sum(1), (w * ((1 - uy ** 2) * py - ux * uy * px)).sum(1)
-        det = m11 * m22 - m12 ** 2
-        cv = np.stack([(m22 * c1 - m12 * c2) / det, (m11 * c2 - m12 * c1) / det], 1)
-        on = ((det > _CV_MIN_SPREAD * w.sum(1) ** 2) & (np.abs(cv[:, 0] - length / 2) < length / 2 + _CV_OFF_PITCH_M)
-              & (np.abs(cv[:, 1] - width / 2) < width / 2 + _CV_OFF_PITCH_M))
-    cv[~on] = np.nan
-
-    def at(p):
-        d = np.hypot(xy[..., 0] - p[:, None, 0], xy[..., 1] - p[:, None, 1])
-        dh, da = d[:, home], d[:, ~home]
-        with np.errstate(invalid="ignore"):
-            margin = np.clip(np.fmin.reduce(da, 1) - np.fmin.reduce(dh, 1), -_BALL_MARGIN_CAP_M, _BALL_MARGIN_CAP_M)
-            near = np.where(np.isnan(p[:, 0]), np.nan, (dh < _BALL_NEAR_M).sum(1) - (da < _BALL_NEAR_M).sum(1))
-        return margin, near, sign * (p[:, 0] - length / 2)
-
-    (bim, bin_, bia), (blm, _, bla), (bnm, _, bna), (cvm, cvn, cva) = at(bi), at(pa), at(pb), at(cv)
-    return np.stack([bim, bin_, bia, blm, bnm, bla, bna, cvm, cvn, cva, np.hypot(*(cv - bi).T)], 1).astype(np.float32)
-
-
 def _gap_return(ball: NDArray[np.float64]) -> NDArray[np.float32]:
     """float32 [n]: on each frame of a ball gap that has a seen ball on both sides, the distance in metres
     between the last seen ball before the gap and the first seen ball after it; NaN elsewhere."""
@@ -347,8 +297,7 @@ def observe(g: Geometry, id: HalfId) -> Half:
     shape_lo, shape_parts = _team_shape(g, id.kickoff)
     return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
                 push_mps=_team_push(g, id.kickoff), shape_lo=shape_lo,
-                return_m=_gap_return(g.ball_xy.astype(np.float64)), press_mps=_team_press(g), shape_parts=shape_parts,
-                ball_est=_ball_estimates(g, id.kickoff))
+                return_m=_gap_return(g.ball_xy.astype(np.float64)), press_mps=_team_press(g), shape_parts=shape_parts)
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",
