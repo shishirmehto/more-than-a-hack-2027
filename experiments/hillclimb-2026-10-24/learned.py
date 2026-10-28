@@ -64,6 +64,7 @@ SYNTH = ("m0", "h1p3", "h3p3", "idsse:m0", "idsse:m2")
 GRID = [(t, s) for t in (0.03, 0.1, 0.3) for s in (0.0, 1.0, 3.0)]
 E90_GRID = [(t, k) for t in (0.1, 0.3) for k in (0.4, 0.8, 1.6)]
 E89B = "t0.3_s3"
+E93_TEMPERS = (0.1, 0.2, 0.3)
 CAP = 750.0
 WORKERS = int(os.environ.get("MTAH_WORKERS", "3"))
 
@@ -408,6 +409,25 @@ def touch_features(h):
     return r, np.column_stack([free[k] for k in TOUCH_FREE])
 
 
+UNSEEN_FEATURES = ("push", "push25p", "push25f", "push75p", "push75f", "push250p", "push250f", "shape", "shape25p",
+                   "shape25f", "shape75p", "shape75f", "shape250p", "shape250f", "pace", "pace25p", "pace25f",
+                   "since_seen", "until_seen", "gap", "out_last", "out_next", "line_last", "line_next")
+
+
+def unseen_features(h, d):
+    """E92's [n, len(UNSEEN_FEATURES)] for half H, label-free: home-minus-away team push and shape with their past
+    and future means, plus the pace and ball-gap columns of its DEAD matrix D. No token enters, so on a frame where
+    the ball is unseen this is evidence the chain does not already carry."""
+    u = {k: d[:, DEAD_FEATURES.index(k)] for k in UNSEEN_FEATURES if k in DEAD_FEATURES}
+    for name, x in (("push", _opt(h.push_mps, h.n)), ("shape", _opt(h.shape_lo, h.n))):
+        ok = np.isfinite(x)
+        cx, cn = _csum(np.where(ok, x, 0.0)), _csum(ok.astype(float))
+        u[name] = x
+        for w in (25, 75, 250):
+            u[f"{name}{w}p"], u[f"{name}{w}f"] = _share(_past(cx, w), _past(cn, w)), _share(_fut(cx, w), _fut(cn, w))
+    return np.column_stack([u[k] for k in UNSEEN_FEATURES])
+
+
 def all_features(h, v20_codes, touch=False):
     """features(), with E91's touch columns appended to REL and DEAD when TOUCH."""
     r, d = features(h, v20_codes)
@@ -486,9 +506,9 @@ def _switch_target(lab, k0):
     return out
 
 
-def rows(out, gaps="renewal", touch=False):
+def rows(out, gaps="renewal", touch=False, unseen=False):
     """E89's training rows from TRAIN_ITEMS at dead_bias 2.6, seed 0 (or TRANSPLANT_ITEMS): every STEP-th graded
-    frame after kickoff."""
+    frame after kickoff, with E92's unseen_features as "u" when UNSEEN."""
     items = {"renewal": TRAIN_ITEMS, "transplant": TRANSPLANT_ITEMS}[gaps]
     worlds = bench.dev_worlds(list(items), (2.6,), seeds=(0,))
     fold, v20, parts = folds(worlds), _v20(), []
@@ -503,7 +523,8 @@ def rows(out, gaps="renewal", touch=False):
                 parts.append(dict(r=r[pick], d=d[pick], lab=lab[pick], tok=h.nearest_team[pick],
                                   sw=_switch_target(lab, k0)[pick],
                                   src=np.full(len(pick), ("pff", "metrica", "idsse").index(src), np.int8),
-                                  fold=np.full(len(pick), fold[h.id.match], np.int8)))
+                                  fold=np.full(len(pick), fold[h.id.match], np.int8),
+                                  **({"u": unseen_features(h, d)[pick]} if unseen else {})))
         print(world, sum(len(p["lab"]) for p in parts), flush=True)
     np.savez(out, **{k: np.concatenate([p[k] for p in parts]) for k in parts[0]})
 
@@ -517,9 +538,14 @@ def _weights(src, mask):
     return w * mask.sum() / w.sum()
 
 
+def _train(z, fold):
+    """Rows of Z outside FOLD, every row for "all"."""
+    return np.ones(len(z["lab"]), bool) if fold == "all" else z["fold"] != int(fold)
+
+
 def fit(rows_path, fold, out):
     z = np.load(rows_path)
-    train = np.ones(len(z["lab"]), bool) if fold == "all" else z["fold"] != int(fold)
+    train = _train(z, fold)
     alive = train & (z["lab"] != D) & (z["tok"] != NO_TEAM)
     t0 = time.time()
     print(f"R on {alive.sum()} seen alive rows", flush=True)
@@ -531,14 +557,33 @@ def fit(rows_path, fold, out):
     dead = fit_trees(z["d"][train], y, w[train], log=print)
     prior = float((w[train] * y).sum() / w[train].sum())
     np.savez(out, **rel.save("rel"), **dead.save("dead"), prior=np.array([prior]),
-             touch=np.array([z["r"].shape[1] > len(REL_FEATURES)]))
+             touch=np.array([z["r"].shape[1] > len(REL_FEATURES)]), **(_fit_um(z, train) if "u" in z.files else {}))
     print(f"saved {out}: D prior {prior:.4f}, {time.time() - t0:.0f} s", flush=True)
+
+
+def _fit_um(z, train, trees=TREES, alive=False):
+    """E92's Um on the unseen alive rows in TRAIN, or with ALIVE (E95) on every alive row: P(H) from the "u"
+    columns."""
+    rows_ = train & (z["lab"] != D) & (alive | (z["tok"] == NO_TEAM))
+    print(f"Um on {rows_.sum()} {'' if alive else 'unseen '}alive rows, {trees} trees", flush=True)
+    return fit_trees(z["u"][rows_], (z["lab"][rows_] == H).astype(float), _weights(z["src"], rows_)[rows_],
+                     trees=trees, log=print).save("um")
+
+
+def fit_unseen(rows_path, fold, base, out, trees, alive=False):
+    """fit() on rows with "u", built from BASE, fit()'s file for the same rows without "u": R and Dm see identical
+    arrays and the learner is deterministic, so only Um is fitted and BASE's arrays are copied."""
+    z = np.load(rows_path)
+    train = _train(z, fold)
+    b = np.load(base)
+    np.savez(out, **{**{k: b[k] for k in b.files}, **_fit_um(z, train, trees, alive)})
+    print(f"saved {out}", flush=True)
 
 
 def fit_switch(rows_path, fold, out):
     """E90's Sw on the alive rows outside FOLD, from R's and Dm's features side by side."""
     z = np.load(rows_path)
-    train = np.ones(len(z["lab"]), bool) if fold == "all" else z["fold"] != int(fold)
+    train = _train(z, fold)
     alive = train & (z["lab"] != D)
     t0 = time.time()
     print(f"Sw on {alive.sum()} alive rows, {z['sw'][alive].mean():.4f} near a change", flush=True)
@@ -556,15 +601,18 @@ class Models:
     dead: Trees
     prior: float
     touch: bool = False
+    um: Trees | None = None
 
     @classmethod
     def load(cls, path):
         z = np.load(path)
         return cls(Trees.load(z, "rel"), Trees.load(z, "dead"), float(z["prior"][0]),
-                   bool(z["touch"][0]) if "touch" in z.files else False)
+                   bool(z["touch"][0]) if "touch" in z.files else False,
+                   Trees.load(z, "um") if "um_feat" in z.files else None)
 
     def parts(self, h, v20_codes):
-        """(q, p_dead) per frame: q = P(token team = true team) where the ball is seen (NaN elsewhere)."""
+        """(q, p_dead) per frame: q = P(reference team = true team), the reference team being the token's where the
+        ball is seen and HOME where it is unseen (E92's Um; NaN there without Um)."""
         return self.split(h, *all_features(h, v20_codes, self.touch))
 
     def split(self, h, r, d):
@@ -572,16 +620,19 @@ class Models:
         q = np.full(h.n, np.nan)
         if seen.any():
             q[seen] = self.rel.prob(r[seen])
+        if self.um is not None and not seen.all():
+            q[~seen] = self.um.prob(unseen_features(h, d)[~seen])
         return q, self.dead.prob(d)
 
 
 def loglik(h, q, p_dead, prior):
     """Scaled likelihoods [n, 3]: D gets log p_dead - log prior, each team log(1 - p_dead) - log(1 - prior) plus
-    the log of its share of the alive mass (q or 1 - q by the token on seen frames, 1/2 elsewhere) over 1/2."""
+    the log of its share of the alive mass over 1/2: q for the reference team (the token's, HOME where the ball is
+    unseen), 1 - q for the other, 1/2 where q is NaN."""
     tok = h.nearest_team
     pd_ = np.clip(p_dead, 1e-4, 1 - 1e-4)
     qq = np.clip(np.where(np.isnan(q), 0.5, q), 1e-3, 1 - 1e-3)
-    ph = np.where(tok == HOME, qq, np.where(tok == AWAY, 1 - qq, 0.5))
+    ph = np.where(tok == AWAY, 1 - qq, qq)
     alive = np.log1p(-pd_) - np.log1p(-prior)
     out = np.empty((h.n, 3))
     out[:, H] = alive + np.log(ph) - np.log(0.5)
@@ -616,21 +667,36 @@ def team_params(temper, switch):
     return dataclasses.replace(chain_params(temper, switch), **{k: getattr(v20, k) for k in TEAM_RULES})
 
 
+@dataclasses.dataclass(frozen=True)
+class Arm:
+    """A decode arm: chain PARAMS, E90's learned switch costs at scale SW in place of switch_penalty (0 is off), and
+    E93's team evidence weighted TEAM times the dead-ball evidence (1 is off)."""
+    params: object
+    sw: float = 0.0
+    team: float = 1.0
+
+
 def arm_params(name):
-    """Params of a grid arm named t<temper>_s<switch> (E89b) or team_t<temper>_s<switch> (E89c), or for
-    sw_t<temper>_k<scale> (E90) the pair (params, scale)."""
+    """The Arm named t<temper>_s<switch> (E89b), team_t<temper>_s<switch> (E89c), sw_t<temper>_k<scale> (E90) or
+    tt<team temper>_td<dead temper>_s<switch> (E93)."""
     if name.startswith("sw_"):
         t, k = (float(v[1:]) for v in name.removeprefix("sw_").split("_"))
-        return chain_params(t, 0.0), k
+        return Arm(chain_params(t, 0.0), sw=k)
+    if name.startswith("tt"):
+        a, b, s = (float(v.lstrip("tds")) for v in name.split("_"))
+        return Arm(chain_params(b, s), team=a / b)
     t, s = (float(v[1:]) for v in name.removeprefix("team_").split("_"))
-    return (team_params if name.startswith("team_") else chain_params)(t, s)
+    return Arm((team_params if name.startswith("team_") else chain_params)(t, s))
 
 
 def arms(kind):
+    """Arm names of a stage grid; arm_params builds each Arm where it is decoded."""
     if kind == "e90":
-        return {name: arm_params(name) for name in (E89B, *(f"sw_t{t:g}_k{k:g}" for t, k in E90_GRID))}
+        return [E89B, *(f"sw_t{t:g}_k{k:g}" for t, k in E90_GRID)]
+    if kind == "e93":
+        return [E89B, *(f"tt{a:g}_td{b:g}_s3" for a in E93_TEMPERS for b in E93_TEMPERS)]
     prefix = {"b": "", "c": "team_"}[kind]
-    return {name: arm_params(name) for name in (f"{prefix}t{t:g}_s{s:g}" for t, s in GRID)}
+    return [f"{prefix}t{t:g}_s{s:g}" for t, s in GRID]
 
 
 def decode(h, ev, params):
@@ -660,12 +726,23 @@ def decode_costs(h, ev, params, lam):
     return codes
 
 
+def team_scaled(x, team):
+    """E93: log-likelihoods X with the team share tempered, ph' proportional to ph ** TEAM, and the alive total
+    log(e^H + e^A) and the D column left alone. ph's logit is X's H column minus its A column."""
+    x = x.astype(np.float64)
+    d, alive = x[:, H] - x[:, A], np.logaddexp(x[:, H], x[:, A])
+    x[:, H], x[:, A] = alive - np.logaddexp(0, -team * d), alive - np.logaddexp(0, team * d)
+    return x.astype(np.float32)
+
+
 def decode_arm(e, spec):
-    """Codes of one arm on one _evidence entry E = (half, labels, log-likelihoods, v20 codes, Sw hazard)."""
+    """Codes of one Arm on one _evidence entry E = (half, labels, log-likelihoods, v20 codes, Sw hazard)."""
     h, _, x, _, hz = e
-    if isinstance(spec, tuple):
-        return decode_costs(h, x, spec[0], switch_costs(h, hz, spec[0].stride, spec[1]))
-    return decode(h, x, spec)
+    if spec.team != 1.0:
+        x = team_scaled(x, spec.team)
+    if spec.sw:
+        return decode_costs(h, x, spec.params, switch_costs(h, hz, spec.params.stride, spec.sw))
+    return decode(h, x, spec.params)
 
 
 # ---- stages ---------------------------------------------------------------------------------------------------
@@ -788,7 +865,7 @@ def stageb(m0, m1, m_all, out, kind="b", sw=None):
     rows_, per_game = _run_tasks(tasks, m0, m1, sw, arms(kind))
     pd.DataFrame(rows_).to_csv(out, index=False)
     pd.DataFrame(per_game).to_csv(str(out).replace(".csv", "-games.csv"), index=False)
-    pick_b(out, E89B if kind == "e90" else "tier0_v20")
+    pick_b(out, "tier0_v20" if kind in ("b", "c") else E89B)
 
 
 def pick_b(out, ref="tier0_v20"):
@@ -920,19 +997,22 @@ def e90check(m_all):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=("selftest", "rows", "fit", "fitsw", "e90check", "stagea", "stageb", "stagec",
+    ap.add_argument("stage", choices=("selftest", "rows", "fit", "fitsw", "fitum", "e90check", "stagea", "stageb", "stagec",
                                       "pickb", "transplant", "cohort", "mergepick"))
     ap.add_argument("paths", nargs="*")
     ap.add_argument("--out")
     ap.add_argument("--fold", default="all")
     ap.add_argument("--arm", action="append", default=[])
-    ap.add_argument("--arms", choices=("b", "c", "e90"), default="b")
+    ap.add_argument("--arms", choices=("b", "c", "e90", "e93"), default="b")
     ap.add_argument("--sw", nargs="+")
     ap.add_argument("--touch", action="store_true")
+    ap.add_argument("--unseen", action="store_true")
+    ap.add_argument("--trees", type=int, default=TREES)
+    ap.add_argument("--um-alive", action="store_true")
     ap.add_argument("--gaps", choices=("renewal", "transplant", "bridged"), default=None)
     a = ap.parse_args()
-    {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal", a.touch), "fit": lambda: fit(a.paths[0], a.fold, a.out),
-     "fitsw": lambda: fit_switch(a.paths[0], a.fold, a.out), "e90check": lambda: e90check(*a.paths),
+    {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal", a.touch, a.unseen), "fit": lambda: fit(a.paths[0], a.fold, a.out),
+     "fitsw": lambda: fit_switch(a.paths[0], a.fold, a.out), "fitum": lambda: fit_unseen(a.paths[0], a.fold, a.paths[1], a.out, a.trees, a.um_alive), "e90check": lambda: e90check(*a.paths),
      "stagea": lambda: stagea(*a.paths), "stageb": lambda: stageb(*a.paths, a.out, a.arms, a.sw),
      "stagec": lambda: stagec(*a.paths, a.sw[0] if a.sw else None, a.out), "pickb": lambda: pick_b(a.paths[0]),
      "transplant": lambda: transplant(*a.paths, a.out, a.gaps or "transplant"),
