@@ -80,7 +80,9 @@ def _edges(col, bins):
 
 
 def _bin(x, edges):
-    """uint8 [F, n]: 0 for NaN, else 1 + the number of cut points at or below the value (inf goes to the top)."""
+    """uint8 [F, n]: 0 for NaN, else 1 + the number of cut points at or below the value (inf goes to the top).
+    Columns of X past len(EDGES) are ignored, so a model reads the leading columns it was fitted on: feature blocks
+    are laid out base, touch, shape, and rows refuses shape without touch."""
     out = np.zeros((x.shape[1], x.shape[0]), np.uint8)
     for j, e in enumerate(edges):
         col = x[:, j]
@@ -278,6 +280,15 @@ def _share(num, den):
         return np.where(den > 0, num / np.maximum(den, 1), np.nan)
 
 
+def _window_means(x, name, ws):
+    """{name<w>p, name<w>f}: the mean of X's finite values over the W frames up to and from each frame."""
+    ok = np.isfinite(x)
+    cx, cn, out = _csum(np.where(ok, x, 0.0)), _csum(ok.astype(float)), {}
+    for w in ws:
+        out[f"{name}{w}p"], out[f"{name}{w}f"] = _share(_past(cx, w), _past(cn, w)), _share(_fut(cx, w), _fut(cn, w))
+    return out
+
+
 def _geo(h, name):
     v = getattr(h.geometry, name)
     return np.full(h.n, np.nan) if v is None else v.astype(np.float64)
@@ -344,15 +355,9 @@ def features(h, v20_codes):
     for name, x in (("out", outside), ("line", line), ("speed", speed)):
         dead[f"{name}_last"], dead[f"{name}_next"] = _at(x, last), _at(x, nxt)
     dead["return"] = _opt(h.return_m, n)
-    ok = np.isfinite(pace)
-    cp, cn = _csum(np.where(ok, pace, 0.0)), _csum(ok.astype(float))
     dead["pace"] = pace
-    for w in (25, 125, 375):
-        dead[f"pace{w}p"], dead[f"pace{w}f"] = _share(_past(cp, w), _past(cn, w)), _share(_fut(cp, w), _fut(cn, w))
-    ok = np.isfinite(speed)
-    cv, cvn = _csum(np.where(ok, speed, 0.0)), _csum(ok.astype(float))
-    for w in (25, 125):
-        dead[f"bspeed{w}p"], dead[f"bspeed{w}f"] = _share(_past(cv, w), _past(cvn, w)), _share(_fut(cv, w), _fut(cvn, w))
+    dead.update(_window_means(pace, "pace", (25, 125, 375)))
+    dead.update(_window_means(speed, "bspeed", (25, 125)))
     dead.update(near=near, margin=margin, outside=outside, line=line, press_abs=np.abs(press), push_abs=np.abs(push))
     vd = (v20_codes == D).astype(float)
     cd = _csum(vd)
@@ -414,27 +419,68 @@ UNSEEN_FEATURES = ("push", "push25p", "push25f", "push75p", "push75f", "push250p
                    "since_seen", "until_seen", "gap", "out_last", "out_next", "line_last", "line_next")
 
 
-def unseen_features(h, d):
+SHAPE_PARTS = ("adv", "line", "length", "width", "spread", "push")
+PARTS_FEATURES = (*(f"{t}_{k}" for t in "ha" for k in SHAPE_PARTS),
+                  *(f"d_{k}75{side}" for k in SHAPE_PARTS for side in "pf"))
+
+
+def unseen_features(h, d, shape=False):
     """E92's [n, len(UNSEEN_FEATURES)] for half H, label-free: home-minus-away team push and shape with their past
-    and future means, plus the pace and ball-gap columns of its DEAD matrix D. No token enters, so on a frame where
-    the ball is unseen this is evidence the chain does not already carry."""
+    and future means, plus the pace and ball-gap columns of its DEAD matrix D. With SHAPE (E96) PARTS_FEATURES
+    follow: Half.shape_parts' twelve columns and 75-frame means of its six home-minus-away differences. No token
+    enters, so on a frame where the ball is unseen this is evidence the chain does not already carry."""
     u = {k: d[:, DEAD_FEATURES.index(k)] for k in UNSEEN_FEATURES if k in DEAD_FEATURES}
     for name, x in (("push", _opt(h.push_mps, h.n)), ("shape", _opt(h.shape_lo, h.n))):
-        ok = np.isfinite(x)
-        cx, cn = _csum(np.where(ok, x, 0.0)), _csum(ok.astype(float))
         u[name] = x
-        for w in (25, 75, 250):
-            u[f"{name}{w}p"], u[f"{name}{w}f"] = _share(_past(cx, w), _past(cn, w)), _share(_fut(cx, w), _fut(cn, w))
-    return np.column_stack([u[k] for k in UNSEEN_FEATURES])
+        u.update(_window_means(x, name, (25, 75, 250)))
+    keys = UNSEEN_FEATURES
+    if shape:
+        u.update(_parts(h))
+        keys += PARTS_FEATURES
+    return np.column_stack([u[k] for k in keys])
 
 
-def all_features(h, v20_codes, touch=False):
-    """features(), with E91's touch columns appended to REL and DEAD when TOUCH."""
+def _parts(h):
+    """PARTS_FEATURES of half H by name: Half.shape_parts' home and away columns and 75-frame means of each
+    home-minus-away difference."""
+    sp, out = h.shape_parts.astype(np.float64), {}
+    for k, hk, ak in zip(SHAPE_PARTS, sp[:, :6].T, sp[:, 6:].T):
+        out[f"h_{k}"], out[f"a_{k}"] = hk, ak
+        out.update(_window_means(hk - ak, f"d_{k}", (75,)))
+    return out
+
+
+SHAPE_REL = (*(f"{t}_{k}" for t in ("own", "oth") for k in SHAPE_PARTS),
+             *(f"dif_{k}75{side}" for k in SHAPE_PARTS for side in "pf"))
+
+
+def shape_features(h):
+    """E97's (REL-style [n, len(SHAPE_REL)], [n, len(PARTS_FEATURES)]) for half H, label-free. The first holds the
+    token team's and the other team's shape columns and the 75-frame means of their difference, NaN where the ball is
+    unseen; the second is _parts for Dm."""
+    tok, parts = h.nearest_team, _parts(h)
+    home = tok == HOME
+    sign = np.where(home, 1.0, -1.0)
+    rel = {}
+    for k in SHAPE_PARTS:
+        rel[f"own_{k}"] = np.where(home, parts[f"h_{k}"], parts[f"a_{k}"])
+        rel[f"oth_{k}"] = np.where(home, parts[f"a_{k}"], parts[f"h_{k}"])
+        for side in "pf":
+            rel[f"dif_{k}75{side}"] = sign * parts[f"d_{k}75{side}"]
+    r = np.column_stack([rel[k] for k in SHAPE_REL])
+    r[tok == NO_TEAM] = np.nan
+    return r, np.column_stack([parts[k] for k in PARTS_FEATURES])
+
+
+def all_features(h, v20_codes, touch=False, shape=False):
+    """features(), with E91's touch columns and then E97's shape columns appended to REL and DEAD when TOUCH and
+    SHAPE."""
     r, d = features(h, v20_codes)
-    if not touch:
-        return r, d
-    rt, dt = touch_features(h)
-    return np.hstack([r, rt]), np.hstack([d, dt])
+    for on, f in ((touch, touch_features), (shape, shape_features)):
+        if on:
+            ra, da = f(h)
+            r, d = np.hstack([r, ra]), np.hstack([d, da])
+    return r, d
 
 
 # ---- data -----------------------------------------------------------------------------------------------------
@@ -506,9 +552,11 @@ def _switch_target(lab, k0):
     return out
 
 
-def rows(out, gaps="renewal", touch=False, unseen=False):
+def rows(out, gaps="renewal", touch=False, unseen=False, um_shape=False, shape_rd=False):
     """E89's training rows from TRAIN_ITEMS at dead_bias 2.6, seed 0 (or TRANSPLANT_ITEMS): every STEP-th graded
-    frame after kickoff, with E92's unseen_features as "u" when UNSEEN."""
+    frame after kickoff, with E92's unseen_features as "u" when UNSEEN (with E96's shape parts when UM_SHAPE), and
+    E97's shape columns in R's and Dm's blocks when SHAPE_RD."""
+    assert touch or not shape_rd, "shape columns follow touch columns; each model reads its leading columns"
     items = {"renewal": TRAIN_ITEMS, "transplant": TRANSPLANT_ITEMS}[gaps]
     worlds = bench.dev_worlds(list(items), (2.6,), seeds=(0,))
     fold, v20, parts = folds(worlds), _v20(), []
@@ -516,7 +564,7 @@ def rows(out, gaps="renewal", touch=False, unseen=False):
         src = _source(world)
         for c in _games(_game_cases(world, cases)):
             for h, lab in zip(c.halves, c.layout.cut(c.gt)):
-                r, d = all_features(h, v20.decode(h).codes, touch)
+                r, d = all_features(h, v20.decode(h).codes, touch, shape_rd)
                 k0 = h.id.kickoff
                 pick = np.arange(k0, h.n, STEP[src])
                 pick = pick[lab[pick] != 3]
@@ -524,9 +572,12 @@ def rows(out, gaps="renewal", touch=False, unseen=False):
                                   sw=_switch_target(lab, k0)[pick],
                                   src=np.full(len(pick), ("pff", "metrica", "idsse").index(src), np.int8),
                                   fold=np.full(len(pick), fold[h.id.match], np.int8),
-                                  **({"u": unseen_features(h, d)[pick]} if unseen else {})))
+                                  **({"u": unseen_features(h, d, um_shape)[pick]} if unseen else {})))
         print(world, sum(len(p["lab"]) for p in parts), flush=True)
-    np.savez(out, **{k: np.concatenate([p[k] for p in parts]) for k in parts[0]})
+    cat = {}
+    for k in list(parts[0]):
+        cat[k] = np.concatenate([p.pop(k) for p in parts])
+    np.savez(out, **cat, **({"shape_rd": np.array([True])} if shape_rd else {}))
 
 
 def _weights(src, mask):
@@ -556,8 +607,10 @@ def fit(rows_path, fold, out):
     y = (z["lab"][train] == D).astype(float)
     dead = fit_trees(z["d"][train], y, w[train], log=print)
     prior = float((w[train] * y).sum() / w[train].sum())
+    shape = "shape_rd" in z.files
     np.savez(out, **rel.save("rel"), **dead.save("dead"), prior=np.array([prior]),
-             touch=np.array([z["r"].shape[1] > len(REL_FEATURES)]), **(_fit_um(z, train) if "u" in z.files else {}))
+             touch=np.array([len(rel.edges) > len(REL_FEATURES)]),
+             **({"shape": np.array([True])} if shape else {}), **(_fit_um(z, train) if "u" in z.files else {}))
     print(f"saved {out}: D prior {prior:.4f}, {time.time() - t0:.0f} s", flush=True)
 
 
@@ -566,8 +619,9 @@ def _fit_um(z, train, trees=TREES, alive=False):
     columns."""
     rows_ = train & (z["lab"] != D) & (alive | (z["tok"] == NO_TEAM))
     print(f"Um on {rows_.sum()} {'' if alive else 'unseen '}alive rows, {trees} trees", flush=True)
-    return fit_trees(z["u"][rows_], (z["lab"][rows_] == H).astype(float), _weights(z["src"], rows_)[rows_],
-                     trees=trees, log=print).save("um")
+    um = fit_trees(z["u"][rows_], (z["lab"][rows_] == H).astype(float), _weights(z["src"], rows_)[rows_],
+                   trees=trees, log=print)
+    return {**um.save("um"), **({"um_shape": np.array([True])} if len(um.edges) > len(UNSEEN_FEATURES) else {})}
 
 
 def fit_unseen(rows_path, fold, base, out, trees, alive=False):
@@ -602,27 +656,41 @@ class Models:
     prior: float
     touch: bool = False
     um: Trees | None = None
+    um_shape: bool = False
+    shape: bool = False
 
     @classmethod
     def load(cls, path):
         z = np.load(path)
         return cls(Trees.load(z, "rel"), Trees.load(z, "dead"), float(z["prior"][0]),
                    bool(z["touch"][0]) if "touch" in z.files else False,
-                   Trees.load(z, "um") if "um_feat" in z.files else None)
+                   Trees.load(z, "um") if "um_feat" in z.files else None,
+                   "um_shape" in z.files, "shape" in z.files)
 
     def parts(self, h, v20_codes):
         """(q, p_dead) per frame: q = P(reference team = true team), the reference team being the token's where the
         ball is seen and HOME where it is unseen (E92's Um; NaN there without Um)."""
-        return self.split(h, *all_features(h, v20_codes, self.touch))
+        return self.split(h, *all_features(h, v20_codes, self.touch, self.shape))
 
     def split(self, h, r, d):
+        """parts() from built feature blocks; each tree model reads the leading columns it was fitted on (_bin)."""
         seen = h.nearest_team != NO_TEAM
         q = np.full(h.n, np.nan)
         if seen.any():
             q[seen] = self.rel.prob(r[seen])
         if self.um is not None and not seen.all():
-            q[~seen] = self.um.prob(unseen_features(h, d)[~seen])
+            q[~seen] = self.um.prob(unseen_features(h, d, self.um_shape)[~seen])
         return q, self.dead.prob(d)
+
+
+def compose(out, rel, dead, um):
+    """E98: one model file from REL's R, DEAD's Dm and prior and UM's Um, built with the widest blocks they need."""
+    a, b, c = (np.load(path) for path in (rel, dead, um))
+    keep = {**{k: a[k] for k in a.files if k.startswith("rel_")},
+            **{k: b[k] for k in b.files if k.startswith("dead_") or k == "prior"},
+            **{k: c[k] for k in c.files if k.startswith("um_")}, "touch": a["touch"] | b["touch"]}
+    np.savez(out, **keep, **({"shape": np.array([True])} if "shape" in a.files or "shape" in b.files else {}))
+    print(f"saved {out}", flush=True)
 
 
 def loglik(h, q, p_dead, prior):
@@ -792,9 +860,13 @@ def _evidence(cases, models_for, v20, memo=None, sw_for=None):
             if key not in memo:
                 vc = v20.decode(h).codes
                 m = models_for(h)
-                r, d = all_features(h, vc, m.touch)
+                r, d = all_features(h, vc, m.touch, m.shape)
                 q, pd_ = m.split(h, r, d)
-                hz = sw_for(h).prob(np.hstack([r, d])) if sw_for else None
+                hz = None
+                if sw_for:
+                    sw, x = sw_for(h), np.hstack([r, d])
+                    assert x.shape[1] == len(sw.edges), "Sw was fitted on other feature blocks"
+                    hz = sw.prob(x)
                 memo[key] = (loglik(h, q, pd_, m.prior), vc, hz)
             out.append((h, lab, *memo[key]))
     return out
@@ -997,7 +1069,7 @@ def e90check(m_all):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("stage", choices=("selftest", "rows", "fit", "fitsw", "fitum", "e90check", "stagea", "stageb", "stagec",
+    ap.add_argument("stage", choices=("selftest", "rows", "fit", "fitsw", "fitum", "compose", "e90check", "stagea", "stageb", "stagec",
                                       "pickb", "transplant", "cohort", "mergepick"))
     ap.add_argument("paths", nargs="*")
     ap.add_argument("--out")
@@ -1007,12 +1079,14 @@ if __name__ == "__main__":
     ap.add_argument("--sw", nargs="+")
     ap.add_argument("--touch", action="store_true")
     ap.add_argument("--unseen", action="store_true")
+    ap.add_argument("--shape-parts", action="store_true")
+    ap.add_argument("--shape-rd", action="store_true")
     ap.add_argument("--trees", type=int, default=TREES)
     ap.add_argument("--um-alive", action="store_true")
     ap.add_argument("--gaps", choices=("renewal", "transplant", "bridged"), default=None)
     a = ap.parse_args()
-    {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal", a.touch, a.unseen), "fit": lambda: fit(a.paths[0], a.fold, a.out),
-     "fitsw": lambda: fit_switch(a.paths[0], a.fold, a.out), "fitum": lambda: fit_unseen(a.paths[0], a.fold, a.paths[1], a.out, a.trees, a.um_alive), "e90check": lambda: e90check(*a.paths),
+    {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal", a.touch, a.unseen, a.shape_parts, a.shape_rd), "fit": lambda: fit(a.paths[0], a.fold, a.out),
+     "fitsw": lambda: fit_switch(a.paths[0], a.fold, a.out), "compose": lambda: compose(a.out, *a.paths), "fitum": lambda: fit_unseen(a.paths[0], a.fold, a.paths[1], a.out, a.trees, a.um_alive), "e90check": lambda: e90check(*a.paths),
      "stagea": lambda: stagea(*a.paths), "stageb": lambda: stageb(*a.paths, a.out, a.arms, a.sw),
      "stagec": lambda: stagec(*a.paths, a.sw[0] if a.sw else None, a.out), "pickb": lambda: pick_b(a.paths[0]),
      "transplant": lambda: transplant(*a.paths, a.out, a.gaps or "transplant"),

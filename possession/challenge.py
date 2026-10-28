@@ -228,7 +228,8 @@ def _team_press(g: Geometry) -> NDArray[np.float32]:
     return (press[:, HOME] - press[:, AWAY]).astype(np.float32)
 
 
-def _team_shape(g: Geometry, kickoff: int) -> NDArray[np.float32]:
+def _team_shape(g: Geometry, kickoff: int) -> tuple[NDArray[np.float32], NDArray[np.float32]]:
+    """(Half.shape_lo, Half.shape_parts): the six columns per team and their weighted home-minus-away score."""
     rows, out, signs = np.arange(g.n), [], _attack_signs(g, kickoff)
     for team in (HOME, AWAY):
         xy = g.players_xy[:, g.slot_team == team].astype(np.float64)
@@ -248,7 +249,8 @@ def _team_shape(g: Geometry, kickoff: int) -> NDArray[np.float32]:
                 f[k:-k, 5] = np.nanmedian((ox[2 * k:] - ox[:-2 * k]) / (2 * k) * FPS, 1)
         f[present.sum(1) < _SHAPE_MIN_PLAYERS] = np.nan
         out.append(f)
-    return np.clip((out[0] - out[1]) @ np.asarray(_SHAPE_W), -_SHAPE_CAP, _SHAPE_CAP).astype(np.float32)
+    return (np.clip((out[0] - out[1]) @ np.asarray(_SHAPE_W), -_SHAPE_CAP, _SHAPE_CAP).astype(np.float32),
+            np.concatenate(out, axis=1).astype(np.float32))
 
 
 def _gap_return(ball: NDArray[np.float64]) -> NDArray[np.float32]:
@@ -292,9 +294,10 @@ def observe(g: Geometry, id: HalfId) -> Half:
                    _ball_velocity(g.ball_xy.astype(np.float64))).astype(np.float32)
     geometry = replace(geometry, goal_mps=_goal_velocity(g, id.kickoff, token),
                        vx_mps=np.ascontiguousarray(vel[:, 0]), vy_mps=np.ascontiguousarray(vel[:, 1]))
+    shape_lo, shape_parts = _team_shape(g, id.kickoff)
     return Half(id=id, nearest_team=token, geometry=geometry, pace_mps=_player_pace(g),
-                push_mps=_team_push(g, id.kickoff), shape_lo=_team_shape(g, id.kickoff),
-                return_m=_gap_return(g.ball_xy.astype(np.float64)), press_mps=_team_press(g))
+                push_mps=_team_push(g, id.kickoff), shape_lo=shape_lo,
+                return_m=_gap_return(g.ball_xy.astype(np.float64)), press_mps=_team_press(g), shape_parts=shape_parts)
 
 
 def halves(source: Literal["baseline_raw", "atd"] = "baseline_raw",

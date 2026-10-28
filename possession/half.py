@@ -150,6 +150,9 @@ class Half:
                   at their live positions at that row (challenge.broadcast_camera), 0 when the broadcast shows
                   something else, -1 where no broadcast frame maps; None when no broadcast was loaded. A decoder
                   with dead_camera_players refuses None.
+    shape_parts:  float32 [n, 12] next to shape_lo: the six columns challenge._team_shape weighs (advance, back line,
+                  length, width, spread, push, each in the team's own attacking direction), home's then away's, NaN
+                  where that team has fewer than 8 players present. No decoder reads it.
 
     Invariants: values in {-1,0,1}; 0 <= id.kickoff < n; geometry arrays float32 [n], NaN exactly on
     NO_TEAM frames.
@@ -164,6 +167,7 @@ class Half:
     press_mps: NDArray[np.float32] | None = None
     restart_rows: tuple[int, ...] | None = None
     camera: NDArray[np.int8] | None = None
+    shape_parts: NDArray[np.float32] | None = None
 
     def __post_init__(self) -> None:
         tok = self.nearest_team
@@ -196,12 +200,13 @@ class Half:
                 if not np.array_equal(np.isnan(a), unseen):
                     raise ValueError(f"geometry.{name} must be NaN exactly where nearest_team is NO_TEAM")
                 _freeze(a)
-        for name in ("pace_mps", "push_mps", "shape_lo", "return_m", "press_mps"):
+        for name in ("pace_mps", "push_mps", "shape_lo", "return_m", "press_mps", "shape_parts"):
             a = getattr(self, name)
             if a is None:
                 continue
-            if not isinstance(a, np.ndarray) or a.dtype != np.float32 or a.shape != tok.shape:
-                raise ValueError(f"{name} must be float32 [{self.n}], got {getattr(a, 'dtype', None)} "
+            want = (self.n, 12) if name == "shape_parts" else tok.shape
+            if not isinstance(a, np.ndarray) or a.dtype != np.float32 or a.shape != want:
+                raise ValueError(f"{name} must be float32 {list(want)}, got {getattr(a, 'dtype', None)} "
                                  f"{getattr(a, 'shape', None)}")
             _freeze(a)
 
