@@ -3,9 +3,9 @@
     PYTHONPATH=. python experiments/hillclimb-2026-10-24/learned.py <stage> [args]
 
 selftest             the gradient-boosted trees on synthetic data: a known function recovered, two fits byte-identical
-rows --out NPZ [--gaps renewal|transplant]
+rows --out NPZ [--gaps renewal|transplant] [--touch]
                      E89's training rows (features, targets, weights, game folds) from the dev worlds, no BAR-ATH;
-                     transplant swaps the renewal worlds for label-blind ones (E89d)
+                     transplant swaps the renewal worlds for label-blind ones (E89d); touch adds E91's touch columns
 fit ROWS --fold F --out NPZ
                      both models (R: token reliability, Dm: dead ball) on the rows outside fold F (F = all: every row)
 fitsw ROWS --fold F --out NPZ
@@ -22,6 +22,9 @@ transplant M0 M1 --out CSV [--gaps transplant|bridged]
 cohort M0 M1 --out CSV --arm NAME [--arm NAME ...]
                      OOF per-game spellF1 of tier0_v20 and each arm on Codex's source cohort (Metrica g3, the last four
                      IDSSE games), renewal dead_bias 2.6, seeds 0 and 15 to 24
+mergepick NEW BASE --out CSV
+                     rank a stage B run with new models (NEW, its arms renamed new_*) against E89b's t0.3_s3 rows from
+                     E89b's own stage B (BASE), after checking both runs' tier0_v20 rows are identical
 stagec ALL ARM [--sw SWALL --out CSV]
                      one PFF-B read of the all-source fit at ARM (a stage B model name such as t0.1_s1), paired
                      against tier0_v20 and, for an E90 arm, against E89b's t0.3_s3
@@ -31,12 +34,18 @@ relative to the token's team, so it is the same for either team. Dm gives P(labe
 team-free features, one of them tier0_v20's own D mask. The emission adds Dm's log-odds over its training prior to D
 against both teams, and R's team split on seen frames, then tier0_v20's chain decodes with every rule off.
 E90 adds a third model, Sw, whose hazard of a change of team prices each block's change in the penalized path.
+E91 adds touch columns from Link and Hoernig's kick detector to every model's features.
 """
 import argparse
 import dataclasses
+import hashlib
+import json
+import multiprocessing
+import os
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -56,6 +65,7 @@ GRID = [(t, s) for t in (0.03, 0.1, 0.3) for s in (0.0, 1.0, 3.0)]
 E90_GRID = [(t, k) for t in (0.1, 0.3) for k in (0.4, 0.8, 1.6)]
 E89B = "t0.3_s3"
 CAP = 750.0
+WORKERS = int(os.environ.get("MTAH_WORKERS", "3"))
 
 
 # ---- gradient-boosted trees ---------------------------------------------------------------------------------
@@ -103,11 +113,27 @@ class Trees:
     base: float
     depth: int
 
-    def raw(self, x):
+    def raw(self, x, chunk=8192):
+        """Every tree walked at once, CHUNK rows at a time; leaves point at themselves, so each level is one gather.
+        The trees' values are still added one tree at a time, in order, so the sum matches _walk's bit for bit."""
         xb = _bin(np.asarray(x, np.float64), self.edges)
-        out = np.full(xb.shape[1], self.base)
-        for f, t, v in zip(self.feat, self.thr, self.value):
-            out += _walk(f, t, v, xb, self.depth)
+        n, (trees, nodes) = xb.shape[1], self.feat.shape
+        leaf, node = self.feat < 0, np.arange(nodes)
+        left = np.where(leaf, node, 2 * node + 1).ravel()
+        step = np.where(leaf, 0, 1).ravel()
+        fidx = np.where(leaf, 0, self.feat).astype(np.int64).ravel()
+        thr = np.where(leaf, 255, self.thr).astype(np.uint8).ravel()
+        value, base = self.value.ravel(), (np.arange(trees) * nodes)[:, None]
+        out = np.full(n, self.base)
+        for s in range(0, n, chunk):
+            m = min(n, s + chunk) - s
+            flat, cols, pos = np.ascontiguousarray(xb[:, s:s + m]).ravel(), np.arange(m), np.zeros((trees, m), np.int64)
+            for _ in range(self.depth):
+                g = pos + base
+                pos = left[g] + step[g] * (flat[fidx[g] * m + cols] > thr[g])
+            vals, acc = value[pos + base], out[s:s + m]
+            for t in range(trees):
+                acc += vals[t]
         return out
 
     def prob(self, x):
@@ -335,6 +361,62 @@ def features(h, v20_codes):
     return r, np.column_stack([dead[k] for k in DEAD_FEATURES])
 
 
+TOUCH_REL = ("acc", "own_since", "own_until", "oth_since", "oth_until", "own25", "oth25", "own75", "oth75")
+TOUCH_FREE = ("acc", "any_since", "any_until", "flip")
+TOUCH_MPS2, TOUCH_M = 4.0, 1.5
+
+
+def touch_features(h):
+    """E91's (REL-style [n, len(TOUCH_REL)], team-free [n, len(TOUCH_FREE)]) for half H, label-free. Link and
+    Hoernig's kick detector: acc = |v(t+2) - v(t-2)| / 0.16 s from the ball velocity; a touch is a local maximum of
+    acc of at least TOUCH_MPS2 with the nearest player within TOUCH_M, owned by the token's team. The REL-style
+    columns are relative to the token's team and NaN where the ball is unseen."""
+    n, tok = h.n, h.nearest_team
+    seen = tok != NO_TEAM
+    vx, vy, near = _geo(h, "vx_mps"), _geo(h, "vy_mps"), _geo(h, "nearest_m")
+    acc = np.full(n, np.nan)
+    acc[2:-2] = np.hypot(vx[4:] - vx[:-4], vy[4:] - vy[:-4]) / (4 / 25)
+    with np.errstate(invalid="ignore"):
+        peak = np.zeros(n, bool)
+        peak[1:-1] = (acc[1:-1] >= acc[:-2]) & (acc[1:-1] > acc[2:])
+        touch = peak & (acc >= TOUCH_MPS2) & (near <= TOUCH_M) & seen
+    th, ta = touch & (tok == HOME), touch & (tok == AWAY)
+    t = np.arange(n)
+
+    def since(flag):
+        last = _last(flag)
+        return np.where(last >= 0, np.minimum(t - last, CAP), CAP)
+
+    def until(flag):
+        return np.minimum(_next(flag) - t, CAP)
+
+    home = tok == HOME
+    own_s, oth_s = np.where(home, since(th), since(ta)), np.where(home, since(ta), since(th))
+    own_u, oth_u = np.where(home, until(th), until(ta)), np.where(home, until(ta), until(th))
+    rel = {"acc": acc, "own_since": own_s, "own_until": own_u, "oth_since": oth_s, "oth_until": oth_u}
+    ch, ca = _csum(th.astype(float)), _csum(ta.astype(float))
+    for w in (25, 75):
+        hw, aw = _past(ch, w) + _fut(ch, w), _past(ca, w) + _fut(ca, w)
+        rel[f"own{w}"], rel[f"oth{w}"] = np.where(home, hw, aw), np.where(home, aw, hw)
+    r = np.column_stack([rel[k] for k in TOUCH_REL])
+    r[~seen] = np.nan
+    team = np.where(th, 1.0, np.where(ta, -1.0, 0.0))
+    last, nxt = _last(touch), _next(touch)
+    prev_team, next_team = _at(team, last), _at(team, nxt)
+    flip = np.where(np.isnan(prev_team) | np.isnan(next_team), np.nan, (prev_team != next_team).astype(float))
+    free = {"acc": acc, "any_since": since(touch), "any_until": until(touch), "flip": flip}
+    return r, np.column_stack([free[k] for k in TOUCH_FREE])
+
+
+def all_features(h, v20_codes, touch=False):
+    """features(), with E91's touch columns appended to REL and DEAD when TOUCH."""
+    r, d = features(h, v20_codes)
+    if not touch:
+        return r, d
+    rt, dt = touch_features(h)
+    return np.hstack([r, rt]), np.hstack([d, dt])
+
+
 # ---- data -----------------------------------------------------------------------------------------------------
 
 def _source(world):
@@ -372,6 +454,20 @@ def folds(worlds):
     return out
 
 
+def _fold_map():
+    """folds() over TRAIN_ITEMS, cached under derived/runs/hc keyed by TRAIN_ITEMS: building those worlds only to
+    read their match lists took about two minutes per stage."""
+    key = hashlib.sha256(json.dumps(TRAIN_ITEMS).encode()).hexdigest()[:8]
+    path = Path(os.environ.get("MTAH_DATA_DIR", "data")) / "derived" / "runs" / "hc" / f"e89-folds-{key}.json"
+    if path.exists():
+        return json.loads(path.read_text())
+    fold = folds(bench.dev_worlds(list(TRAIN_ITEMS), (2.6,), seeds=(0,)))
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(fold, sort_keys=True))
+    tmp.replace(path)
+    return fold
+
+
 def _v20():
     from probes import dev_model
     return dev_model(Decoder.load(V20))
@@ -390,7 +486,7 @@ def _switch_target(lab, k0):
     return out
 
 
-def rows(out, gaps="renewal"):
+def rows(out, gaps="renewal", touch=False):
     """E89's training rows from TRAIN_ITEMS at dead_bias 2.6, seed 0 (or TRANSPLANT_ITEMS): every STEP-th graded
     frame after kickoff."""
     items = {"renewal": TRAIN_ITEMS, "transplant": TRANSPLANT_ITEMS}[gaps]
@@ -400,7 +496,7 @@ def rows(out, gaps="renewal"):
         src = _source(world)
         for c in _games(_game_cases(world, cases)):
             for h, lab in zip(c.halves, c.layout.cut(c.gt)):
-                r, d = features(h, v20.decode(h).codes)
+                r, d = all_features(h, v20.decode(h).codes, touch)
                 k0 = h.id.kickoff
                 pick = np.arange(k0, h.n, STEP[src])
                 pick = pick[lab[pick] != 3]
@@ -434,7 +530,8 @@ def fit(rows_path, fold, out):
     y = (z["lab"][train] == D).astype(float)
     dead = fit_trees(z["d"][train], y, w[train], log=print)
     prior = float((w[train] * y).sum() / w[train].sum())
-    np.savez(out, **rel.save("rel"), **dead.save("dead"), prior=np.array([prior]))
+    np.savez(out, **rel.save("rel"), **dead.save("dead"), prior=np.array([prior]),
+             touch=np.array([z["r"].shape[1] > len(REL_FEATURES)]))
     print(f"saved {out}: D prior {prior:.4f}, {time.time() - t0:.0f} s", flush=True)
 
 
@@ -458,15 +555,17 @@ class Models:
     rel: Trees
     dead: Trees
     prior: float
+    touch: bool = False
 
     @classmethod
     def load(cls, path):
         z = np.load(path)
-        return cls(Trees.load(z, "rel"), Trees.load(z, "dead"), float(z["prior"][0]))
+        return cls(Trees.load(z, "rel"), Trees.load(z, "dead"), float(z["prior"][0]),
+                   bool(z["touch"][0]) if "touch" in z.files else False)
 
     def parts(self, h, v20_codes):
         """(q, p_dead) per frame: q = P(token team = true team) where the ball is seen (NaN elsewhere)."""
-        return self.split(h, *features(h, v20_codes))
+        return self.split(h, *all_features(h, v20_codes, self.touch))
 
     def split(self, h, r, d):
         seen = h.nearest_team != NO_TEAM
@@ -616,7 +715,7 @@ def _evidence(cases, models_for, v20, memo=None, sw_for=None):
             if key not in memo:
                 vc = v20.decode(h).codes
                 m = models_for(h)
-                r, d = features(h, vc)
+                r, d = all_features(h, vc, m.touch)
                 q, pd_ = m.split(h, r, d)
                 hz = sw_for(h).prob(np.hstack([r, d])) if sw_for else None
                 memo[key] = (loglik(h, q, pd_, m.prior), vc, hz)
@@ -648,25 +747,45 @@ def _sw_models(paths):
     return {f: Trees.load(np.load(path), "sw") for f, path in enumerate(paths)}
 
 
-def stageb(m0, m1, m_all, out, kind="b", sw=None):
-    tw = bench.dev_worlds(list(TRAIN_ITEMS), (2.6,), seeds=(0,))
-    fold, oof, v20 = folds(tw), _oof_models(m0, m1), _v20()
-    del tw
-    grid = arms(kind)
+def _worker_init(m0, m1, sw, names, fold):
+    global _W
+    oof = _oof_models(m0, m1)
     swm = _sw_models(sw) if sw else None
-    sw_for = (lambda h: swm[fold[h.id.match]]) if swm else None
-    rows_, per_game = [], []
-    memo = {}
-    for world, cases in _native_pff().items():
-        _score_world(world, cases, _evidence(_games(cases), lambda h: oof[fold[h.id.match]], v20, memo, sw_for), grid,
-                     rows_, per_game)
+    _W = SimpleNamespace(v20=_v20(), grid={n: arm_params(n) for n in names},
+                         models_for=lambda h: oof[fold[h.id.match]],
+                         sw_for=(lambda h: swm[fold[h.id.match]]) if swm else None)
+
+
+def _score_task(task):
+    """One unit of a stage's OOF scoring: ("native",) for native PFF-A m0 and m2, which share each half's evidence, or
+    (item, dead_bias, seeds, mode) for one bench.dev_worlds call. (rows, per-game rows) in world order."""
+    rows_, per_game, memo = [], [], {}
+    native = task == ("native",)
+    worlds = _native_pff() if native else bench.dev_worlds([task[0]], task[1], seeds=task[2], mode=task[3])
+    for world, cases in worlds.items():
+        cases = cases if native else _game_cases(world, cases)
+        ev = _evidence(_games(cases), _W.models_for, _W.v20, memo if native else None, _W.sw_for)
+        _score_world(world, cases, ev, _W.grid, rows_, per_game)
         print(world, flush=True)
-    del memo
-    for item in SYNTH:
-        for world, cases in bench.dev_worlds([item], (1.0, 2.6, 4.0), seeds=(0, 1, 2)).items():
-            ev = _evidence(_games(cases), lambda h: oof[fold[h.id.match]], v20, sw_for=sw_for)
-            _score_world(world, cases, ev, grid, rows_, per_game)
-            print(world, flush=True)
+    return rows_, per_game
+
+
+def _run_tasks(tasks, m0, m1, sw, names):
+    """_score_task over TASKS on up to WORKERS spawned processes, results joined in task order, so the rows match a
+    serial run's exactly."""
+    args = (m0, m1, sw, tuple(names), _fold_map())
+    if WORKERS <= 1:
+        _worker_init(*args)
+        results = [_score_task(t) for t in tasks]
+    else:
+        with multiprocessing.get_context("spawn").Pool(min(WORKERS, len(tasks)), _worker_init, args) as pool:
+            results = pool.map(_score_task, tasks, chunksize=1)
+    return [r for rs, _ in results for r in rs], [g for _, gs in results for g in gs]
+
+
+def stageb(m0, m1, m_all, out, kind="b", sw=None):
+    tasks = [("native",)] + [(item, (rho,), (0, 1, 2), "renewal") for item in SYNTH for rho in (1.0, 2.6, 4.0)]
+    rows_, per_game = _run_tasks(tasks, m0, m1, sw, arms(kind))
     pd.DataFrame(rows_).to_csv(out, index=False)
     pd.DataFrame(per_game).to_csv(str(out).replace(".csv", "-games.csv"), index=False)
     pick_b(out, E89B if kind == "e90" else "tier0_v20")
@@ -695,6 +814,15 @@ def pick_b(out, ref="tier0_v20"):
         print(f"stage B: no arm passes the veto and clears {ref} by more than 0.003")
 
 
+def merge_pick(new, base, out):
+    a, b = pd.read_csv(new), pd.read_csv(base)
+    va, vb = (t[t.model == "tier0_v20"].reset_index(drop=True) for t in (a, b))
+    assert va.equals(vb), "the two stage B runs scored different worlds"
+    a = a.assign(model=a.model.where(a.model == "tier0_v20", "new_" + a.model))
+    pd.concat([a, b[b.model == E89B]]).to_csv(out, index=False)
+    pick_b(out, E89B)
+
+
 INFO_ITEMS = {"transplant": ((*SYNTH, "pff:m0"), (0, 1, 2)), "bridged": (("pff:m0", "pff:m2"), (0,))}
 
 
@@ -703,16 +831,8 @@ def transplant(m0, m1, out, gaps="transplant"):
     ball mask that carries no labelled D edge) for the five synthetic groups and PFF-A m0, seeds 0 to 2, or with
     GAPS "bridged" on native PFF-A m0 and m2 with every gap under BRIDGE_FRAMES counted as seen."""
     items, seeds = INFO_ITEMS[gaps]
-    tw = bench.dev_worlds(list(TRAIN_ITEMS), (2.6,), seeds=(0,))
-    fold, oof, v20 = folds(tw), _oof_models(m0, m1), _v20()
-    del tw
-    grid, rows_, per_game = {**arms("b"), **arms("c")}, [], []
-    for item in items:
-        for world, cases in bench.dev_worlds([item], (2.6,), seeds=seeds, mode=gaps).items():
-            cases = _game_cases(world, cases)
-            _score_world(world, cases, _evidence(_games(cases), lambda h: oof[fold[h.id.match]], v20), grid, rows_,
-                         per_game)
-            print(world, flush=True)
+    tasks = [(item, (2.6,), seeds, gaps) for item in items]
+    rows_, per_game = _run_tasks(tasks, m0, m1, None, [*arms("b"), *arms("c")])
     t = pd.DataFrame(rows_)
     t.to_csv(out, index=False)
     pd.DataFrame(per_game).to_csv(str(out).replace(".csv", "-games.csv"), index=False)
@@ -730,9 +850,7 @@ def cohort(m0, m1, out, arm_names):
     """OOF per-game spellF1 of tier0_v20 and ARM_NAMES on the games Codex holds out of its training (Metrica g3 and
     the last four IDSSE games), at renewal dead_bias 2.6 with seeds 0 and 15 to 24, the worlds of its source gates.
     Each game is decoded by the fold model fitted without it."""
-    tw = bench.dev_worlds(list(TRAIN_ITEMS), (2.6,), seeds=(0,))
-    fold, oof, v20 = folds(tw), _oof_models(m0, m1), _v20()
-    del tw
+    fold, oof, v20 = _fold_map(), _oof_models(m0, m1), _v20()
     grid, rows_ = {a: arm_params(a) for a in arm_names}, []
     for item in SYNTH:
         for world, cases in bench.dev_worlds([item], (2.6,), seeds=(0, *range(15, 25))).items():
@@ -803,18 +921,19 @@ def e90check(m_all):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("stage", choices=("selftest", "rows", "fit", "fitsw", "e90check", "stagea", "stageb", "stagec",
-                                      "pickb", "transplant", "cohort"))
+                                      "pickb", "transplant", "cohort", "mergepick"))
     ap.add_argument("paths", nargs="*")
     ap.add_argument("--out")
     ap.add_argument("--fold", default="all")
     ap.add_argument("--arm", action="append", default=[])
     ap.add_argument("--arms", choices=("b", "c", "e90"), default="b")
     ap.add_argument("--sw", nargs="+")
+    ap.add_argument("--touch", action="store_true")
     ap.add_argument("--gaps", choices=("renewal", "transplant", "bridged"), default=None)
     a = ap.parse_args()
-    {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal"), "fit": lambda: fit(a.paths[0], a.fold, a.out),
+    {"selftest": selftest, "rows": lambda: rows(a.out, a.gaps or "renewal", a.touch), "fit": lambda: fit(a.paths[0], a.fold, a.out),
      "fitsw": lambda: fit_switch(a.paths[0], a.fold, a.out), "e90check": lambda: e90check(*a.paths),
      "stagea": lambda: stagea(*a.paths), "stageb": lambda: stageb(*a.paths, a.out, a.arms, a.sw),
      "stagec": lambda: stagec(*a.paths, a.sw[0] if a.sw else None, a.out), "pickb": lambda: pick_b(a.paths[0]),
      "transplant": lambda: transplant(*a.paths, a.out, a.gaps or "transplant"),
-     "cohort": lambda: cohort(*a.paths, a.out, a.arm)}[a.stage]()
+     "cohort": lambda: cohort(*a.paths, a.out, a.arm), "mergepick": lambda: merge_pick(*a.paths, a.out)}[a.stage]()
