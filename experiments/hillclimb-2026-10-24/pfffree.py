@@ -68,8 +68,25 @@ SCORED = {
         "baseline_smooth50 0.1054 against tier0_v19 0.1123 and tier0_v13_pfffree 0.1038; below tier0_v19 in all "
         "15 groups by 0.0030 to 0.0175 and above tier0_v13_pfffree in all 15 by 0.0016 to 0.0072. Above "
         "baseline_smooth50 in every group and on all 64 PFF games."),
+    "tier0_v22_pfffree.json": ("data/derived/runs/hc/e108/screen.csv, rulefiles.csv, gate3-off.csv",
+        "Picked by E108's registered screen: its native PFF-A minimum over m0 and m2, 0.5085, is +0.0097 above "
+        "tier0_v13_pfffree's, past rule v3 gate 1(d)'s +0.008. Gate 1(d)'s other legs against tier0_v13_pfffree: "
+        "held-out PFF-B m0 +0.0083 (Bonferroni k=35 lower +0.0044), 29 of 32 games won; m2 +0.0086 (lower +0.0044), 28 "
+        "of 32; every renewal group at least +0.0103 above it (its dead_bias 2.6 seeds 0-2 groups are fit worlds) and "
+        "every transplant convention at least +0.0120. Against tier0_v20_pfffree on PFF-B: m0 +0.0036, m2 +0.0045, 30 "
+        "of 32 games each. Against tier0_v13 on PFF-B: m0 -0.0001, m2 +0.0009, a tie. With PFF's ESTIMATED players "
+        "removed (gate 3) it stays above baseline_smooth50 on all 32 PFF-A games."),
 }
 NOT_SCORED = ("", "Not yet scored.")
+DEFAULT_ITEMS = "m0,idsse:m0"  # the spell fit's conventions (E108's --items widens them)
+# The spell fit's worlds: renewal masks (the recipe), BAR-ATH's real mask at seeded offsets on seeds apart from the
+# veto's 0-2 (E107 arm T), or both (E107 arm B).
+GAPS = {"renewal": (("renewal", (0, 1, 2, 3, 4)),), "transplant": (("transplant", (5, 6, 7, 8, 9)),),
+        "both": (("renewal", (0, 1, 2, 3, 4)), ("transplant", (5, 6, 7, 8, 9)))}
+WORLDS = {"renewal": "renewal worlds at dead_bias 2.6, seeds 0-4",
+          "transplant": "transplant worlds (BAR-ATH's ball mask at seeded offsets), seeds 5-9",
+          "both": "renewal worlds at dead_bias 2.6, seeds 0-4, and transplant worlds (BAR-ATH's ball mask at seeded "
+                  "offsets), seeds 5-9"}
 
 
 def fit_q_logit(goal=False):
@@ -92,11 +109,14 @@ def fit_q_logit(goal=False):
     return {name: round(float(v), 6) for name, v in zip(names, w)}
 
 
-def fit_spell_logit(base, drop=DROP):
-    """E30's flip-helps target on synthetic IDSSE and Metrica worlds, fitted where the token share is 0.5 or more."""
+def fit_spell_logit(base, drop, gaps, items):
+    """E30's flip-helps target on synthetic IDSSE and Metrica worlds of ITEMS' conventions, fitted where the token
+    share is 0.5 or more; the worlds' ball masks are GAPS[gaps]."""
     p, chain = base.params, probes._rules_off(base)
     rows = []
-    for _, cases in sorted(bench.dev_worlds(["m0", "idsse:m0"], (2.6,), seeds=(0, 1, 2, 3, 4)).items()):
+    worlds = [w for mode, seeds in GAPS[gaps]
+              for w in sorted(bench.dev_worlds(items, (2.6,), seeds=seeds, mode=mode).items())]
+    for _, cases in worlds:
         case = bench.pooled(cases)
         runs = score.valid_runs(case.gt)
         f_base, _ = score.spell_f1(case.layout, case.gt, [base.decode(h).codes for h in case.halves], runs)
@@ -124,10 +144,13 @@ def main():
     ap.add_argument("--base", type=Path, default=Path("params/tier0_v13.json"))
     ap.add_argument("--goal", action="store_true", help="add E60's goalward-ball term to q_logit")
     ap.add_argument("--touch", action="store_true", help="keep E31's touch features in spell_logit (E69)")
+    ap.add_argument("--gaps", choices=tuple(GAPS), default="renewal", help="the spell fit's ball masks (E107)")
+    ap.add_argument("--items", default=DEFAULT_ITEMS, help="the spell fit's conventions, comma-separated (E108)")
     args = ap.parse_args()
     q = fit_q_logit(args.goal)
     drop = TOUCH_DROP if args.touch else DROP
-    spell, n_runs = fit_spell_logit(Decoder.load(V10).replace(**q), drop)
+    items, default_items = args.items.split(","), args.items == DEFAULT_ITEMS
+    spell, n_runs = fit_spell_logit(Decoder.load(V10).replace(**q), drop, args.gaps, items)
     inherited = json.loads(args.base.read_text())["provenance"]
     model = Decoder.load(args.base).replace(**q, spell_logit=spell)
     command = ["PYTHONPATH=. python experiments/hillclimb-2026-10-24/pfffree.py"]
@@ -135,6 +158,8 @@ def main():
         command.append("--base " + shlex.quote(str(args.base)))
     command += ["--goal"] if args.goal else []
     command += ["--touch"] if args.touch else []
+    command += [f"--gaps {args.gaps}"] if args.gaps != "renewal" else []
+    command += [f"--items {args.items}"] if not default_items else []
     evidence, evaluation = SCORED.get(args.out.name, NOT_SCORED)
     provenance = {
         "base": f"{args.base} (every value except {', '.join(q)} and spell_logit)",
@@ -145,7 +170,8 @@ def main():
                    f"spell_logit: E30's flip-helps target and features without "
                    f"{', '.join(f for f in drop if f not in probes.LATE_SPELL)}, a ridge-1 Newton logistic over "
                    f"{n_runs} candidate runs with token share 0.5 or "
-                   "more on IDSSE m0 and Metrica m0 renewal worlds at dead_bias 2.6, seeds 0-4, decoded by tier0_v10 "
+                   f"more on {'IDSSE m0 and Metrica m0' if default_items else ', '.join(items)} "
+                   f"{WORLDS[args.gaps]}, decoded by tier0_v10 "
                    "with the new q_logit; weights rounded to 4 places. No PFF or StatsBomb file is read."),
         "inherited_selection": (f"Every other value is {args.base.stem}'s and was selected by ranking on PFF-A labels "
                                 f"under rule v2 (see {args.base} provenance.selection). This file removes PFF-fitted "
