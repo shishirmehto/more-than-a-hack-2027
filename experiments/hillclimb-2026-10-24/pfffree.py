@@ -79,14 +79,6 @@ SCORED = {
 }
 NOT_SCORED = ("", "Not yet scored.")
 DEFAULT_ITEMS = "m0,idsse:m0"  # the spell fit's conventions (E108's --items widens them)
-# The spell fit's worlds: renewal masks (the recipe), BAR-ATH's real mask at seeded offsets on seeds apart from the
-# veto's 0-2 (E107 arm T), or both (E107 arm B).
-GAPS = {"renewal": (("renewal", (0, 1, 2, 3, 4)),), "transplant": (("transplant", (5, 6, 7, 8, 9)),),
-        "both": (("renewal", (0, 1, 2, 3, 4)), ("transplant", (5, 6, 7, 8, 9)))}
-WORLDS = {"renewal": "renewal worlds at dead_bias 2.6, seeds 0-4",
-          "transplant": "transplant worlds (BAR-ATH's ball mask at seeded offsets), seeds 5-9",
-          "both": "renewal worlds at dead_bias 2.6, seeds 0-4, and transplant worlds (BAR-ATH's ball mask at seeded "
-                  "offsets), seeds 5-9"}
 
 
 def fit_q_logit(goal=False):
@@ -109,14 +101,12 @@ def fit_q_logit(goal=False):
     return {name: round(float(v), 6) for name, v in zip(names, w)}
 
 
-def fit_spell_logit(base, drop, gaps, items):
+def fit_spell_logit(base, drop, items):
     """E30's flip-helps target on synthetic IDSSE and Metrica worlds of ITEMS' conventions, fitted where the token
-    share is 0.5 or more; the worlds' ball masks are GAPS[gaps]."""
+    share is 0.5 or more."""
     p, chain = base.params, probes._rules_off(base)
     rows = []
-    worlds = [w for mode, seeds in GAPS[gaps]
-              for w in sorted(bench.dev_worlds(items, (2.6,), seeds=seeds, mode=mode).items())]
-    for _, cases in worlds:
+    for _, cases in sorted(bench.dev_worlds(items, (2.6,), seeds=(0, 1, 2, 3, 4)).items()):
         case = bench.pooled(cases)
         runs = score.valid_runs(case.gt)
         f_base, _ = score.spell_f1(case.layout, case.gt, [base.decode(h).codes for h in case.halves], runs)
@@ -144,13 +134,12 @@ def main():
     ap.add_argument("--base", type=Path, default=Path("params/tier0_v13.json"))
     ap.add_argument("--goal", action="store_true", help="add E60's goalward-ball term to q_logit")
     ap.add_argument("--touch", action="store_true", help="keep E31's touch features in spell_logit (E69)")
-    ap.add_argument("--gaps", choices=tuple(GAPS), default="renewal", help="the spell fit's ball masks (E107)")
     ap.add_argument("--items", default=DEFAULT_ITEMS, help="the spell fit's conventions, comma-separated (E108)")
     args = ap.parse_args()
     q = fit_q_logit(args.goal)
     drop = TOUCH_DROP if args.touch else DROP
     items, default_items = args.items.split(","), args.items == DEFAULT_ITEMS
-    spell, n_runs = fit_spell_logit(Decoder.load(V10).replace(**q), drop, args.gaps, items)
+    spell, n_runs = fit_spell_logit(Decoder.load(V10).replace(**q), drop, items)
     inherited = json.loads(args.base.read_text())["provenance"]
     model = Decoder.load(args.base).replace(**q, spell_logit=spell)
     command = ["PYTHONPATH=. python experiments/hillclimb-2026-10-24/pfffree.py"]
@@ -158,7 +147,6 @@ def main():
         command.append("--base " + shlex.quote(str(args.base)))
     command += ["--goal"] if args.goal else []
     command += ["--touch"] if args.touch else []
-    command += [f"--gaps {args.gaps}"] if args.gaps != "renewal" else []
     command += [f"--items {args.items}"] if not default_items else []
     evidence, evaluation = SCORED.get(args.out.name, NOT_SCORED)
     provenance = {
@@ -171,7 +159,7 @@ def main():
                    f"{', '.join(f for f in drop if f not in probes.LATE_SPELL)}, a ridge-1 Newton logistic over "
                    f"{n_runs} candidate runs with token share 0.5 or "
                    f"more on {'IDSSE m0 and Metrica m0' if default_items else ', '.join(items)} "
-                   f"{WORLDS[args.gaps]}, decoded by tier0_v10 "
+                   "renewal worlds at dead_bias 2.6, seeds 0-4, decoded by tier0_v10 "
                    "with the new q_logit; weights rounded to 4 places. No PFF or StatsBomb file is read."),
         "inherited_selection": (f"Every other value is {args.base.stem}'s and was selected by ranking on PFF-A labels "
                                 f"under rule v2 (see {args.base} provenance.selection). This file removes PFF-fitted "
