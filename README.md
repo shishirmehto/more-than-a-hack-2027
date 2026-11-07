@@ -94,6 +94,29 @@ It takes two seconds and it is the single most common way a good entry scores no
 
 ---
 
+## Reproduce this fork's submission
+
+This fork's labeller lives in `possession/`. Its settings are frozen in `params/`, one JSON file per
+version. To rebuild the submission you need Python 3.11, the data bundle and these commands, run from
+the repository root:
+
+```bash
+python3.11 -m venv .venv && .venv/bin/pip install -r requirements-submission.txt
+export MTAH_DATA_DIR=/path/to/data      # the unpacked bundle; defaults to ./data
+.venv/bin/python -m possession make-submission --params params/tier0_v13.json --out submission.csv
+.venv/bin/python evaluation/validate_submission.py submission.csv
+```
+
+`requirements-submission.txt` pins every package the build and the validator import. The build reads
+the tactical ATD (`BAR-ATH_tactical_atd.txt` and `.xml`). `tier0_v20` and `tier0_v22_pfffree` also read
+the Smart Tagging XML. The build uses no network, no random numbers and no GPU, so the file is the same
+on every run. `submission.csv` for `params/tier0_v13.json` has sha256
+`8d980307e73c50e4a87ff3da4229aa9c73d11900f6fc00e4c670da1d53b77657`. The hash of every params file is in
+`.claude/skills/verify-possession/features/make-submission.md`. The run that built the params files is
+described in [experiments/hillclimb-2026-10-24/REPORT.md](experiments/hillclimb-2026-10-24/REPORT.md).
+
+---
+
 ## Getting the data
 
 The match assets are released to enrolled participants who have accepted the terms of use.

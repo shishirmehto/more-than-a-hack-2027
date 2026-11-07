@@ -1,0 +1,6 @@
+# Exact versions for building the submission with `python -m possession make-submission`
+# and checking it with evaluation/validate_submission.py. Tested on Python 3.11.14.
+numpy==2.4.6
+pandas==3.0.6
+python-dateutil==2.9.0.post0
+six==1.17.0
