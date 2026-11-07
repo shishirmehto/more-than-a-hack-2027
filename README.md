@@ -42,7 +42,7 @@ switches, and the ball itself is invisible on 41% of the frames you are scored o
 | **Ranked on** | `spellF1` — how many of the match's real possessions you recovered as whole possessions                                   |
 | **Also reported** | `macroF1` — the per-frame view, and the first tie-break                                                                   |
 | **Baseline to beat** | `spellF1` **0.2433**, in this repository                                                                                  |
-| **Ground truth you get** | the first **5 minutes** of play                                                                                           |
+| **Ground truth you get** | the first **5 minutes** of play — to check your pipeline, not to train on                                              |
 | **Ground truth you are scored on** | the full match, **private**                                                                                               |
 
 It is deliberately **not** a tracking challenge. The tracking, tagging and homography are given to
@@ -183,6 +183,36 @@ use: **hackathon.talentarena@mobileworldcapital.com**.
 The code and documentation in this repository are released under the MIT Licence — see
 [LICENSE](LICENSE). **The match data is not covered by it**: it is separately licensed for this
 competition only, under the terms you accept at enrolment.
+
+### Other-game data this fork trains and selects on
+
+The possession labeller in `possession/` fits and checks its constants on other games, never on the
+provided match. One of those sources is the IDSSE dataset, released under CC BY 4.0, which asks to be
+cited:
+
+> Bassek, M., Rein, R., Weber, H. and Memmert, D. (2025). An integrated dataset of spatiotemporal and
+> event data in elite soccer. *Scientific Data* 12, 195. https://doi.org/10.1038/s41597-025-04505-y
+
+```bibtex
+@article{bassek2025idsse,
+  title   = {An integrated dataset of spatiotemporal and event data in elite soccer},
+  author  = {Bassek, Manuel and Rein, Robert and Weber, Hendrik and Memmert, Daniel},
+  journal = {Scientific Data},
+  volume  = {12},
+  pages   = {195},
+  year    = {2025},
+  doi     = {10.1038/s41597-025-04505-y}
+}
+```
+
+No file from it is committed. `possession/idsse/` reads a local copy fetched from the pysport mirror on Hugging Face (`pysport/idsse-data`).
+
+Another is SkillCorner Open Data (20 A-League 2024/25 matches of broadcast tracking with SkillCorner's
+possession group and phases of play), released under the MIT Licence by SkillCorner, who ask to be
+credited: **tracking and phase data courtesy of [SkillCorner](https://skillcorner.com), from
+[github.com/SkillCorner/opendata](https://github.com/SkillCorner/opendata).** No file from it is committed.
+`possession/skillcorner/` reads a local copy at commit `4340d27` and checks it against the sha256 list in
+`possession/skillcorner/manifest.json`.
 
 ```bibtex
 @misc{mtah2027,

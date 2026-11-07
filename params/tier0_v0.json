@@ -1,0 +1,24 @@
+{
+  "emission": {
+    "alive_share": 0.6,
+    "dead_bias": 1.0,
+    "kind": "tier0",
+    "q": 0.78
+  },
+  "params": {
+    "dead_mean_s": 10.0,
+    "decode_rule": "marginal",
+    "min_dead_frames": 1,
+    "min_poss_frames": 1,
+    "p_dead_after_poss": 0.25,
+    "p_flip_after_dead": 0.7,
+    "poss_mean_s": 6.0,
+    "stride": 5,
+    "temper": 0.05
+  },
+  "provenance": {
+    "basis": "the design sketch's Tier0Emission and DecoderParams defaults, unchanged",
+    "public_window": "q 0.78 is the public-window crosstab's 0.778, rounded. p_flip_after_dead 0.7 was set near the share of public-window D stretches that change team (3 of 4). temper 0.05 comes from a public-window smoke test that compared temper values by window spellF1 and put the useful range at 0.01 to 0.1. The flat dead_bias 1.0 was argued partly from a public-window count (66% of GT dead-ball frames show the ball) and partly from the synthetic proxy. These values were committed on 2026-10-21. EVALUATION.md had said since 2026-09-24 to use the window to check correctness and never to choose between two versions. Upstream f8f2629 (2026-10-23) made RULES.md say the window is not training data and not a tuning set. v0 became the reference on 2026-10-21 although tier0_v1 won dev sweep 1 (worst world 0.313 against 0.294). The case for keeping v0 cited CHALLENGE.md and public-window figures, and later dev sweeps left out the m0 world. Dev sweeps 3 to 5 varied p_flip_after_dead and temper with v0 as the incumbent. None replaced it, and none separated it from its neighbours beyond draw noise. No dev sweep has varied q. Sweeps 1 and 2 used one Metrica count each, and sweeps 3 to 5 held 0.78. See possession/DESIGN.md, Measurements and constant provenance.",
+    "source": "hand-set, not fitted"
+  }
+}

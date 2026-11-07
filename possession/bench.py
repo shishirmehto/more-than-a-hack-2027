@@ -1,0 +1,458 @@
+from __future__ import annotations
+
+import dataclasses
+import functools
+import itertools
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Iterable, Literal, Mapping, Sequence
+
+import numpy as np
+import pandas as pd
+from numpy.typing import NDArray
+
+from . import challenge, dropout, idsse, metrica, pff, score, skillcorner
+from .decoder import Decoded, Decoder, DecoderParams, Tier0Emission
+from .half import AWAY, HOME, A, D, H, NO_TEAM, X, CleanHalf, Half, Layout, check_codes
+from .dropout import DropoutParams
+from .metrica import RuleV2
+from .pff import statsbomb
+
+PUBLIC_GT = Path(__file__).resolve().parents[1] / "evaluation" / "gt" / f"{challenge.GAME}_possession_gt_public.csv"
+
+MAX_SWITCH_RATIO = 10
+
+SELECTION = ("max over candidates of the min pooled-dev spellF1 across worlds, ties by the mean; "
+             "NaN (refused as flicker) in any world disqualifies")
+SELECTION_MARGIN = ("max over candidates of the min, over world groups (a world key without its seed), of the "
+                    "seed-mean pooled-dev spellF1 margin over the reference model; ties by the mean; NaN in any "
+                    "world disqualifies")
+
+Grid = Mapping[str, Sequence[object]]
+
+
+class Flicker(ValueError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class DevSpec:
+    """One dev world.
+
+    seed:      dropout seed; labels are seed-free.
+    ball_fill: how native Metrica NaN are replaced before dropout ("hold" | "linear").
+    """
+    rule: RuleV2 = RuleV2()
+    dropout: DropoutParams = DropoutParams()
+    seed: int = 0
+    ball_fill: Literal["hold", "linear"] = "hold"
+
+
+@dataclass(frozen=True, slots=True)
+class Case:
+    """name:   "dev_<game>" ("dev_g1", or "dev_J03WMX" for IDSSE) | "dev_pooled" | "public".
+    layout: where each half sits in the scorer array.
+    halves: decoder inputs, in layout order.
+    gt:     int8 [layout.n_total] in {0..3}.
+    """
+    name: str
+    layout: Layout
+    halves: tuple[Half, ...]
+    gt: NDArray[np.int8]
+
+    def __post_init__(self) -> None:
+        """len(gt) == layout.n_total; codes in range (half.check_codes); gt is X on every row outside
+        the layout's blocks; one half per block with half.n == block.n."""
+        check_codes(self.gt, allow_x=True)
+        layout = self.layout
+        if len(self.gt) != layout.n_total:
+            raise ValueError(f"{self.name}: gt has {len(self.gt)} rows, layout {layout.n_total}")
+        if len(self.halves) != len(layout.blocks):
+            raise ValueError(f"{self.name}: {len(self.halves)} halves for {len(layout.blocks)} blocks")
+        inside = np.zeros(layout.n_total, dtype=bool)
+        for h, b in zip(self.halves, layout.blocks):
+            if h.n != b.n:
+                raise ValueError(f"{self.name}: half {h.id} has {h.n} frames, its block {b.n}")
+            inside[b.origin:b.origin + b.n] = True
+        if (self.gt[~inside] != X).any():
+            raise ValueError(f"{self.name}: gt must be X on every row outside the blocks")
+        self.gt.setflags(write=False)
+
+    def predict(self, model: Model) -> list[NDArray[np.int8]]:
+        """One int8 [block.n] per half: `model.decode(h).codes`."""
+        return [model.decode(h).codes for h in self.halves]
+
+
+@dataclass(frozen=True, slots=True)
+class Smoother:
+    """The published floor, starter/baseline.py's smooth() on one half's tokens: a centred majority
+    vote of nearest_team over +/- window frames, ties to H, D only where the window never sees the
+    ball. Window 0 is baseline_raw. It knows no kickoff, so it labels pre-kickoff frames as the
+    published files do. On BAR-ATH, per-half smoothing equals the published files on every graded
+    frame (selfcheck.smoother_matches_published_baselines)."""
+    window: int
+
+    def __post_init__(self) -> None:
+        if self.window < 0:
+            raise ValueError(f"window must be >= 0, got {self.window}")
+
+    @property
+    def name(self) -> str:
+        return f"baseline_smooth{self.window}" if self.window else "baseline_raw"
+
+    def decode(self, half: Half) -> Decoded:
+        return Decoded(codes=smooth(half.nearest_team, self.window), posterior=None)
+
+
+def smooth(tokens: NDArray[np.int8], window: int) -> NDArray[np.int8]:
+    """int8 codes in {0, 1, 2} from tokens in {-1, 0, 1}, by cumulative sums as in the original."""
+    home = np.concatenate(([0], np.cumsum(tokens == HOME)))
+    away = np.concatenate(([0], np.cumsum(tokens == AWAY)))
+    index = np.arange(len(tokens))
+    low, high = np.maximum(0, index - window), np.minimum(len(tokens), index + window + 1)
+    h, a = home[high] - home[low], away[high] - away[low]
+    return np.where(h + a == 0, D, np.where(h >= a, H, A)).astype(np.int8)
+
+
+Model = Decoder | Smoother
+
+
+def dev_cases(spec: DevSpec) -> list[Case]:
+    """metrica.load -> dropout.challengeify -> per-game and pooled Cases. Requires fetched data.
+
+    Returns [dev_g1, dev_g2, dev_g3, dev_pooled]."""
+    clean = metrica.load(spec.rule, ball_fill=spec.ball_fill)
+    return _dev_cases([c.labels for c in clean], dropout.challengeify(clean, spec.dropout, spec.seed))
+
+
+def _dev_cases(labels: Sequence[NDArray[np.int8]], halves: Sequence[Half]) -> list[Case]:
+    """Per-game and pooled Cases from each half's labels and decoder input, in the same order."""
+    by_game: dict[str, list[int]] = {}
+    for i, h in enumerate(halves):
+        by_game.setdefault(h.id.match, []).append(i)
+    groups = [("dev_" + match.split("_", 1)[1], idx) for match, idx in by_game.items()]
+    groups.append(("dev_pooled", list(range(len(halves)))))
+    cases = []
+    for name, idx in groups:
+        layout = Layout.synthetic([halves[i].n for i in idx])
+        cases.append(Case(name, layout, tuple(halves[i] for i in idx), layout.assemble([labels[i] for i in idx])))
+    return cases
+
+
+def public_case(source: Literal["baseline_raw", "atd"] = "baseline_raw") -> Case:
+    """BAR-ATH: challenge.halves(source), challenge.layout(), GT = public CSV via score.read_codes
+    (evaluation/gt/BAR-ATH_possession_gt_public.csv; real labels only on rows [11185, 18685))."""
+    layout = challenge.layout()
+    return Case("public", layout, tuple(challenge.halves(source)), score.read_codes(PUBLIC_GT, layout.n_total))
+
+
+def dropout_stats(halves: Sequence[Half], labels: Sequence[NDArray[np.int8]]) -> dict[str, float]:
+    def rate(mask: NDArray[np.bool_], where: NDArray[np.bool_]) -> float:
+        return float(mask[where].mean()) if where.any() else float("nan")
+
+    window = [(h.nearest_team[h.id.kickoff:] == NO_TEAM, lab[h.id.kickoff:]) for h, lab in zip(halves, labels)]
+    missing = np.concatenate([m for m, _ in window])
+    lab = np.concatenate([l for _, l in window])
+    pre = np.concatenate([h.nearest_team[:h.id.kickoff] == NO_TEAM for h in halves])
+    graded = lab != X
+    split = dropout.missing_rates(missing, dead=graded & (lab == D), alive=graded & (lab != D))
+    return {"overall": rate(missing, graded), "p_missing_dead": split.p_dead, "p_missing_alive": split.p_alive,
+            "ratio": split.ratio, "prekickoff": rate(pre, np.ones(len(pre), dtype=bool))}
+
+
+def pooled(cases: Sequence[Case]) -> Case:
+    """The world's "dev_pooled" case."""
+    return next(c for c in cases if c.name == "dev_pooled")
+
+
+@dataclass(frozen=True, slots=True)
+class DevSource:
+    """Where dev games come from: the loader, the prefix on its world keys, the data pin fit-dev records,
+    and, for mode "native", where the source's own tracker saw the ball (None when it does not say)."""
+    load: Callable[[RuleV2], Iterable[CleanHalf]]
+    key_prefix: str
+    pin: Mapping[str, str]
+    native_seen: Callable[[CleanHalf], NDArray[np.bool_]] | None = None
+
+
+SOURCES: Mapping[str, DevSource] = {
+    "metrica": DevSource(metrica.load, "", {"sample_data_commit": metrica.COMMIT}),
+    "idsse": DevSource(idsse.load, "idsse_", {"idsse_revision": idsse.REVISION}),
+    "pff": DevSource(pff.load, "pff_", {"pff_manifest_sha256": pff.MANIFEST_SHA256}, pff.native_seen),
+    "pffsb": DevSource(statsbomb.load, "pffsb_", {"pff_manifest_sha256": pff.MANIFEST_SHA256,
+                                                   "statsbomb_commit": statsbomb.COMMIT}, pff.native_seen),
+    "skillcorner": DevSource(skillcorner.load, "skillcorner_", {"skillcorner_revision": skillcorner.REVISION},
+                             skillcorner.native_seen),
+}
+
+
+def worlds(rules: Sequence[RuleV2], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
+           mode: Literal["renewal", "transplant", "native", "bridged"] = "renewal",
+           source: str = "metrica") -> dict[str, list[Case]]:
+    """dev_cases for every (rule, dead_bias, seed), keyed "{rule.key}_r{dead_bias:g}" ("m2_r1"), plus
+    "_s{seed}" for a seed other than 0 ("h3p3_r1_s2"). Rule-major, seed innermost. "transplant"
+    ignores dead_bias, so it builds one world per (rule, seed), keyed
+    "{rule.key}_transplant[_s{seed}]". "native" ignores dead_bias and seeds: one world per rule, keyed
+    "{rule.key}_native", whose ball is NaN wherever the source's tracker did not see it
+    (DevSource.native_seen; ValueError for a source without one). "bridged" is "native" with every unseen
+    run shorter than BRIDGE_FRAMES counted as seen at the source's own ball position, because BAR-ATH's
+    ATD bridges short occlusions (measured: 1 missing run between 1 and 5 s in the match against about 211
+    per PFF game), keyed "{rule.key}_bridged". source names a SOURCES entry:
+    "idsse" builds them from the seven DFL matches, "pff" from the 64 World Cup 2022 games and
+    "skillcorner" from the 20 A-League matches instead of the three Metrica games (merge rules only, m0
+    only for skillcorner), and every key gets the source's prefix ("idsse_m0_r1").
+    Each world's halves are observed as the loader yields a half, so a streaming loader (pff) never
+    holds more than one game's geometry."""
+    dev, out = SOURCES[source], {}
+    if mode in ("native", "bridged") and dev.native_seen is None:
+        raise ValueError(f"source {source!r} has no native ball mask, so mode {mode!r} needs another source (pff)")
+    pool = None if mode in ("native", "bridged") else dropout.RunPool.from_halves(challenge.halves("baseline_raw"))
+    for rule in rules:
+        prefix = f"{dev.key_prefix}{rule.key}_"
+        observers: dict[str, Callable[[CleanHalf], Half]]
+        if mode in ("native", "bridged"):
+            seen = dev.native_seen if mode == "native" else functools.partial(_bridged, seen=dev.native_seen)
+            observers = {prefix + mode: functools.partial(_observe_native, seen=seen)}
+        else:
+            generators = ({"transplant": DropoutParams(mode="transplant")} if mode == "transplant"
+                          else {f"r{rho:g}": DropoutParams(dead_bias=rho) for rho in dead_bias})
+            observers = {prefix + generator + (f"_s{seed}" if seed else ""):
+                         functools.partial(_observe_dropout, params=params, seed=seed, pool=pool)
+                         for generator, params in generators.items() for seed in seeds}
+        labels, halves = [], {key: [] for key in observers}
+        for clean in dev.load(rule):
+            labels.append(clean.labels)
+            for key, observe in observers.items():
+                halves[key].append(observe(clean))
+        out.update({key: _dev_cases(labels, world) for key, world in halves.items()})
+    return out
+
+
+MODES = ("renewal", "transplant", "native", "bridged")
+BRIDGE_FRAMES = 125
+
+
+def dev_worlds(items: Sequence[str], dead_bias: Sequence[float], *, seeds: Sequence[int] = (0,),
+               mode: Literal["renewal", "transplant", "native", "bridged"] = "renewal",
+               source: str = "metrica") -> dict[str, list[Case]]:
+    """worlds() for "[source:]rule[:mode]" items, so one call mixes sources and ball-gap modes ("m0",
+    "idsse:m0", "pff:m0:native"). An item without a source uses `source`, one without a mode uses `mode`.
+    Each source keeps its key prefix and each mode its generator tag, so keys never collide."""
+    by_run: dict[tuple[str, str], list[RuleV2]] = {}
+    for item in items:
+        parts = item.split(":")
+        name = parts.pop(0) if len(parts) > 1 and parts[0] in SOURCES else source
+        gaps = parts.pop() if len(parts) > 1 and parts[-1] in MODES else mode
+        if len(parts) != 1:
+            raise ValueError(f"rule item {item!r} is not [source:]rule[:mode] with source in {sorted(SOURCES)} "
+                             f"and mode in {MODES}")
+        by_run.setdefault((name, gaps), []).append(RuleV2.parse(parts[0]))
+    out: dict[str, list[Case]] = {}
+    for (name, gaps), rules in by_run.items():
+        out.update(worlds(rules, dead_bias, seeds=seeds, mode=gaps, source=name))
+    return out
+
+
+def group(world: str) -> str:
+    """A world key without its seed suffix ("idsse_m0_r2.6_s3" -> "idsse_m0_r2.6"): one convention under
+    one generator, which a seed-mean averages over."""
+    return re.sub(r"_s\d+$", "", world)
+
+
+def group_margins(spell: Mapping[str, float], floor: Mapping[str, float]) -> dict[str, float]:
+    """Seed-mean of spell minus floor per group, both keyed by world."""
+    by_group: dict[str, list[float]] = {}
+    for world, value in spell.items():
+        by_group.setdefault(group(world), []).append(value - floor[world])
+    return {g: float(np.mean(v)) for g, v in by_group.items()}
+
+
+def objective(table: pd.DataFrame, reference: str) -> pd.DataFrame:
+    """One row per model of run()'s table (with a world column): the seed-mean dev_pooled spellF1 margin
+    over `reference` in each group, then min (the objective) and mean over groups."""
+    pooled_rows = table[table["case"] == "dev_pooled"]
+    spell = pooled_rows.pivot_table(index="world", columns="model", values="spell_f1")
+    rows = {}
+    for model in spell.columns:
+        margins = group_margins(spell[model].to_dict(), spell[reference].to_dict())
+        rows[model] = {**margins, "min": min(margins.values()), "mean": float(np.mean(list(margins.values())))}
+    return pd.DataFrame.from_dict(rows, orient="index").sort_values(["min", "mean"], ascending=False)
+
+
+def _observe_dropout(clean: CleanHalf, *, params: DropoutParams, seed: int, pool: dropout.RunPool) -> Half:
+    """dropout.challengeify of one half. Its masks are seeded per half, so this equals that half's
+    entry in a call on every half."""
+    return dropout.challengeify([clean], params, seed, pool)[0]
+
+
+def _bridged(clean: CleanHalf, *, seen: Callable[[CleanHalf], NDArray[np.bool_]]) -> NDArray[np.bool_]:
+    out = seen(clean).copy()
+    edges = np.flatnonzero(np.diff(np.concatenate(([True], out, [True])).view(np.int8)))
+    for start, stop in zip(edges[::2], edges[1::2]):
+        if stop - start < BRIDGE_FRAMES:
+            out[start:stop] = True
+    return out
+
+
+def _observe_native(clean: CleanHalf, *, seen: Callable[[CleanHalf], NDArray[np.bool_]]) -> Half:
+    ball = np.where(seen(clean)[:, None], clean.geometry.ball_xy, np.float32(np.nan)).astype(np.float32)
+    return challenge.observe(dataclasses.replace(clean.geometry, ball_xy=ball), clean.id)
+
+
+def run(models: Mapping[str, Model], cases: Sequence[Case], *, bootstrap_n: int = 0) -> pd.DataFrame:
+    """One row per (model, case): model, case, score.Scores.as_row() columns, then the case's
+    dropout_stats.
+
+    Refuses (raises Flicker, naming the model and case) a prediction whose switch count exceeds 10x
+    the GT's segments, instead of grinding through pm.spell_overlaps (O(GT x pred) pure Python) on a
+    flicker. Both are counted inside the graded runs only.
+    """
+    stats = [dropout_stats(case.halves, case.layout.cut(case.gt)) for case in cases]
+    rows = []
+    for name, model in models.items():
+        memo: _Memo = {}
+        for case, case_stats in zip(cases, stats):
+            s = _evaluate(name, model, case, memo, bootstrap_n=bootstrap_n)
+            rows.append({"model": name, "case": case.name, **s.as_row(), **case_stats})
+    return pd.DataFrame(rows)
+
+
+_Memo = dict[object, NDArray[np.int8]]
+
+
+def _decode_key(value: object) -> object:
+    """Every field of a Half, so a field added later joins the key. Arrays key by dtype, shape and
+    bytes, and dataclasses recurse into their fields, because repr elides most of a large array."""
+    if isinstance(value, np.ndarray):
+        return value.dtype.str, value.shape, value.tobytes()
+    if dataclasses.is_dataclass(value):
+        return tuple((f.name, _decode_key(getattr(value, f.name))) for f in dataclasses.fields(value))
+    return repr(value)
+
+
+def _predict(name: str, model: Model, case: Case, memo: _Memo) -> list[NDArray[np.int8]]:
+    preds = []
+    for h in case.halves:
+        key = _decode_key(h)
+        if key not in memo:
+            memo[key] = model.decode(h).codes
+        preds.append(memo[key])
+    _refuse_flicker(name, case, preds)
+    return preds
+
+
+def _evaluate(name: str, model: Model, case: Case, memo: _Memo, *, bootstrap_n: int = 0) -> score.Scores:
+    return score.evaluate(case.layout, case.gt, _predict(name, model, case, memo), bootstrap_n=bootstrap_n)
+
+
+def _refuse_flicker(name: str, case: Case, preds: Sequence[NDArray[np.int8]]) -> None:
+    pred = case.layout.assemble(preds)
+    switches = segments = 0
+    for start, stop in score.valid_runs(case.gt):
+        g, p = case.gt[start:stop], pred[start:stop]
+        segments += 1 + int((g[1:] != g[:-1]).sum())
+        switches += int((p[1:] != p[:-1]).sum())
+    if switches > MAX_SWITCH_RATIO * segments:
+        raise Flicker(f"model {name!r} on case {case.name!r}: {switches} switches > "
+                      f"{MAX_SWITCH_RATIO} x {segments} GT segments")
+
+
+def surface(base: Decoder, worlds: Mapping[float, Sequence[Case]], beliefs: Sequence[float]) -> pd.DataFrame:
+    """Generator dead_bias (rows) x decoder dead_bias belief (columns) -> pooled-dev spellF1.
+
+    worlds: {dead_bias: dev_cases(DevSpec(dropout=DropoutParams(dead_bias=...)))}. The decoder variant
+    for a column is base.replace(dead_bias=belief).
+    The last row is the column's minimum over worlds (the max-min score).
+    """
+    cells = {}
+    for belief in beliefs:
+        model, memo = base.replace(dead_bias=belief), {}
+        cells[belief] = {rho: _evaluate(f"belief {belief:g}", model, pooled(cases), memo).spell_f1
+                         for rho, cases in worlds.items()}
+    table = pd.DataFrame(cells)
+    table.loc["min"] = table.min()
+    table.index.name, table.columns.name = "generator dead_bias", "belief"
+    return table
+
+
+def fit_dev(worlds: Mapping[str, Sequence[Case]], grids: Sequence[Grid], *,
+            base: Decoder = Decoder(Tier0Emission(), DecoderParams()),
+            on_row: Callable[[dict[str, object]], None] | None = None,
+            reference: Model | None = None) -> tuple[Decoder, pd.DataFrame]:
+    """Every candidate of `grids` scored on every world's dev_pooled case; returns (best by max-min,
+    the whole grid table). With a reference model, min and mean are taken over group margins
+    (SELECTION_MARGIN) instead of raw world scores (SELECTION).
+
+    grids:  a union of Cartesian products, one Mapping per sub-grid. Keys are Decoder.fields() names
+            (dead_bias is the decoder's belief); an axis a sub-grid omits keeps `base`'s value.
+    base:   the decoder every candidate varies.
+    on_row: called with each finished row.
+    The table has one row per candidate, ranked by SELECTION (rank 1 = returned decoder); a world on
+    which run's flicker guard refused the candidate scores NaN, and NaN anywhere disqualifies."""
+    cases = {name: pooled(world) for name, world in worlds.items()}
+    runs = {name: score.valid_runs(case.gt) for name, case in cases.items()}
+    floor = None if reference is None else {
+        name: score.spell_f1(case.layout, case.gt, _predict("reference", reference, case, {}), runs[name])[0]
+        for name, case in cases.items()}
+    models, rows = [], []
+    for model in _candidates(base, grids):
+        memo: _Memo = {}
+        spell, n_pred = {}, {}
+        for name, case in cases.items():
+            try:
+                preds = _predict("candidate", model, case, memo)
+            except Flicker:
+                spell[name], n_pred[name] = float("nan"), -1
+                continue
+            spell[name], n_pred[name] = score.spell_f1(case.layout, case.gt, preds, runs[name])
+        values = np.array(list(spell.values() if floor is None else group_margins(spell, floor).values()))
+        row = {**model.fields(), **{f"spell_{k}": v for k, v in spell.items()},
+               "min": float(values.min()), "mean": float(values.mean()),
+               **{f"pred_{k}": v for k, v in n_pred.items()}}
+        if on_row is not None:
+            on_row(row)
+        models.append(model)
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    order = table.sort_values(["min", "mean"], ascending=False, kind="stable", na_position="last").index
+    table = table.loc[order].reset_index(drop=True)
+    table.insert(0, "rank", np.arange(1, len(table) + 1))
+    return models[order[0]], table
+
+
+def _candidates(base: Decoder, grids: Sequence[Grid]) -> list[Decoder]:
+    """Every combination DecoderParams accepts; a grid point it rejects (a map mean at or below its
+    minimum, a dead_trim that eats its run) is skipped, and a grid with no valid point raises."""
+    out, rejected = [], []
+    for grid in grids:
+        keys = list(grid)
+        for values in itertools.product(*(grid[k] for k in keys)):
+            try:
+                out.append(base.replace(**dict(zip(keys, values))))
+            except ValueError as error:
+                rejected.append(error)
+    if not out:
+        raise ValueError(f"no valid grid point; first rejection: {rejected[0]}")
+    return out
+
+
+def paired_delta(a: Model, b: Model, case: Case, *, n_draws: int = 1000, seed: int = 0) -> tuple[float, float, float]:
+    """(delta, low, high): the observed spellF1(a) - spellF1(b) (spell_f1_mean, pm's mean over IoUs)
+    and the 5th / 95th percentiles of its bootstrap, resampling the GT possessions both share.
+    """
+    flags, n_pred = zip(*(score.matched_flags(case.layout, case.gt, case.predict(model)) for model in (a, b)))
+    n_gt = flags[0].shape[1]
+
+    def spell_f1(hits: NDArray[np.bool_], picks: NDArray[np.int64], predicted: int) -> NDArray[np.float64]:
+        tp = hits[:, picks].sum(axis=-1)
+        fp, fn = np.maximum(0, predicted - tp), n_gt - tp
+        f1 = np.where(tp > 0, 2.0 * tp / np.maximum(2 * tp + fp + fn, 1), 0.0)
+        return f1.mean(axis=0)
+
+    every = np.arange(n_gt)[None, :]
+    observed = spell_f1(flags[0], every, n_pred[0]) - spell_f1(flags[1], every, n_pred[1])
+    picks = np.random.default_rng(seed).integers(0, n_gt, size=(n_draws, n_gt))
+    deltas = spell_f1(flags[0], picks, n_pred[0]) - spell_f1(flags[1], picks, n_pred[1])
+    low, high = np.percentile(deltas, (5, 95))
+    return float(observed[0]), float(low), float(high)

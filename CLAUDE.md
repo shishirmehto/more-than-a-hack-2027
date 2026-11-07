@@ -29,6 +29,20 @@ Therefore:
   `evaluation/results/*.csv` (except the baselines).
 - Never use the private full-match ground truth.
 
+The organisers tightened the rules on 2026-10-22 and 2026-10-23 (upstream `c073f29`, `f8f2629`):
+
+- The public 5 minutes check that the pipeline is correct. They are not training data and not a
+  tuning set, so no decoder or generator constant may be chosen from public-window statistics.
+- No hand labels on this match for any purpose, validation included. Hand labels on other games,
+  such as the Metrica sample's events, are fine, and the technical document must say what was
+  labelled, by whom and how much.
+- No human-produced data about this match from any source (event feeds, corrected tracking).
+- Rule 1 allows watching the video and inspecting the data to understand them, debug the pipeline
+  and design features, and pseudo-labels produced by an algorithm when no person decided any of
+  them. Rules or constants tied to specific frames of this match are not allowed. RULES.md says
+  nothing about match-wide statistics. Our reading, not confirmed by the organisers, is that
+  statistics of the automatic inputs, computed by code and tied to no specific frame, are allowed.
+
 ## Commands
 
 The environment is `.venv`, on Python 3.11. The scorer is tested on Python 3.8 and 3.11, and system
@@ -93,7 +107,7 @@ frames should be `X`.
   computed, and it counts as a miss for `macroF1`. Abstain through occlusions inside a possession.
   Guess at hand-overs.
 - **The public window has only 17 possessions.** Use it to check correctness: alignment, file
-  format, label meaning. Don't use it for model selection. `smooth125` wins on the public window
+  format, label meaning. The rules forbid using it for model selection, training or tuning. `smooth125` wins on the public window
   but loses to `smooth50` on the full match. spellF1 noise is about ±0.04.
 - **The floor to beat is `baseline_smooth50`**, at full-match spellF1 0.2433.
 - **Data traps:**

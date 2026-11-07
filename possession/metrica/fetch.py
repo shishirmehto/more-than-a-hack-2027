@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import tempfile
+import urllib.request
+from pathlib import Path
+from typing import BinaryIO
+
+import games
+
+COMMIT = "e706dd506b360d69d9d123d5b8026e7294b13996"
+RAW_URL = "https://raw.githubusercontent.com/metrica-sports/sample-data/{commit}/{path}"
+
+FILES: dict[int, dict[str, str]] = {
+    1: {"events": "data/Sample_Game_1/Sample_Game_1_RawEventsData.csv",
+        "home": "data/Sample_Game_1/Sample_Game_1_RawTrackingData_Home_Team.csv",
+        "away": "data/Sample_Game_1/Sample_Game_1_RawTrackingData_Away_Team.csv"},
+    2: {"events": "data/Sample_Game_2/Sample_Game_2_RawEventsData.csv",
+        "home": "data/Sample_Game_2/Sample_Game_2_RawTrackingData_Home_Team.csv",
+        "away": "data/Sample_Game_2/Sample_Game_2_RawTrackingData_Away_Team.csv"},
+    3: {"events": "data/Sample_Game_3/Sample_Game_3_events.json",
+        "meta": "data/Sample_Game_3/Sample_Game_3_metadata.xml",
+        "tracking": "data/Sample_Game_3/Sample_Game_3_tracking.txt"},
+}
+
+MANIFEST = Path(__file__).with_name("manifest.json")
+
+
+def root(data_dir: str | Path | None = None) -> Path:
+    """data_dir, or games.DATA_DIR / "metrica_sample" when None. Honours MTAH_DATA_DIR like every
+    other asset path."""
+    return Path(games.DATA_DIR) / "metrica_sample" if data_dir is None else Path(data_dir)
+
+
+def paths(game: int, data_dir: str | Path | None = None) -> dict[str, Path]:
+    """Local paths for one game, like games.require: raises ONE IOError naming every missing file
+    plus the exact command to run (`python -m possession fetch-metrica`). Existence only, no
+    hashing; `fetch` is where bytes are verified."""
+    folder = root(data_dir)
+    found = {role: _local(folder, rel) for role, rel in FILES[game].items()}
+    missing = [str(path) for path in found.values() if not path.is_file()]
+    if missing:
+        raise IOError("Metrica sample data not found:\n  {}\n\nRun `python -m possession fetch-metrica` "
+                      "(about 183 MB into {}).".format("\n  ".join(missing), folder))
+    return found
+
+
+def fetch(data_dir: str | Path | None = None, *, write_manifest: bool = False) -> list[Path]:
+    """Download every file in FILES into data_dir, verified. Returns the local paths.
+
+    Per file: skip if present and sha256 matches the manifest; else GET RAW_URL, stream to a temp
+    file while hashing, compare, rename. A manifest mismatch deletes the temp file and raises with
+    both digests. With write_manifest=True the digests are recorded instead of compared (local
+    files are hashed, missing ones downloaded).
+    """
+    folder = root(data_dir)
+    expected = {} if write_manifest else _read_manifest()
+    recorded: dict[str, dict[str, object]] = {}
+    local = []
+    for files in FILES.values():
+        for rel in files.values():
+            dest = _local(folder, rel)
+            want = expected[rel]["sha256"] if expected else None
+            recorded[rel] = _ensure(rel, dest, want)
+            local.append(dest)
+    if write_manifest:
+        _write_manifest(recorded)
+    return local
+
+
+def _local(root: Path, rel: str) -> Path:
+    return root / Path(rel).relative_to("data")
+
+
+def _read_manifest() -> dict[str, dict[str, object]]:
+    manifest = json.loads(MANIFEST.read_text())
+    if manifest["commit"] != COMMIT:
+        raise ValueError(f"{MANIFEST.name} pins {manifest['commit']}, fetch.py pins {COMMIT}")
+    files = manifest["files"]
+    unlisted = [rel for group in FILES.values() for rel in group.values() if rel not in files]
+    if unlisted:
+        raise ValueError(f"{MANIFEST.name} has no digest for: {unlisted}")
+    return files
+
+
+def _write_manifest(files: dict[str, dict[str, object]]) -> None:
+    tmp = MANIFEST.with_name(MANIFEST.name + ".part")
+    tmp.write_text(json.dumps({"commit": COMMIT, "files": files}, indent=2) + "\n")
+    os.replace(tmp, MANIFEST)
+
+
+def copy_hashing(src: BinaryIO, dst: BinaryIO | None = None) -> tuple[str, int]:
+    digest, size = hashlib.sha256(), 0
+    while chunk := src.read(1 << 20):
+        if dst is not None:
+            dst.write(chunk)
+        digest.update(chunk)
+        size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def _ensure(rel: str, dest: Path, want: str | None) -> dict[str, object]:
+    if dest.is_file():
+        with open(dest, "rb") as f:
+            have, size = copy_hashing(f)
+        if want is None or have == want:
+            print(f"ok       {rel}")
+            return {"sha256": have, "bytes": size}
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=dest.name + ".", suffix=".part")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as out, urllib.request.urlopen(RAW_URL.format(commit=COMMIT, path=rel), timeout=60) as resp:
+            have, size = copy_hashing(resp, out)
+        if want is not None and have != want:
+            raise ValueError(f"{rel}: downloaded sha256 {have}, manifest says {want}")
+        os.replace(tmp, dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    print(f"fetched  {rel}  {size:,} bytes")
+    return {"sha256": have, "bytes": size}

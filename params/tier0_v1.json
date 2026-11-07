@@ -1,0 +1,35 @@
+{
+  "emission": {
+    "alive_share": 0.6,
+    "dead_bias": 1.0,
+    "kind": "tier0",
+    "q": 0.7995466690304036
+  },
+  "params": {
+    "dead_mean_s": 15.0,
+    "decode_rule": "marginal",
+    "min_dead_frames": 1,
+    "min_poss_frames": 1,
+    "p_dead_after_poss": 0.29560336763330214,
+    "p_flip_after_dead": 0.7318611987381703,
+    "poss_mean_s": 6.0,
+    "stride": 5,
+    "temper": 0.1
+  },
+  "provenance": {
+    "command": "python -m possession fit-dev --seed 0 --merge-s 0 2 --dead-bias 1 3 --out params/tier0_v1.json",
+    "fit_reference_world": "merge_s 0, dead_bias 1, renewal dropout, seed 0: decoder.fit counts on dev_pooled (six Metrica halves)",
+    "grid_candidates": 288,
+    "grid_table": "tier0_v1_grid.csv",
+    "public_window": "Selection read only the Metrica dev worlds in sweep_worlds. The marginal temper grid {0.02, 0.05, 0.1, 0.2} was set from a public-window smoke test that put temper's useful range at 0.01 to 0.1. The m2 worlds merge Metrica spells under 2 s because raw Metrica spells are much shorter than the public window's, though 2 s was not fitted to the window. The decoder dead_bias 1.0 was selected from a {1, 3} axis whose 1.0 is the flat default, argued partly from a public-window count. These choices were committed on 2026-10-21. EVALUATION.md had said since 2026-09-24 to use the window to check correctness and never to choose between two versions. Upstream f8f2629 (2026-10-23) made RULES.md say the window is not training data and not a tuning set. v1 won this sweep on dev but was set aside the same day, on CHALLENGE.md and public-window figures (23 predicted possessions against 17, spellF1 0.310 against 0.412). On controlled-possession dev worlds it later lost to v0 at 5 s (-0.026 spellF1) and tied at 3 s. This public_window text was added by hand on 2026-10-24, and the command above does not write it. See possession/DESIGN.md, Measurements and constant provenance.",
+    "sample_data_commit": "e706dd506b360d69d9d123d5b8026e7294b13996",
+    "selection": "max over candidates of the min pooled-dev spellF1 across worlds, ties by the mean; NaN (refused as flicker) in any world disqualifies",
+    "sweep_seconds": 300,
+    "sweep_worlds": [
+      "m0_r1",
+      "m0_r3",
+      "m2_r1",
+      "m2_r3"
+    ]
+  }
+}
