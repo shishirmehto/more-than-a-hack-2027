@@ -155,8 +155,8 @@ The code applies these steps to each half in order (`possession/decoder.py`, `De
 
 ## References
 
-- Vidal-Codina, F. et al. (2022). Automatic event detection in football using tracking data. arXiv:2202.00804.
-- Link, D. and Hoernig, M. (2017). Individual ball possession in soccer. *PLOS ONE* 12(7). PMC5503225.
+- Vidal-Codina, F., Evans, N., El Fakir, B. and Billingham, J. (2022). Automatic event detection in football using tracking data. *Sports Engineering* 25, 18. arXiv:2202.00804.
+- Link, D. and Hoernig, M. (2017). Individual ball possession in soccer. *PLOS ONE* 12(7), e0179953. doi:10.1371/journal.pone.0179953.
 
 ## Reproduction
 
