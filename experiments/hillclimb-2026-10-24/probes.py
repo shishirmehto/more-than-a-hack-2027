@@ -223,6 +223,7 @@ import dataclasses
 import functools
 import itertools
 import json
+import os
 import warnings
 from pathlib import Path
 
@@ -3746,7 +3747,8 @@ IDSSE_RESTARTS = {"CornerKick": "corner", "FreeKick": "free kick", "GoalKick": "
 TAG_RECALL = {"corner": 1.0, "goal kick": 0.67, "free kick": 0.18}
 # E80: BAR-ATH's 26 throw-in tags against PFF's median of 40 per game over periods 1 and 2 of 64 games (our count)
 TAG_RECALL["throw-in"] = 0.65
-TAG_LEAD = (101, 178)
+# E109 re-scores with the lead tag_lead.py derives, through MTAH_TAG_LEAD="108,264".
+TAG_LEAD = tuple(int(x) for x in os.environ.get("MTAH_TAG_LEAD", "101,178").split(","))
 
 
 def _metrica_restarts(half):

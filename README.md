@@ -103,15 +103,15 @@ the repository root:
 ```bash
 python3.11 -m venv .venv && .venv/bin/pip install -r requirements-submission.txt
 export MTAH_DATA_DIR=/path/to/data      # the unpacked bundle; defaults to ./data
-.venv/bin/python -m possession make-submission --params params/tier0_v13.json --out submission.csv
+.venv/bin/python -m possession make-submission --params params/tier0_v20.json --out submission.csv
 .venv/bin/python evaluation/validate_submission.py submission.csv
 ```
 
-`requirements-submission.txt` pins every package the build and the validator import. The build reads
-the tactical ATD (`BAR-ATH_tactical_atd.txt` and `.xml`). `tier0_v20` and `tier0_v22_pfffree` also read
-the Smart Tagging XML. The build uses no network, no random numbers and no GPU, so the file is the same
-on every run. `submission.csv` for `params/tier0_v13.json` has sha256
-`8d980307e73c50e4a87ff3da4229aa9c73d11900f6fc00e4c670da1d53b77657`. The hash of every params file is in
+`params/tier0_v20.json` is the submitted file. `requirements-submission.txt` pins every package the build
+and the validator import. The build reads the tactical ATD (`BAR-ATH_tactical_atd.txt` and `.xml`) and the
+Smart Tagging XML. The earlier recommendation, `tier0_v13`, needs only the ATD. The build uses no network, no random numbers and no GPU, so the file is the same
+on every run. `submission.csv` for `params/tier0_v20.json` has sha256
+`2214a07626dda7c6ce5bca5356548df36b01f4aab534636be5031226bd685a6f`. The hash of every params file is in
 `.claude/skills/verify-possession/features/make-submission.md`. The run that built the params files is
 described in [experiments/hillclimb-2026-10-24/REPORT.md](experiments/hillclimb-2026-10-24/REPORT.md).
 
