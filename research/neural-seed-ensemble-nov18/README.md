@@ -30,3 +30,16 @@ python3.11 -m venv .venv-neural
 ```
 
 Wrapper verifies all packaged and inherited code hashes, loads three frozen networks, validates official CSV format and checks exact expected output. Two independent local process builds match:199,319 rows, SHA256 c21c56cd76c1da343613c2c5367f60ad6a47d671395b6425dcd5117ec83bac03. Export parity checked on both PFF conventions for one physical half. No cross-platform exactness or bit-identical retraining claim. Challenge raw data and external tracking are not included.
+
+
+## Matched-compute control (completed after freezing candidate)
+
+A single network was trained for1,800 rather than600 steps, with all other settings fixed. Nine runs cover three training seeds and three held-out trackers. All nine exactly reproduced the existing600-step checkpoint before continuing the same Adam state. No PFF was accessed, no new candidate selected, no ensemble weight changed.
+
+| Held-out tracker | Single600 seed98117 | Single1800 seed98117 | Ensemble3x600 |
+|---|---:|---:|---:|
+| Metrica |0.648675|0.678127|0.650548|
+| SkillCorner |0.367492|0.343457|0.370739|
+| IDSSE |0.547415|0.551708|0.548239|
+
+The same direction holds across three individual seeds: longer training helps Metrica/IDSSE and harms SkillCorner. The ensemble is NOT universally superior at matched optimizer-update compute. Its advantage over longer single training is concentrated on SkillCorner. Do not claim a proven variance-reduction mechanism. No new PFF evaluation was used to choose between these alternatives. See compute-control/REPORT.md, per-game rows, all seed results, timings and optimizer/checkpoint audits. This matches gradient updates, not exact wall time, FLOPs or all possible learning-rate schedules.

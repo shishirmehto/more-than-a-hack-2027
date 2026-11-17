@@ -9,7 +9,7 @@
   "research/neural-seed-ensemble-nov18/tracker-exclusion-audit.json": "029515fcbb0cfcb7f3f199c413aceb74a43698255894ed463db3c1304b11c88d",
   "research/neural-seed-ensemble-nov18/rebuild-proof.json": "8770eaba2149e81e57a18cbe4227ca4b9b251c5fc87eda4bc6b043efc2e314de",
   "research/neural-seed-ensemble-nov18/SECOND_REVIEW.md": "856f07ae4685921501c49433086cd96e2df1bd2f815a193f789dfaedb2c7de0f",
-  "research/neural-seed-ensemble-nov18/README.md": "ae5f97263e574d2d0f47650b323dd1e6aa2e0aed94959111d33136b10d5ed109",
+  "research/neural-seed-ensemble-nov18/README.md": "cf0eba573a3e5b91cec9d600c4ab7e6f93b22819e19d17f6e6441d1688b80863",
   "research/neural-seed-ensemble-nov18/development-summary.json": "c2163858d6f74f33729c656c016fc54be671463643c091c0be136478345ffb27",
   "research/neural-seed-ensemble-nov18/seed98117.npz": "8b99077c9d9a27643f724deced7ec55fd303587e4b296e4f2fa8e259387c53b1",
   "research/neural-seed-ensemble-nov18/NeuralEnsemble.csv": "c21c56cd76c1da343613c2c5367f60ad6a47d671395b6425dcd5117ec83bac03",
@@ -60,5 +60,16 @@
   "starter/load_smart_tagging.py": "cacfe90acf1deb37b3aa3e4666d6a9d5595c1766d59fe24c9150e1a1d51d0c64",
   "starter/load_atd.py": "6c63ee807ae5c1456d0f4dec933f61ad05227c1c663e7e80c96ead1255eeed30",
   "games.py": "3b2122794e9e0476e2b3a871d14880e5fa47c4feaeacf99caef054c2309076ce",
-  "params/tier0_v22_pfffree.json": "0966f6ba2c0e59186f464f9356f76bb814b72aaa743b56a228e56ce3f8f00e1d"
+  "params/tier0_v22_pfffree.json": "0966f6ba2c0e59186f464f9356f76bb814b72aaa743b56a228e56ce3f8f00e1d",
+  "experiments/compute-neural/run.py": "24f9e369d50e1506bdfc34094051a8c495ff6ea66223d3b6c1b8d80e7c9f675a",
+  "experiments/compute-neural/compute.py": "576cf888511424ebef0bef44977cb8bea8800f8af2dbd0cd28f6458391f47518",
+  "research/neural-seed-ensemble-nov18/compute-control/summary.json": "01fec4ab2dc69efabe01174e863d67ff6d5bf31a32e74774268e8e627a7f796c",
+  "research/neural-seed-ensemble-nov18/compute-control/plan.json": "e3231c81506a5d8a2d02d93242445788ea6018a7d8fd57f3791ee495c0bd49da",
+  "research/neural-seed-ensemble-nov18/compute-control/REPORT.md": "ec0cfea51d182417fc89a8d5c85fcfb3f6a6b0f743ece7588b480e2489510137",
+  "research/neural-seed-ensemble-nov18/compute-control/optimizer-audit.json": "0a3f0c8b13d9a3eb9c3956d1f1d7d550daa1005d5e6cf399b28a4a68b3382110",
+  "research/neural-seed-ensemble-nov18/compute-control/input-pins.json": "0ef71b79e7cdd44e90dba9f30083dbf72f9f9300a39b41d21673819c26c40255",
+  "research/neural-seed-ensemble-nov18/compute-control/paired-comparison.json": "1d86b5ee1cd7b3f6ead9c4f1de13495457870e11cefae868d85b70e8d75225ef",
+  "research/neural-seed-ensemble-nov18/compute-control/rows.json": "69233493eab97291ed0149b8dcc50b1d023d817e2509ab646e8fc96318ca515a",
+  "research/neural-seed-ensemble-nov18/compute-control/status.json": "2205462465c58bc75a3ec43b2917fc75ae76252d4c0f292330d731118e5cf9cf",
+  "research/neural-seed-ensemble-nov18/compute-control/fits.json": "c02025f28eeeb0b0f5fc60a1f17ad55c169d92bc39273161bb3e8af09214472f"
 }

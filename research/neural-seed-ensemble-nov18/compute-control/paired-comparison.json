@@ -1,0 +1,32 @@
+[
+  {
+    "source": "idsse",
+    "games": 7,
+    "ensemble_minus_mean_single1800": -0.0023429582378138064,
+    "descriptive_paired_interval": [
+      -0.007825717053369907,
+      0.002941803478623907
+    ],
+    "limitation": "Game bootstrap conditional on fixed3seeds, reused external data, not fresh-test significance or training-variance proof."
+  },
+  {
+    "source": "metrica",
+    "games": 3,
+    "ensemble_minus_mean_single1800": -0.027272845643081783,
+    "descriptive_paired_interval": [
+      -0.0369491287549617,
+      -0.02158401814922417
+    ],
+    "limitation": "Game bootstrap conditional on fixed3seeds, reused external data, not fresh-test significance or training-variance proof."
+  },
+  {
+    "source": "skillcorner",
+    "games": 20,
+    "ensemble_minus_mean_single1800": 0.024362116267439882,
+    "descriptive_paired_interval": [
+      0.02049668882952815,
+      0.028241976921356788
+    ],
+    "limitation": "Game bootstrap conditional on fixed3seeds, reused external data, not fresh-test significance or training-variance proof."
+  }
+]

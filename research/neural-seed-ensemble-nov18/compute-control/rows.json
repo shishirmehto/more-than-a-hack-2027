@@ -1,0 +1,2402 @@
+[
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4178378378378378,
+    "macro_f1": 0.8733751218870083
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.39137466307277624,
+    "macro_f1": 0.8223849136554469
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.48932038834951463,
+    "macro_f1": 0.8694493751846566
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4733044733044734,
+    "macro_f1": 0.8593628614786959
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4825396825396825,
+    "macro_f1": 0.8763897946278384
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5014446227929373,
+    "macro_f1": 0.871472468692339
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.4804123711340207,
+    "macro_f1": 0.8666226186589174
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4501981505944518,
+    "macro_f1": 0.8874759817148054
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.39240162822252367,
+    "macro_f1": 0.8366640349953539
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5118699186991871,
+    "macro_f1": 0.8919146368892905
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.478622668579627,
+    "macro_f1": 0.8713100102450664
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4805071315372424,
+    "macro_f1": 0.8799247130847658
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.542457231726283,
+    "macro_f1": 0.8847974941205005
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5195246179966044,
+    "macro_f1": 0.889211760841094
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4640211640211641,
+    "macro_f1": 0.8889684637771956
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.4267394270122783,
+    "macro_f1": 0.8582770127453568
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5187800963081861,
+    "macro_f1": 0.8829468557387963
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4847262247838617,
+    "macro_f1": 0.8728134549333758
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4916271721958926,
+    "macro_f1": 0.8895855828024981
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5671826625386998,
+    "macro_f1": 0.9008607711668271
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5017182130584192,
+    "macro_f1": 0.8937793681321202
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.612781954887218,
+    "macro_f1": 0.8850911883934102
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5361853832442068,
+    "macro_f1": 0.8335606627195684
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6168,
+    "macro_f1": 0.875802169269765
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.5999999999999999,
+    "macro_f1": 0.8670745199497278
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6493827160493828,
+    "macro_f1": 0.8862816411795026
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6173228346456693,
+    "macro_f1": 0.8767451668526324
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6033333333333334,
+    "macro_f1": 0.8725646060594437
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6593806921675774,
+    "macro_f1": 0.9009003542648554
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5287769784172662,
+    "macro_f1": 0.8450423930125756
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6301810865191146,
+    "macro_f1": 0.8959533879026708
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6256410256410256,
+    "macro_f1": 0.8802457489210456
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6562628336755647,
+    "macro_f1": 0.8886931639417385
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6310606060606061,
+    "macro_f1": 0.8886944629486769
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6414784394250514,
+    "macro_f1": 0.8963045443840424
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6598540145985401,
+    "macro_f1": 0.9015473841664553
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5905797101449275,
+    "macro_f1": 0.8699007249538249
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6407920792079208,
+    "macro_f1": 0.8873676492783016
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6408839779005525,
+    "macro_f1": 0.880137686945213
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6822085889570553,
+    "macro_f1": 0.8994739510564794
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6613935969868173,
+    "macro_f1": 0.9049757031159763
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6208333333333333,
+    "macro_f1": 0.9005956823535092
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g1",
+    "spell_f1": 0.5494057724957555,
+    "macro_f1": 0.875228395119123
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g2",
+    "spell_f1": 0.6581132075471697,
+    "macro_f1": 0.9046732267578893
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g3",
+    "spell_f1": 0.6057507987220447,
+    "macro_f1": 0.8926008224590684
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g1",
+    "spell_f1": 0.6027210884353741,
+    "macro_f1": 0.908509659451395
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g2",
+    "spell_f1": 0.6330827067669172,
+    "macro_f1": 0.9094255596171824
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g3",
+    "spell_f1": 0.6171428571428571,
+    "macro_f1": 0.9090050067284979
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g1",
+    "spell_f1": 0.616551724137931,
+    "macro_f1": 0.9234648146567306
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g2",
+    "spell_f1": 0.6718518518518519,
+    "macro_f1": 0.9268530973493432
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g3",
+    "spell_f1": 0.607051282051282,
+    "macro_f1": 0.9027616320851274
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g1",
+    "spell_f1": 0.6766798418972332,
+    "macro_f1": 0.8823146624487784
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g2",
+    "spell_f1": 0.7713043478260869,
+    "macro_f1": 0.9104713634032678
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g3",
+    "spell_f1": 0.7397363465160074,
+    "macro_f1": 0.8989741991056951
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g1",
+    "spell_f1": 0.7287128712871288,
+    "macro_f1": 0.9166808218571253
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g2",
+    "spell_f1": 0.7471861471861472,
+    "macro_f1": 0.9149331827696896
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g3",
+    "spell_f1": 0.7401869158878505,
+    "macro_f1": 0.9146719647806733
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g1",
+    "spell_f1": 0.743661971830986,
+    "macro_f1": 0.9314989264066601
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g2",
+    "spell_f1": 0.7727659574468085,
+    "macro_f1": 0.9320394649690752
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g3",
+    "spell_f1": 0.7243856332703213,
+    "macro_f1": 0.9076927219593872
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1874553",
+    "spell_f1": 0.3696732026143791,
+    "macro_f1": 0.8009208112307302
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1886347",
+    "spell_f1": 0.33863013698630134,
+    "macro_f1": 0.7977053557727348
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1899585",
+    "spell_f1": 0.37510148849797026,
+    "macro_f1": 0.7806568247609107
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1925299",
+    "spell_f1": 0.36671289875173363,
+    "macro_f1": 0.8044223375746222
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1927964",
+    "spell_f1": 0.4072013093289689,
+    "macro_f1": 0.8562003669285546
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1953632",
+    "spell_f1": 0.3237536656891496,
+    "macro_f1": 0.7902889885260874
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1959846",
+    "spell_f1": 0.314176245210728,
+    "macro_f1": 0.7889484607164073
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1986691",
+    "spell_f1": 0.3336076817558299,
+    "macro_f1": 0.7840219033346553
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1996435",
+    "spell_f1": 0.32929032258064517,
+    "macro_f1": 0.7845285990983445
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1996436",
+    "spell_f1": 0.293951093951094,
+    "macro_f1": 0.756135653005003
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2006229",
+    "spell_f1": 0.34486486486486484,
+    "macro_f1": 0.8010003776409635
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2006363",
+    "spell_f1": 0.35439560439560436,
+    "macro_f1": 0.8061575689648711
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2007448",
+    "spell_f1": 0.3311764705882353,
+    "macro_f1": 0.7907710892795636
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2007721",
+    "spell_f1": 0.3753086419753087,
+    "macro_f1": 0.8113326020540278
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2010085",
+    "spell_f1": 0.31085043988269795,
+    "macro_f1": 0.7853881975624812
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2011166",
+    "spell_f1": 0.3401617250673855,
+    "macro_f1": 0.7669227578123157
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2013725",
+    "spell_f1": 0.3579439252336448,
+    "macro_f1": 0.7543785991001934
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2015213",
+    "spell_f1": 0.3416164053075995,
+    "macro_f1": 0.7508153845044485
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2016236",
+    "spell_f1": 0.3604562737642586,
+    "macro_f1": 0.7776033563869819
+  },
+  {
+    "seed": 98117,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2017461",
+    "spell_f1": 0.3002583979328165,
+    "macro_f1": 0.7366914256963635
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.40218878248974005,
+    "macro_f1": 0.8712075548770511
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.4075880758807588,
+    "macro_f1": 0.827628753243529
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.4739273927392739,
+    "macro_f1": 0.8642806265309463
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.461271676300578,
+    "macro_f1": 0.8603775195251154
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4817610062893082,
+    "macro_f1": 0.8801890691825379
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.4907936507936507,
+    "macro_f1": 0.8662291978318803
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.4885077186963979,
+    "macro_f1": 0.8737056087663522
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4471849865951742,
+    "macro_f1": 0.8855595232927742
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.40816326530612246,
+    "macro_f1": 0.8459970278399426
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5191626409017713,
+    "macro_f1": 0.8939517963685207
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.47676767676767673,
+    "macro_f1": 0.8793744693401174
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.48517350157728706,
+    "macro_f1": 0.8780435487776712
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5253543307086614,
+    "macro_f1": 0.8890959722586781
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5200686106346484,
+    "macro_f1": 0.8882026706686696
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.46112600536193027,
+    "macro_f1": 0.8953834798673612
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.4532974427994616,
+    "macro_f1": 0.8653919485630065
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5436392914653785,
+    "macro_f1": 0.8948259493507223
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4734104046242774,
+    "macro_f1": 0.8766990358690069
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4770700636942675,
+    "macro_f1": 0.8905285974523044
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5659442724458205,
+    "macro_f1": 0.9024613728978225
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5111492281303602,
+    "macro_f1": 0.8979195369676591
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.5896749521988528,
+    "macro_f1": 0.8815868223729195
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5393177737881508,
+    "macro_f1": 0.8379447734270533
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5926229508196721,
+    "macro_f1": 0.8700318297774183
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.5870609981515711,
+    "macro_f1": 0.8670721917990271
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.648780487804878,
+    "macro_f1": 0.8904512335760506
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5957281553398059,
+    "macro_f1": 0.8711108872051337
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6045738045738046,
+    "macro_f1": 0.8798557930985321
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6446096654275093,
+    "macro_f1": 0.8982027476833031
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5472924187725632,
+    "macro_f1": 0.8553910990422349
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6481113320079522,
+    "macro_f1": 0.8979311056472729
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6361623616236163,
+    "macro_f1": 0.8894228769303086
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.656326530612245,
+    "macro_f1": 0.8869373081244701
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6215384615384615,
+    "macro_f1": 0.8926958517527709
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6486486486486487,
+    "macro_f1": 0.8955725619874891
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6721189591078067,
+    "macro_f1": 0.9089517607079066
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.6149466192170818,
+    "macro_f1": 0.8765932724098479
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6751491053677933,
+    "macro_f1": 0.9003481310113969
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6277264325323475,
+    "macro_f1": 0.8844825105957507
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6586776859504132,
+    "macro_f1": 0.9003288683316538
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6598870056497176,
+    "macro_f1": 0.9052004309184513
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6503118503118502,
+    "macro_f1": 0.9055728256634913
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g1",
+    "spell_f1": 0.5424190800681431,
+    "macro_f1": 0.8650230346116384
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g2",
+    "spell_f1": 0.6399999999999999,
+    "macro_f1": 0.8993534127168233
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g3",
+    "spell_f1": 0.6003220611916263,
+    "macro_f1": 0.9014398972406724
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g1",
+    "spell_f1": 0.6228187919463087,
+    "macro_f1": 0.9033443235280384
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g2",
+    "spell_f1": 0.6832713754646841,
+    "macro_f1": 0.9271603427044836
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g3",
+    "spell_f1": 0.6171974522292993,
+    "macro_f1": 0.9100795819752071
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g1",
+    "spell_f1": 0.6448979591836734,
+    "macro_f1": 0.9213312444660461
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g2",
+    "spell_f1": 0.7045871559633028,
+    "macro_f1": 0.9329571374664253
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g3",
+    "spell_f1": 0.6029173419773095,
+    "macro_f1": 0.909470124633423
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g1",
+    "spell_f1": 0.6484126984126984,
+    "macro_f1": 0.8710442020249589
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g2",
+    "spell_f1": 0.7408695652173913,
+    "macro_f1": 0.9044492659109175
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g3",
+    "spell_f1": 0.732319391634981,
+    "macro_f1": 0.9081946142960046
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g1",
+    "spell_f1": 0.7360623781676413,
+    "macro_f1": 0.9107826525259201
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g2",
+    "spell_f1": 0.7914529914529915,
+    "macro_f1": 0.9321563173728279
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g3",
+    "spell_f1": 0.7384615384615385,
+    "macro_f1": 0.9164042129192285
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g1",
+    "spell_f1": 0.7794059405940594,
+    "macro_f1": 0.9301988098750257
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g2",
+    "spell_f1": 0.8033684210526315,
+    "macro_f1": 0.9384401834630437
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g3",
+    "spell_f1": 0.7295019157088123,
+    "macro_f1": 0.9153969796524223
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1874553",
+    "spell_f1": 0.3637816245006658,
+    "macro_f1": 0.801186294739936
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1886347",
+    "spell_f1": 0.33623978201634874,
+    "macro_f1": 0.7992527044307199
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1899585",
+    "spell_f1": 0.35852660300136424,
+    "macro_f1": 0.7869718744971576
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1925299",
+    "spell_f1": 0.35815217391304344,
+    "macro_f1": 0.8065170927463851
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1927964",
+    "spell_f1": 0.40672268907563025,
+    "macro_f1": 0.8569940467861145
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1953632",
+    "spell_f1": 0.31904047976011995,
+    "macro_f1": 0.7947953493443641
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1959846",
+    "spell_f1": 0.3356020942408377,
+    "macro_f1": 0.7913627241229625
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1986691",
+    "spell_f1": 0.37,
+    "macro_f1": 0.7977470094845464
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1996435",
+    "spell_f1": 0.3367588932806324,
+    "macro_f1": 0.7839407698746031
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1996436",
+    "spell_f1": 0.2784876140808344,
+    "macro_f1": 0.7493934180590548
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2006229",
+    "spell_f1": 0.3474412171507607,
+    "macro_f1": 0.798342421550351
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2006363",
+    "spell_f1": 0.34471544715447155,
+    "macro_f1": 0.8114592984667954
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2007448",
+    "spell_f1": 0.34174174174174177,
+    "macro_f1": 0.7908217383539952
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2007721",
+    "spell_f1": 0.3781206171107994,
+    "macro_f1": 0.8103268464012854
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2010085",
+    "spell_f1": 0.33153153153153153,
+    "macro_f1": 0.7915982893855337
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2011166",
+    "spell_f1": 0.32336956521739135,
+    "macro_f1": 0.7697058605999382
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2013725",
+    "spell_f1": 0.3402985074626866,
+    "macro_f1": 0.7566077484571058
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2015213",
+    "spell_f1": 0.32640382317801675,
+    "macro_f1": 0.7457154742334625
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2016236",
+    "spell_f1": 0.387012987012987,
+    "macro_f1": 0.7872801752198845
+  },
+  {
+    "seed": 98118,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2017461",
+    "spell_f1": 0.30205128205128207,
+    "macro_f1": 0.7401157043787813
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4134952766531714,
+    "macro_f1": 0.8742950513599256
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.4109289617486339,
+    "macro_f1": 0.8353904591260471
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.4848287112561174,
+    "macro_f1": 0.8630406337662055
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4576419213973799,
+    "macro_f1": 0.8566702030513756
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.49211356466876965,
+    "macro_f1": 0.8826535438744468
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.4931419457735247,
+    "macro_f1": 0.8700688177995052
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.4703832752613241,
+    "macro_f1": 0.8606773621018874
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.42219215155615697,
+    "macro_f1": 0.8823904210960606
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.39945504087193456,
+    "macro_f1": 0.8372063744701945
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.4901315789473684,
+    "macro_f1": 0.8868746798634811
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4754285714285714,
+    "macro_f1": 0.8740390736952656
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4793700787401575,
+    "macro_f1": 0.8833224392300466
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5082942097026605,
+    "macro_f1": 0.87799293675037
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5135972461273666,
+    "macro_f1": 0.8936344193487807
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4515436241610738,
+    "macro_f1": 0.8876516421425412
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.4507343124165555,
+    "macro_f1": 0.8627748289639623
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5240710823909532,
+    "macro_f1": 0.8839241142184501
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.48579710144927535,
+    "macro_f1": 0.875595665643733
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.48484848484848475,
+    "macro_f1": 0.8931119644275296
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5485179407176287,
+    "macro_f1": 0.8925058194188518
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5277777777777778,
+    "macro_f1": 0.9024601970464378
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.5921200750469043,
+    "macro_f1": 0.8837182210949144
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5582577132486388,
+    "macro_f1": 0.8459485900795095
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6052525252525253,
+    "macro_f1": 0.8681246643236724
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.5925373134328359,
+    "macro_f1": 0.8636250230392397
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6693877551020408,
+    "macro_f1": 0.8923605218841475
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.59609375,
+    "macro_f1": 0.8743421611733163
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5737288135593219,
+    "macro_f1": 0.8679307891579642
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.623728813559322,
+    "macro_f1": 0.8954986529774388
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5424954792043399,
+    "macro_f1": 0.8461076322654799
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6244897959183674,
+    "macro_f1": 0.8909517875735967
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6222222222222222,
+    "macro_f1": 0.8843914480729973
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6501018329938899,
+    "macro_f1": 0.8918541031827386
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6076335877862595,
+    "macro_f1": 0.8809825420666085
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6363256784968685,
+    "macro_f1": 0.9002755885792298
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6405959031657356,
+    "macro_f1": 0.9009100896719043
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.6049295774647887,
+    "macro_f1": 0.8739495952994304
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6570858283433133,
+    "macro_f1": 0.8886098622415063
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6456400742115027,
+    "macro_f1": 0.8846960870353614
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6683229813664597,
+    "macro_f1": 0.9037341143461753
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.650190114068441,
+    "macro_f1": 0.8956229730476881
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "idsse",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6632911392405063,
+    "macro_f1": 0.9098437533302127
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g1",
+    "spell_f1": 0.538382099827883,
+    "macro_f1": 0.8800632492280155
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g2",
+    "spell_f1": 0.6328922495274103,
+    "macro_f1": 0.901163859740579
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "game": "dev_g3",
+    "spell_f1": 0.5726384364820848,
+    "macro_f1": 0.8966805070352245
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g1",
+    "spell_f1": 0.5945392491467577,
+    "macro_f1": 0.9029162666432605
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g2",
+    "spell_f1": 0.6502793296089386,
+    "macro_f1": 0.9209390920504745
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "game": "dev_g3",
+    "spell_f1": 0.5922580645161292,
+    "macro_f1": 0.9065193408571393
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g1",
+    "spell_f1": 0.6202797202797203,
+    "macro_f1": 0.92373643107131
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g2",
+    "spell_f1": 0.6822222222222221,
+    "macro_f1": 0.928235018678394
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "game": "dev_g3",
+    "spell_f1": 0.6136291600633915,
+    "macro_f1": 0.9052787938982009
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g1",
+    "spell_f1": 0.6610441767068274,
+    "macro_f1": 0.8864190374374
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g2",
+    "spell_f1": 0.7381263616557734,
+    "macro_f1": 0.9072894492151738
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "game": "dev_g3",
+    "spell_f1": 0.7005780346820809,
+    "macro_f1": 0.9026370091115737
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g1",
+    "spell_f1": 0.7021868787276342,
+    "macro_f1": 0.9098602808606052
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g2",
+    "spell_f1": 0.7674518201284796,
+    "macro_f1": 0.9273553641672838
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "game": "dev_g3",
+    "spell_f1": 0.704,
+    "macro_f1": 0.9129752193626229
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g1",
+    "spell_f1": 0.7541922290388549,
+    "macro_f1": 0.9313630373312742
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g2",
+    "spell_f1": 0.7846808510638298,
+    "macro_f1": 0.9336958633091244
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "metrica",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "game": "dev_g3",
+    "spell_f1": 0.7283582089552239,
+    "macro_f1": 0.9101197565655884
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1874553",
+    "spell_f1": 0.36348773841961857,
+    "macro_f1": 0.7974434012767301
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1886347",
+    "spell_f1": 0.36055555555555563,
+    "macro_f1": 0.7953445703543839
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1899585",
+    "spell_f1": 0.352,
+    "macro_f1": 0.7775660945189894
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1925299",
+    "spell_f1": 0.37450424929178466,
+    "macro_f1": 0.813682560825952
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1927964",
+    "spell_f1": 0.4153589315525877,
+    "macro_f1": 0.8565459297983788
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1953632",
+    "spell_f1": 0.325948406676783,
+    "macro_f1": 0.8003667980577767
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1959846",
+    "spell_f1": 0.3344692005242464,
+    "macro_f1": 0.7900943491059156
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1986691",
+    "spell_f1": 0.3705449189985272,
+    "macro_f1": 0.7942060935208183
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1996435",
+    "spell_f1": 0.3442489851150203,
+    "macro_f1": 0.7894438824726796
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_1996436",
+    "spell_f1": 0.28465608465608466,
+    "macro_f1": 0.7443734138490085
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2006229",
+    "spell_f1": 0.36222222222222217,
+    "macro_f1": 0.8042575228837036
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2006363",
+    "spell_f1": 0.3652413793103448,
+    "macro_f1": 0.8076841439018034
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2007448",
+    "spell_f1": 0.34976744186046516,
+    "macro_f1": 0.7921016510658574
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2007721",
+    "spell_f1": 0.3941860465116279,
+    "macro_f1": 0.8105765517150973
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2010085",
+    "spell_f1": 0.3195121951219512,
+    "macro_f1": 0.7878030814771885
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2011166",
+    "spell_f1": 0.34237762237762237,
+    "macro_f1": 0.7778981845026959
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2013725",
+    "spell_f1": 0.351458576429405,
+    "macro_f1": 0.751100613093722
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2015213",
+    "spell_f1": 0.3412484700122399,
+    "macro_f1": 0.7519547532165456
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2016236",
+    "spell_f1": 0.36519480519480524,
+    "macro_f1": 0.7732645257641368
+  },
+  {
+    "seed": 98119,
+    "steps": 1800,
+    "test_source": "skillcorner",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "game": "dev_2017461",
+    "spell_f1": 0.31047120418848173,
+    "macro_f1": 0.746391748573589
+  }
+]

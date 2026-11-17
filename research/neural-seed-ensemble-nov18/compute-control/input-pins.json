@@ -1,0 +1,7 @@
+{
+  "experiments/temporal-neural/network.py": "76fa67192b376565b71b29f4b0a3850e7f68204e97842c9e18ed4626813a00f9",
+  "experiments/quality-neural/decoding.py": "e5a65dd322874295a75731fb589507e762c7907ff13008f297c30ef14cd8ad50",
+  "local/quality-neural-nov17/training.npz": "33a37002ad2bd968c2c611108b07cd1f83344f73bc1548662d42f7186aafadf6",
+  "local/data-size-neural-nov18/rows.json": "4728d5abc3604d2003477ec0dfe8017590b71a0ce0fc1759e006086f204cc6ab",
+  "local/seed-ensemble-nov18/development-rows.json": "37950e7a151ca7e7c5538ff604eb959ededac36ac87c2bfdb18f5e7d3bccb8a6"
+}
