@@ -96,23 +96,25 @@ It takes two seconds and it is the single most common way a good entry scores no
 
 ## Reproduce this fork's submission
 
-This fork's labeller lives in `possession/`. Its settings are frozen in `params/`, one JSON file per
-version. To rebuild the submission you need Python 3.11, the data bundle and these commands, run from
-the repository root:
+The submitted file, `FlickGPT.csv`, is a three-seed neural ensemble (PR #4), documented in
+[TECHNICAL.md](TECHNICAL.md) and [research/neural-seed-ensemble-nov18/](research/neural-seed-ensemble-nov18/README.md).
+To rebuild it you need Python 3.11, the data bundle and these commands, run from the repository root:
 
 ```bash
-python3.11 -m venv .venv && .venv/bin/pip install -r requirements-submission.txt
-export MTAH_DATA_DIR=/path/to/data      # the unpacked bundle; defaults to ./data
-.venv/bin/python -m possession make-submission --params params/tier0_v20.json --out submission.csv
-.venv/bin/python evaluation/validate_submission.py submission.csv
+python3.11 -m venv .venv-neural
+.venv-neural/bin/pip install -r research/neural-seed-ensemble-nov18/requirements.lock
+.venv-neural/bin/python research/neural-seed-ensemble-nov18/rebuild.py --data /absolute/path/to/data --out FlickGPT.csv
+.venv-neural/bin/python evaluation/validate_submission.py FlickGPT.csv
 ```
 
-`params/tier0_v20.json` is the submitted file. `requirements-submission.txt` pins every package the build
-and the validator import. The build reads the tactical ATD (`BAR-ATH_tactical_atd.txt` and `.xml`) and the
-Smart Tagging XML. The earlier recommendation, `tier0_v13`, needs only the ATD. The build uses no network, no random numbers and no GPU, so the file is the same
-on every run. `submission.csv` for `params/tier0_v20.json` has sha256
-`2214a07626dda7c6ce5bca5356548df36b01f4aab534636be5031226bd685a6f`. The hash of every params file is in
-`.claude/skills/verify-possession/features/make-submission.md`. The run that built the params files is
+The output has sha256 `c21c56cd76c1da343613c2c5367f60ad6a47d671395b6425dcd5117ec83bac03`. The wrapper verifies
+its code hashes and compares the CSV with the frozen reference byte for byte. It needs the tactical ATD and
+the Smart Tagging XML, and no external training data.
+
+The earlier rule labeller lives in `possession/`, with settings frozen in `params/`. `params/tier0_v20.json`
+was the submitted file until 18 November and builds with `requirements-submission.txt` and
+`python -m possession make-submission --params params/tier0_v20.json --out tier0_v20.csv` (sha256
+`2214a07626dda7c6ce5bca5356548df36b01f4aab534636be5031226bd685a6f`). The run that built the params files is
 described in [experiments/hillclimb-2026-10-24/REPORT.md](experiments/hillclimb-2026-10-24/REPORT.md).
 
 ---

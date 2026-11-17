@@ -17,15 +17,22 @@ This document describes the code that produced `FlickGPT.csv`. Every label in th
 
 ## Submitted file
 
-| params file | sha256 of the CSV |
+| build | sha256 of the CSV |
 |---|---|
-| `params/tier0_v20.json` | `2214a07626dda7c6ce5bca5356548df36b01f4aab534636be5031226bd685a6f` |
+| `research/neural-seed-ensemble-nov18/rebuild.py` (three-seed neural ensemble) | `c21c56cd76c1da343613c2c5367f60ad6a47d671395b6425dcd5117ec83bac03` |
 
-tier0_v20 is a hidden Markov decoder over the token, followed by rules for stoppages, short possessions, hand-over timing and tagged restarts. We chose it on 8 November as our best file, the only one that passes the replacement bar over tier0_v13. Three alternatives build with the same command and another params file.
+`FlickGPT.csv` is the three-seed neural ensemble merged from PR #4 on 18 November. It is the arithmetic mean of the class probabilities of three small networks (147 inputs, 64 tanh units, 3 outputs; seeds 98117, 98118 and 98119, fixed before the ensemble was evaluated), followed by the same team-swap averaging, missing-quality fallback to the rule decoder and sequence decoder as the single-network candidate of PR #3. Each network trained for 600 Adam steps on 30 external games (3 Metrica, 20 SkillCorner, 7 IDSSE), balanced by source and game. No new weight was fitted on PFF labels, on the provided match's labels or on its video. The inherited tier0_v22 heads saw Metrica and IDSSE, and some inherited heuristic constants were ranked on PFF, so the pipeline is PFF-informed though its new weights are not PFF-fitted. The mean, geometric-mean and median ensembles were compared on tracker-excluded external games; only the mean was then scored on PFF.
 
-- `params/tier0_v13.json` was our recommendation until then and is the fallback. Its CSV hashes to `8d980307e73c50e4a87ff3da4229aa9c73d11900f6fc00e4c670da1d53b77657`.
-- `params/tier0_v22_pfffree.json` is the fallback if PFF's terms forbid weights fitted on its labels. Its CSV hashes to `fc1ac808756916ca446f247e2df10e2b764b0a18b53d28b20c5551d4f596236a`. On PFF-B it ties tier0_v13 (-0.0001 [-0.0031, +0.0030] under m0, +0.0009 [-0.0020, +0.0037] under m2). It was never compared with tier0_v20 directly.
+On the 32 PFF-B games the ensemble scores spellF1 0.5378 (m0) and 0.5917 (m2), against 0.5289 and 0.5814 for the PR #3 network and 0.5126 and 0.5553 for tier0_v20. PFF-B has been reused adaptively across our search, so these numbers are exploratory, not fresh-test significance. Against PR #3 the gain does not pass our stricter numeric gate. Full evidence, the data-size ablation, the matched-compute control and an independent review are in [research/neural-seed-ensemble-nov18/](research/neural-seed-ensemble-nov18/README.md).
+
+The rule decoders below remain in the repository and build with `python -m possession make-submission --params <file>`. They are documented because the ensemble inherits their inputs and fallback, and because they were our submission until 18 November.
+
+- `params/tier0_v20.json` was the submitted file from 8 November to 18 November. Its CSV hashes to `2214a07626dda7c6ce5bca5356548df36b01f4aab534636be5031226bd685a6f`.
+- `params/tier0_v13.json` hashes to `8d980307e73c50e4a87ff3da4229aa9c73d11900f6fc00e4c670da1d53b77657`.
+- `params/tier0_v22_pfffree.json` hashes to `fc1ac808756916ca446f247e2df10e2b764b0a18b53d28b20c5551d4f596236a`.
 - `params/tier0_v21.json` is a candidate outside our selection rule that also reads the broadcast tracking.
+
+tier0_v20 is a hidden Markov decoder over the token, followed by rules for stoppages, short possessions, hand-over timing and tagged restarts. We chose it on 8 November as the only file that passed the replacement bar over tier0_v13. The sections below describe that rule pipeline.
 
 ## Approach
 
@@ -41,7 +48,7 @@ tier0_v20 is a hidden Markov decoder over the token, followed by rules for stopp
 - **The ball is often missing.** It is missing on 41% of graded frames here. On other games, true team calls gain about three times as much as true dead-ball calls. Published touch detectors (Vidal-Codina et al. 2022; Link and Hoernig 2017) need a tracked ball, so we kept a chain that bridges gaps.
 - **Posterior marginals, not Viterbi.** On a weak-evidence proxy, Viterbi called 93% of frames dead against 22% in the truth.
 - **Run-level decisions.** Every frame-level team cue we tried lowered spellF1.
-- **A learned model did not ship.** Fitted without PFF, it beat every rule file by at least +0.19 on synthetic worlds but lost to a PFF-free refit of tier0_v13 on real PFF-A gaps. The tactical ATD's ball statistics resemble PFF's, so it would likely lose here too.
+- **An early learned model did not ship.** Fitted without PFF, it beat every rule file by at least +0.19 on synthetic worlds but lost to a PFF-free refit of tier0_v13 on real PFF-A gaps. The later neural ensemble, trained on real external tracking, is what we submit (see "Submitted file").
 
 ### How constants were chosen
 
@@ -152,7 +159,7 @@ The code applies these steps to each half in order (`possession/decoder.py`, `De
 ## Disclosures
 
 - **AI assistants.** Claude (Anthropic) helped write the code and ran the experiments under our selection rules. Other Claude sessions reviewed the decision log, explored the data and scanned other teams' repositories. Claude, a cloud-hosted model, read the match's automatic inputs as aggregates, per-event probe outputs and the ball mask. The organisers clarified on 21 October that a coding assistant may inspect the data but must not produce labels. OpenAI Codex worked on this repository in parallel. None of its models or files ship, and its two candidate models served only as comparators on other games. Neither assistant produced or decided a possession label for the match. Our only reads of the match's labels are the public-window uses in "What the provided match informed". Claude drafted this document. The pipeline calls no cloud model at runtime.
-- **Other teams' work.** From 27 October to 17 November no data or insight from other teams' repositories entered our search. On 17 November we allowed their ideas again and tested one, the near-line dead run from our 24 October scan, on tier0_v20. It gained +0.0029 (m0) and +0.0032 (m2) on PFF-A, inside our 0.003 tie band and short of the 0.008 replacement bar, so the submitted file is unchanged. Earlier scans gave a dead-ball rule and a ranking mode, both retired, and ten experiments that changed nothing. Several teams also used set-piece tags as dead-ball evidence, but our tag stoppage's constants came from our own exploring session. Two kept steps were first sighted there. Our PFF loader removes a double-frame pattern that our own count confirmed, and tier0_v20's spell weights and selection read that loader. tier0_v21 recomputes its broadcast offsets by our own player matching.
+- **Other teams' work.** From 27 October to 17 November no data or insight from other teams' repositories entered our search. On 17 November we allowed their ideas again and tested one, the near-line dead run from our 24 October scan, on tier0_v20. It gained +0.0029 (m0) and +0.0032 (m2) on PFF-A, inside our 0.003 tie band and short of the 0.008 replacement bar, so tier0_v20 was unchanged. Earlier scans gave a dead-ball rule and a ranking mode, both retired, and ten experiments that changed nothing. Several teams also used set-piece tags as dead-ball evidence, but our tag stoppage's constants came from our own exploring session. Two kept steps were first sighted there. Our PFF loader removes a double-frame pattern that our own count confirmed, and tier0_v20's spell weights and selection read that loader. tier0_v21 recomputes its broadcast offsets by our own player matching.
 
 ## References
 
@@ -161,16 +168,16 @@ The code applies these steps to each half in order (`possession/decoder.py`, `De
 
 ## Reproduction
 
-The environment is Python 3.11 with the pinned versions in `requirements-submission.txt`. tier0_v20 and tier0_v22_pfffree read the tactical ATD and the Smart Tagging XML. tier0_v13 needs only the tactical ATD. tier0_v21 also needs the broadcast ATD and the homography.
+The submitted file comes from the neural ensemble's rebuild wrapper. It needs Python 3.11 with the pins in `research/neural-seed-ensemble-nov18/requirements.lock`, the tactical ATD and the Smart Tagging XML, and no external training data.
 
 ```bash
-uv venv --python 3.11 .venv
-uv pip install --python .venv/bin/python -r requirements-submission.txt
-source .venv/bin/activate
-export MTAH_DATA_DIR=/path/to/data            # the folder that holds the Barcelona v Athletic data bundle
-python -m possession make-submission --params params/tier0_v20.json --out FlickGPT.csv
-python evaluation/validate_submission.py FlickGPT.csv
-shasum -a 256 FlickGPT.csv                     # or sha256sum; compare with the hash in "Submitted file"
+python3.11 -m venv .venv-neural
+.venv-neural/bin/pip install -r research/neural-seed-ensemble-nov18/requirements.lock
+.venv-neural/bin/python research/neural-seed-ensemble-nov18/rebuild.py --data /absolute/path/to/data --out FlickGPT.csv
+.venv-neural/bin/python evaluation/validate_submission.py FlickGPT.csv
+shasum -a 256 FlickGPT.csv                     # c21c56cd76c1da343613c2c5367f60ad6a47d671395b6425dcd5117ec83bac03
 ```
 
-Run the commands from the repository root. The build uses no random numbers, sums in a fixed order and rounds before each decision. We checked byte-for-byte rebuilds of tier0_v13, tier0_v20 and tier0_v22_pfffree from a fresh clone on macOS and in `python:3.11.14-slim` Linux containers on arm64 and x86_64 (emulated), with only the pinned packages and no network for the build. All three hashes matched on all three platforms. REPORT.md ("Reproduce") gives the selection commands, and `.audit/hillclimb-2026-10-24.tsv` logs every decision.
+The wrapper checks the hash of every packaged and inherited code file, loads the three frozen networks (`seed98117.npz`, `seed98118.npz`, `seed98119.npz`), validates the CSV format and compares the output with the frozen reference byte for byte. Two independent builds and a fresh rebuild on 18 November matched on macOS arm64. Cross-platform exactness of the ensemble is not verified.
+
+The rule files build with `requirements-submission.txt` and `python -m possession make-submission --params params/tier0_v20.json --out tier0_v20.csv`. We checked byte-for-byte rebuilds of tier0_v13, tier0_v20 and tier0_v22_pfffree from a fresh clone on macOS and in `python:3.11.14-slim` Linux containers on arm64 and x86_64. REPORT.md ("Reproduce") gives the selection commands, and `.audit/hillclimb-2026-10-24.tsv` logs every decision.
