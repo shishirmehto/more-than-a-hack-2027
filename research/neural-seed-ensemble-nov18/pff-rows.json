@@ -1,0 +1,514 @@
+[
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3813",
+    "spell_f1": 0.5160751565762004,
+    "current_neural_spell_f1": 0.520892494929006,
+    "v20_spell_f1": 0.5122362869198311,
+    "delta": -0.004817338352805622
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3815",
+    "spell_f1": 0.5776951672862454,
+    "current_neural_spell_f1": 0.5611721611721611,
+    "v20_spell_f1": 0.5560606060606059,
+    "delta": 0.016523006114084304
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3817",
+    "spell_f1": 0.49349736379613357,
+    "current_neural_spell_f1": 0.4801418439716313,
+    "v20_spell_f1": 0.49330783938814526,
+    "delta": 0.013355519824502282
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3819",
+    "spell_f1": 0.6247787610619469,
+    "current_neural_spell_f1": 0.5917570498915401,
+    "v20_spell_f1": 0.5981308411214954,
+    "delta": 0.03302171117040675
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3821",
+    "spell_f1": 0.5030425963488845,
+    "current_neural_spell_f1": 0.5122950819672132,
+    "v20_spell_f1": 0.5191666666666668,
+    "delta": -0.009252485618328699
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3823",
+    "spell_f1": 0.5907070707070707,
+    "current_neural_spell_f1": 0.5732793522267207,
+    "v20_spell_f1": 0.5236947791164659,
+    "delta": 0.017427718480350074
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3825",
+    "spell_f1": 0.4898785425101215,
+    "current_neural_spell_f1": 0.4733727810650887,
+    "v20_spell_f1": 0.44294736842105265,
+    "delta": 0.016505761445032796
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3827",
+    "spell_f1": 0.5743157894736843,
+    "current_neural_spell_f1": 0.5813664596273292,
+    "v20_spell_f1": 0.5715498938428875,
+    "delta": -0.007050670153644911
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3829",
+    "spell_f1": 0.549034749034749,
+    "current_neural_spell_f1": 0.540417457305503,
+    "v20_spell_f1": 0.5108055009823184,
+    "delta": 0.00861729172924608
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3831",
+    "spell_f1": 0.6130120481927712,
+    "current_neural_spell_f1": 0.6241975308641974,
+    "v20_spell_f1": 0.5443396226415094,
+    "delta": -0.011185482671426161
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3833",
+    "spell_f1": 0.51796875,
+    "current_neural_spell_f1": 0.5092278719397364,
+    "v20_spell_f1": 0.5008130081300812,
+    "delta": 0.00874087806026358
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3835",
+    "spell_f1": 0.49343629343629336,
+    "current_neural_spell_f1": 0.4890566037735849,
+    "v20_spell_f1": 0.4596078431372549,
+    "delta": 0.004379689662708464
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3837",
+    "spell_f1": 0.5251585623678647,
+    "current_neural_spell_f1": 0.5385892116182573,
+    "v20_spell_f1": 0.5061946902654867,
+    "delta": -0.013430649250392612
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3839",
+    "spell_f1": 0.6229376257545273,
+    "current_neural_spell_f1": 0.6124248496993987,
+    "v20_spell_f1": 0.5728880157170924,
+    "delta": 0.01051277605512857
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3841",
+    "spell_f1": 0.45668662674650695,
+    "current_neural_spell_f1": 0.46387832699619763,
+    "v20_spell_f1": 0.4278867102396514,
+    "delta": -0.00719170024969068
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3843",
+    "spell_f1": 0.5301818181818182,
+    "current_neural_spell_f1": 0.5215827338129497,
+    "v20_spell_f1": 0.5169675090252708,
+    "delta": 0.00859908436886847
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3845",
+    "spell_f1": 0.3909278350515464,
+    "current_neural_spell_f1": 0.36319999999999997,
+    "v20_spell_f1": 0.4266075388026607,
+    "delta": 0.027727835051546412
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3847",
+    "spell_f1": 0.5181494661921708,
+    "current_neural_spell_f1": 0.5240641711229946,
+    "v20_spell_f1": 0.49326047358834246,
+    "delta": -0.0059147049308238
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3849",
+    "spell_f1": 0.5394160583941605,
+    "current_neural_spell_f1": 0.5253097345132743,
+    "v20_spell_f1": 0.5313653136531367,
+    "delta": 0.014106323880886174
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3851",
+    "spell_f1": 0.45834586466165417,
+    "current_neural_spell_f1": 0.4469539375928678,
+    "v20_spell_f1": 0.40193236714975844,
+    "delta": 0.01139192706878639
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3853",
+    "spell_f1": 0.5637860082304527,
+    "current_neural_spell_f1": 0.5488933601609658,
+    "v20_spell_f1": 0.48843813387423946,
+    "delta": 0.014892648069486869
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3855",
+    "spell_f1": 0.6438247011952191,
+    "current_neural_spell_f1": 0.6197292069632495,
+    "v20_spell_f1": 0.5870967741935484,
+    "delta": 0.02409549423196955
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3857",
+    "spell_f1": 0.5056277056277056,
+    "current_neural_spell_f1": 0.47714884696016774,
+    "v20_spell_f1": 0.4137044967880087,
+    "delta": 0.02847885866753791
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_3859",
+    "spell_f1": 0.48948374760994257,
+    "current_neural_spell_f1": 0.49411764705882366,
+    "v20_spell_f1": 0.48861788617886176,
+    "delta": -0.004633899448881096
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10503",
+    "spell_f1": 0.5601713062098501,
+    "current_neural_spell_f1": 0.5511677282377919,
+    "v20_spell_f1": 0.5427974947807933,
+    "delta": 0.009003577972058197
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10505",
+    "spell_f1": 0.5837362637362637,
+    "current_neural_spell_f1": 0.5744034707158352,
+    "v20_spell_f1": 0.5626086956521739,
+    "delta": 0.009332793020428554
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10507",
+    "spell_f1": 0.6165548098434005,
+    "current_neural_spell_f1": 0.5863134657836645,
+    "v20_spell_f1": 0.6162895927601809,
+    "delta": 0.030241344059735997
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10509",
+    "spell_f1": 0.5101694915254237,
+    "current_neural_spell_f1": 0.5031982942430704,
+    "v20_spell_f1": 0.5327472527472528,
+    "delta": 0.006971197282353292
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10511",
+    "spell_f1": 0.5277777777777778,
+    "current_neural_spell_f1": 0.5139579349904397,
+    "v20_spell_f1": 0.5097872340425532,
+    "delta": 0.013819842787338055
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10513",
+    "spell_f1": 0.5755656108597286,
+    "current_neural_spell_f1": 0.5578947368421052,
+    "v20_spell_f1": 0.5414043583535109,
+    "delta": 0.01767087401762335
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10515",
+    "spell_f1": 0.5590062111801243,
+    "current_neural_spell_f1": 0.5768595041322315,
+    "v20_spell_f1": 0.5610738255033556,
+    "delta": -0.017853292952107247
+  },
+  {
+    "world": "pff_m0_native",
+    "game": "dev_10517",
+    "spell_f1": 0.487732342007435,
+    "current_neural_spell_f1": 0.46678635547576297,
+    "v20_spell_f1": 0.44896421845574386,
+    "delta": 0.020945986531672012
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3813",
+    "spell_f1": 0.5788990825688074,
+    "current_neural_spell_f1": 0.5813333333333333,
+    "v20_spell_f1": 0.5596287703016242,
+    "delta": -0.002434250764525858
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3815",
+    "spell_f1": 0.646530612244898,
+    "current_neural_spell_f1": 0.6224899598393574,
+    "v20_spell_f1": 0.6224999999999999,
+    "delta": 0.024040652405540652
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3817",
+    "spell_f1": 0.5386666666666666,
+    "current_neural_spell_f1": 0.5353846153846153,
+    "v20_spell_f1": 0.5169102296450939,
+    "delta": 0.0032820512820512793
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3819",
+    "spell_f1": 0.681081081081081,
+    "current_neural_spell_f1": 0.65,
+    "v20_spell_f1": 0.6422976501305483,
+    "delta": 0.031081081081080986
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3821",
+    "spell_f1": 0.555902004454343,
+    "current_neural_spell_f1": 0.5711711711711712,
+    "v20_spell_f1": 0.5550458715596329,
+    "delta": -0.015269166716828209
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3823",
+    "spell_f1": 0.6651785714285714,
+    "current_neural_spell_f1": 0.6487695749440715,
+    "v20_spell_f1": 0.5880266075388028,
+    "delta": 0.016408996484499894
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3825",
+    "spell_f1": 0.5592592592592591,
+    "current_neural_spell_f1": 0.5402247191011236,
+    "v20_spell_f1": 0.5055690072639225,
+    "delta": 0.01903454015813555
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3827",
+    "spell_f1": 0.6063636363636363,
+    "current_neural_spell_f1": 0.6142857142857142,
+    "v20_spell_f1": 0.5990825688073393,
+    "delta": -0.007922077922077886
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3829",
+    "spell_f1": 0.6,
+    "current_neural_spell_f1": 0.587321063394683,
+    "v20_spell_f1": 0.5554140127388535,
+    "delta": 0.012678936605316937
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3831",
+    "spell_f1": 0.6583979328165375,
+    "current_neural_spell_f1": 0.6726790450928382,
+    "v20_spell_f1": 0.5666666666666667,
+    "delta": -0.01428111227630069
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3833",
+    "spell_f1": 0.5697228144989339,
+    "current_neural_spell_f1": 0.5516393442622951,
+    "v20_spell_f1": 0.5478841870824053,
+    "delta": 0.01808347023663881
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3835",
+    "spell_f1": 0.5779735682819384,
+    "current_neural_spell_f1": 0.567381974248927,
+    "v20_spell_f1": 0.5246636771300448,
+    "delta": 0.010591594033011353
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3837",
+    "spell_f1": 0.5796296296296296,
+    "current_neural_spell_f1": 0.5786848072562358,
+    "v20_spell_f1": 0.5547445255474452,
+    "delta": 0.0009448223733937722
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3839",
+    "spell_f1": 0.6933920704845815,
+    "current_neural_spell_f1": 0.6771929824561403,
+    "v20_spell_f1": 0.6145922746781116,
+    "delta": 0.016199088028441166
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3841",
+    "spell_f1": 0.48461538461538456,
+    "current_neural_spell_f1": 0.49249492900608505,
+    "v20_spell_f1": 0.4666666666666666,
+    "delta": -0.007879544390700488
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3843",
+    "spell_f1": 0.6050420168067226,
+    "current_neural_spell_f1": 0.5933609958506224,
+    "v20_spell_f1": 0.5658333333333333,
+    "delta": 0.011681020956100241
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3845",
+    "spell_f1": 0.4399092970521542,
+    "current_neural_spell_f1": 0.4131578947368421,
+    "v20_spell_f1": 0.4727272727272728,
+    "delta": 0.02675140231531209
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3847",
+    "spell_f1": 0.5789264413518886,
+    "current_neural_spell_f1": 0.5904382470119522,
+    "v20_spell_f1": 0.5412244897959184,
+    "delta": -0.011511805660063601
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3849",
+    "spell_f1": 0.5959349593495935,
+    "current_neural_spell_f1": 0.5846758349705306,
+    "v20_spell_f1": 0.588477366255144,
+    "delta": 0.011259124379062957
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3851",
+    "spell_f1": 0.5133220910623946,
+    "current_neural_spell_f1": 0.4985024958402663,
+    "v20_spell_f1": 0.4444444444444445,
+    "delta": 0.014819595222128279
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3853",
+    "spell_f1": 0.6167800453514739,
+    "current_neural_spell_f1": 0.6,
+    "v20_spell_f1": 0.525,
+    "delta": 0.016780045351473927
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3855",
+    "spell_f1": 0.6766595289079229,
+    "current_neural_spell_f1": 0.6489626556016597,
+    "v20_spell_f1": 0.6203904555314533,
+    "delta": 0.027696873306263248
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3857",
+    "spell_f1": 0.5256351039260971,
+    "current_neural_spell_f1": 0.4946428571428572,
+    "v20_spell_f1": 0.43744292237442917,
+    "delta": 0.03099224678323992
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_3859",
+    "spell_f1": 0.5416149068322982,
+    "current_neural_spell_f1": 0.5429158110882957,
+    "v20_spell_f1": 0.5309734513274337,
+    "delta": -0.0013009042559974926
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10503",
+    "spell_f1": 0.6113744075829384,
+    "current_neural_spell_f1": 0.6009389671361502,
+    "v20_spell_f1": 0.5566820276497696,
+    "delta": 0.010435440446788125
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10505",
+    "spell_f1": 0.6295399515738499,
+    "current_neural_spell_f1": 0.6195704057279237,
+    "v20_spell_f1": 0.5779904306220096,
+    "delta": 0.009969545845926242
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10507",
+    "spell_f1": 0.6864077669902913,
+    "current_neural_spell_f1": 0.6574162679425838,
+    "v20_spell_f1": 0.6584766584766585,
+    "delta": 0.02899149904770748
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10509",
+    "spell_f1": 0.5724941724941726,
+    "current_neural_spell_f1": 0.5652582159624413,
+    "v20_spell_f1": 0.5737864077669903,
+    "delta": 0.007235956531731258
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10511",
+    "spell_f1": 0.5773913043478262,
+    "current_neural_spell_f1": 0.5586638830897703,
+    "v20_spell_f1": 0.5549295774647888,
+    "delta": 0.01872742125805582
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10513",
+    "spell_f1": 0.6215686274509803,
+    "current_neural_spell_f1": 0.6028436018957346,
+    "v20_spell_f1": 0.570976253298153,
+    "delta": 0.01872502555524569
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10515",
+    "spell_f1": 0.6009345794392523,
+    "current_neural_spell_f1": 0.620979020979021,
+    "v20_spell_f1": 0.6285714285714287,
+    "delta": -0.020044441539768698
+  },
+  {
+    "world": "pff_m2_native",
+    "game": "dev_10517",
+    "spell_f1": 0.5440329218106996,
+    "current_neural_spell_f1": 0.5203960396039603,
+    "v20_spell_f1": 0.502713987473904,
+    "delta": 0.023636882206739318
+  }
+]

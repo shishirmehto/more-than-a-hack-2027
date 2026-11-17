@@ -1,0 +1,14 @@
+[
+  {
+    "world": "pff_m0_native",
+    "gain_vs_v20": 0.025168415105554277,
+    "lower_vs_v20": 0.014049791743358287,
+    "passes_original_numeric_gate_vs_v20": true
+  },
+  {
+    "world": "pff_m2_native",
+    "gain_vs_v20": 0.03633897543295423,
+    "lower_vs_v20": 0.02413611459798776,
+    "passes_original_numeric_gate_vs_v20": true
+  }
+]

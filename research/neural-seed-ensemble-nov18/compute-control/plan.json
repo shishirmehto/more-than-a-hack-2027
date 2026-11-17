@@ -1,0 +1,18 @@
+{
+  "utc_before_results": "2026-11-17T22:15:57.570597+00:00",
+  "question": "Does three-model averaging beat spending the same total optimizer updates on one network?",
+  "conditions": [
+    "single600_seed98117",
+    "single1800_seed98117",
+    "ensemble_three600_fixedseeds"
+  ],
+  "sensitivity": "Also run single1800 for seeds98118/98119; report all and mean/range, never pick the best seed.",
+  "fixed": "Full eligible external training games, original144000 primary sampled/mirrored rows, same147-64-3 architecture, source/game weighting, batch1024,Adamlr.002,L2.0001,constant LR schedule, decoder transition/quality fallback, tracker-excluded evaluation.",
+  "intervention": "Only steps600->1800 for each matched seed. Verify all parameters/scaler match stored600-step model exactly at optimizer step600 before continuing the same Adam states. No early stopping.",
+  "compute": "Single1800 and three600 each perform1800 gradient updates x1024 samples. Report measured training time; not an exact FLOP or wall-time match. Ensemble inference remains3x model evaluations.",
+  "no_PFF": true,
+  "no_challenge_labels_video": true,
+  "limitations": "Previously reused external evaluation, only3training seeds, inherited baseline heads not fully tracker-excluded. This tests fixed optimization duration, not every possible learning-rate schedule. Do not alter frozen PR4 candidate based on these results.",
+  "script_sha256": "24f9e369d50e1506bdfc34094051a8c495ff6ea66223d3b6c1b8d80e7c9f675a",
+  "optimizer_sha256": "576cf888511424ebef0bef44977cb8bea8800f8af2dbd0cd28f6458391f47518"
+}

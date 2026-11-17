@@ -1,0 +1,4 @@
+{
+  "optimizer_body_identical_to_original_after_removing_checkpoint_assertion": true,
+  "only_training_step_limit_changed": true
+}

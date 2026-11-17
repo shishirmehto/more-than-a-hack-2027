@@ -1,0 +1,14 @@
+{
+  "model": "seed_mean",
+  "seeds": [
+    98117,
+    98118,
+    98119
+  ],
+  "utc_before_PFF": "2026-11-17T22:05:42.503388+00:00",
+  "weights_sha256": {
+    "seed98117.npz": "8b99077c9d9a27643f724deced7ec55fd303587e4b296e4f2fa8e259387c53b1",
+    "seed98118.npz": "a385ca47752ab910d95b37c973ede1ea078ac58a7cfcaa363c4545ac1c3a973e",
+    "seed98119.npz": "9a33b5522208ab34e400fb05ac9dda98647a1f23b9295fc7dfe89ac8324c6f2f"
+  }
+}

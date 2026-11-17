@@ -1,0 +1,1370 @@
+[
+  {
+    "seed": 98117,
+    "fraction": 0.25,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g3",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_2006229",
+      "skillcorner_2013725",
+      "skillcorner_2015213"
+    ],
+    "games_by_source": {
+      "metrica": 1,
+      "skillcorner": 5
+    },
+    "rows": 28800,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "ac95ae6bfa7ede894dc11a1280571102a30a397f8b6461b3aac7691dac05f8f2"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.25,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WPY",
+      "idsse_J03WR9",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_2006229",
+      "skillcorner_2013725",
+      "skillcorner_2015213"
+    ],
+    "games_by_source": {
+      "idsse": 2,
+      "skillcorner": 5
+    },
+    "rows": 33600,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "664726a5116cdfe8ac73a8cbcf23c7482708f2c90c43c1ad0f88758ebd19caa5"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.25,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WPY",
+      "idsse_J03WR9",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 2,
+      "metrica": 1
+    },
+    "rows": 14400,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "8e1d8f90946cb834d24c3bf1cb95598db35cccdc7d748be86c25e1c2a2acea8d"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.5,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g2",
+      "metrica_g3",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213"
+    ],
+    "games_by_source": {
+      "metrica": 2,
+      "skillcorner": 10
+    },
+    "rows": 57600,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "44742638d699701012a8f6cd0bddcf253395ad4f2e3ac9a22cac04d1167c0410"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.5,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WR9",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213"
+    ],
+    "games_by_source": {
+      "idsse": 4,
+      "skillcorner": 10
+    },
+    "rows": 67200,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "991ac07cf1ff9a49f82fcb9a9257f31f049ea95d7cbcff1b0dfb286ec7359144"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.5,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WR9",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 4,
+      "metrica": 2
+    },
+    "rows": 28800,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "79527de6deaaa50b28a292e5910b2ec586fd6d8ae7d6acb9ecc843085d8525ef"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.75,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3",
+      "skillcorner_1886347",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213"
+    ],
+    "games_by_source": {
+      "metrica": 3,
+      "skillcorner": 15
+    },
+    "rows": 86400,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "9ac2a3dfff72b6908dc615986564fce5e74eac2f56418f7b96d462c48ad22d45"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.75,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WR9",
+      "skillcorner_1886347",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213"
+    ],
+    "games_by_source": {
+      "idsse": 6,
+      "skillcorner": 15
+    },
+    "rows": 100800,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "035b32371543ddce15f54a3d384e1e3295cd6a95fa3c1658aa9097e4e3db696c"
+  },
+  {
+    "seed": 98117,
+    "fraction": 0.75,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WR9",
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 6,
+      "metrica": 3
+    },
+    "rows": 43200,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "4c30d54236fa38eb995a663c422a0ab7c53cbb0bebcb2f9cfee3894ab40833ee"
+  },
+  {
+    "seed": 98117,
+    "fraction": 1.0,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 3,
+      "skillcorner": 20
+    },
+    "rows": 110400,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "1e1257cc6737ffe358f751d7c4cf526220ca644abd8c72876cc5b76e90a85a11"
+  },
+  {
+    "seed": 98117,
+    "fraction": 1.0,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 7,
+      "skillcorner": 20
+    },
+    "rows": 129600,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "342caf5ad175d3539bb10b66bc4691abd4d848b8e3c58623e78542b9b8eda5c5"
+  },
+  {
+    "seed": 98117,
+    "fraction": 1.0,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 7,
+      "metrica": 3
+    },
+    "rows": 48000,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "0d9d345b6f247ac72f355456b78f01ca16255f2990b6009d8bed9ceaaf98fcdc"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.25,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "skillcorner_1925299",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 1,
+      "skillcorner": 5
+    },
+    "rows": 28800,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "41de48278042051b972b34444925486b07763f1aa861ff5bb8a2ed369cad3341"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.25,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WN1",
+      "idsse_J03WQQ",
+      "skillcorner_1925299",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 2,
+      "skillcorner": 5
+    },
+    "rows": 33600,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "a5469c152d8c90e47c1b239b28d0d27a99b189351532184733b6d7c5c226aac7"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.25,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WN1",
+      "idsse_J03WQQ",
+      "metrica_g1"
+    ],
+    "games_by_source": {
+      "idsse": 2,
+      "metrica": 1
+    },
+    "rows": 14400,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "53ddc2809f7211cd2841ac3ca512c09a75792c92e838564d1c1a482ce8b20fa0"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.5,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g3",
+      "skillcorner_1874553",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2015213",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 2,
+      "skillcorner": 10
+    },
+    "rows": 57600,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "c06a6ffdd7a40c2ac84bfc388b425ba7f6b5ddb4aaab828e482f5ca555dd18f4"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.5,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WN1",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "skillcorner_1874553",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_2006229",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2015213",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 4,
+      "skillcorner": 10
+    },
+    "rows": 67200,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "3337c78fac3ada3514757b2c59ac0e5865ac537937f43009c5b37344edeb7cd3"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.5,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WN1",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "metrica_g1",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 4,
+      "metrica": 2
+    },
+    "rows": 28800,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "8d05802c0d00671084f28f62ec543aac735373a2e5794a92bfa216604c2d95e6"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.75,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3",
+      "skillcorner_1874553",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 3,
+      "skillcorner": 15
+    },
+    "rows": 86400,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "0faf914b3227d741db9bee351745d43912ec265524fa98e5c1a887a9e6b5557a"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.75,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "skillcorner_1874553",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 6,
+      "skillcorner": 15
+    },
+    "rows": 100800,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "a67ec5c520bb78a5106c59e71b811101339601b129cebdae8f15284d5b44b4cd"
+  },
+  {
+    "seed": 98118,
+    "fraction": 0.75,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 6,
+      "metrica": 3
+    },
+    "rows": 43200,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "69a81bcc6a04271e83388bb55dd5383f3e23027a35cc1f6b6093176fc241e5b6"
+  },
+  {
+    "seed": 98118,
+    "fraction": 1.0,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 3,
+      "skillcorner": 20
+    },
+    "rows": 110400,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "bde19784b30401a651786228b153c478b60d776e508f81f7da96ba6ebf1ddea8"
+  },
+  {
+    "seed": 98118,
+    "fraction": 1.0,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 7,
+      "skillcorner": 20
+    },
+    "rows": 129600,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "9bc1fcd150d1dfcf3741c675ea4ca96483b87cf499e5721983131de77afda5bd"
+  },
+  {
+    "seed": 98118,
+    "fraction": 1.0,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 7,
+      "metrica": 3
+    },
+    "rows": 48000,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "6f67aafd50d0f8f87259087f77adfa5b0511ef8ca19e2a465d536a781828d346"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.25,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "skillcorner_1886347",
+      "skillcorner_1953632",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721"
+    ],
+    "games_by_source": {
+      "metrica": 1,
+      "skillcorner": 5
+    },
+    "rows": 28800,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "2f8f62b6d662db18492c96323547c77dee683f0c3b44831148ce797ab19d5a4f"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.25,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WQQ",
+      "skillcorner_1886347",
+      "skillcorner_1953632",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721"
+    ],
+    "games_by_source": {
+      "idsse": 2,
+      "skillcorner": 5
+    },
+    "rows": 33600,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "bd48cb8cc67a51b1b896882233018f91a680113a1c5d6df782d3016b13a5e6ed"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.25,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WQQ",
+      "metrica_g1"
+    ],
+    "games_by_source": {
+      "idsse": 2,
+      "metrica": 1
+    },
+    "rows": 14400,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "acad26c96be1410256bd2321c6b34112a86b34e84941fcac73203373125a8752"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.5,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g3",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1925299",
+      "skillcorner_1953632",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 2,
+      "skillcorner": 10
+    },
+    "rows": 57600,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "5900cd2de796fc828c09c402b593a24c4f030046d2a044b3b69565912accebf4"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.5,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOY",
+      "idsse_J03WQQ",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1925299",
+      "skillcorner_1953632",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 4,
+      "skillcorner": 10
+    },
+    "rows": 67200,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "3df8570e0e5429f8a7138a178a0c98d83adb066d9d8dc51f98594b51dd22378c"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.5,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOY",
+      "idsse_J03WQQ",
+      "metrica_g1",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 4,
+      "metrica": 2
+    },
+    "rows": 28800,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "cc8a86cef5364eb2ee8ccfc815472acbb1a63b2810cca527fa2dd69dfd565067"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.75,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1953632",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 3,
+      "skillcorner": 15
+    },
+    "rows": 86400,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "73737b5d32cf0c3ba597a9e73ac3e39e03cce9fc51a73d3dbe78bec16fcff2a5"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.75,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1953632",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 6,
+      "skillcorner": 15
+    },
+    "rows": 100800,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "61e6acba64a5d6ee6ef6d1d2cb46b6934a02fb65ef4e6a128da1e4787647b3de"
+  },
+  {
+    "seed": 98119,
+    "fraction": 0.75,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 6,
+      "metrica": 3
+    },
+    "rows": 43200,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "dd4dc52380bd8beda9f61b9d63abb4e8b7e36a1bf3147aae8e77193c898c51ba"
+  },
+  {
+    "seed": 98119,
+    "fraction": 1.0,
+    "test_source": "idsse",
+    "training_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "metrica": 3,
+      "skillcorner": 20
+    },
+    "rows": 110400,
+    "heldout_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9"
+    ],
+    "weights_sha256": "cf9d17c0d796c082c3dbd01ad28ea5ea57d2d2012267f1b866727c9b5d80d07f"
+  },
+  {
+    "seed": 98119,
+    "fraction": 1.0,
+    "test_source": "metrica",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "games_by_source": {
+      "idsse": 7,
+      "skillcorner": 20
+    },
+    "rows": 129600,
+    "heldout_games": [
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "weights_sha256": "d4a32049005bc9393d2ac57dfe1ee8f1f6d3aa91c8ce39f7b999dc86f09b745f"
+  },
+  {
+    "seed": 98119,
+    "fraction": 1.0,
+    "test_source": "skillcorner",
+    "training_games": [
+      "idsse_J03WMX",
+      "idsse_J03WN1",
+      "idsse_J03WOH",
+      "idsse_J03WOY",
+      "idsse_J03WPY",
+      "idsse_J03WQQ",
+      "idsse_J03WR9",
+      "metrica_g1",
+      "metrica_g2",
+      "metrica_g3"
+    ],
+    "games_by_source": {
+      "idsse": 7,
+      "metrica": 3
+    },
+    "rows": 48000,
+    "heldout_games": [
+      "skillcorner_1874553",
+      "skillcorner_1886347",
+      "skillcorner_1899585",
+      "skillcorner_1925299",
+      "skillcorner_1927964",
+      "skillcorner_1953632",
+      "skillcorner_1959846",
+      "skillcorner_1986691",
+      "skillcorner_1996435",
+      "skillcorner_1996436",
+      "skillcorner_2006229",
+      "skillcorner_2006363",
+      "skillcorner_2007448",
+      "skillcorner_2007721",
+      "skillcorner_2010085",
+      "skillcorner_2011166",
+      "skillcorner_2013725",
+      "skillcorner_2015213",
+      "skillcorner_2016236",
+      "skillcorner_2017461"
+    ],
+    "weights_sha256": "7fef7162d7b353fdd0728c07074348b0e84a87b89b45ad56c623555efa7a7df9"
+  }
+]

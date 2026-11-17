@@ -1,0 +1,44 @@
+{
+  "scope": "Same external games and masks, full-data tracker-excluded fits. No extra PFF model selection. Tests predictive complementarity; does not establish the statistical mechanism of variance reduction.",
+  "rows": [
+    {
+      "source": "metrica",
+      "individual_seed_scores": {
+        "98117": 0.6486745970114397,
+        "98118": 0.6495577534820873,
+        "98119": 0.6364522256445256
+      },
+      "mean_individual": 0.6448948587126843,
+      "best_individual": 0.6495577534820873,
+      "ensemble": 0.650547829795068,
+      "ensemble_minus_mean_individual": 0.005652971082383718,
+      "ensemble_minus_best_individual": 0.0009900763129806478
+    },
+    {
+      "source": "skillcorner",
+      "individual_seed_scores": {
+        "98117": 0.36749171867783537,
+        "98118": 0.3643950900357167,
+        "98119": 0.363550573753834
+      },
+      "mean_individual": 0.36514579415579534,
+      "best_individual": 0.36749171867783537,
+      "ensemble": 0.37073850796543545,
+      "ensemble_minus_mean_individual": 0.005592713809640104,
+      "ensemble_minus_best_individual": 0.0032467892876000826
+    },
+    {
+      "source": "idsse",
+      "individual_seed_scores": {
+        "98117": 0.5474154078781278,
+        "98118": 0.5474409900829253,
+        "98119": 0.5467510796204328
+      },
+      "mean_individual": 0.547202492527162,
+      "best_individual": 0.5474409900829253,
+      "ensemble": 0.5482386575298631,
+      "ensemble_minus_mean_individual": 0.001036165002701095,
+      "ensemble_minus_best_individual": 0.0007976674469377665
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "world": "pff_m0_native",
+    "spell_f1": 0.5377713162993023,
+    "current_neural_spell_f1": 0.52886406892668,
+    "delta": 0.00890724737262229,
+    "paired_lower": 0.003599270218810857,
+    "games_won": 23,
+    "caveat": "Adaptively reused validation; exploratory only"
+  },
+  {
+    "world": "pff_m2_native",
+    "spell_f1": 0.5916618886476508,
+    "current_neural_spell_f1": 0.5813680133861626,
+    "delta": 0.01029387526148819,
+    "paired_lower": 0.00456889905570288,
+    "games_won": 24,
+    "caveat": "Adaptively reused validation; exploratory only"
+  }
+]
