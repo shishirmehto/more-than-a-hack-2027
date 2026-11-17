@@ -1,0 +1,27 @@
+{
+  "utc_before_results": "2026-11-17T22:01:36.133964+00:00",
+  "script_sha256": "7014756307ffbf293be7fda796f47d9526884b5b365e7626bac853aa76bb6b53",
+  "question": "Does scaling the number of independent external training games improve quality_sequence at fixed architecture, optimizer and compute?",
+  "fractions": [
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ],
+  "seeds": [
+    98117,
+    98118,
+    98119
+  ],
+  "heldout_trackers": [
+    "metrica",
+    "skillcorner",
+    "idsse"
+  ],
+  "fixed": "147 inputs,64 tanh units,3 outputs; same primary-frame samples per game and mirror augmentation; source/game balanced sampling; Adam600 steps,batch1024,lr.002,L2.0001; identical quality fallback and untempered Viterbi algorithm. Same training seed across fractions within a block.",
+  "intervention": "Nested deterministic per-source game subsets at ceil(fraction*available games). Fit normalization, neural weights and transition probabilities using only the chosen games. Reset model for every size/seed/tracker. Evaluation games and masks identical for every fit.",
+  "outcome": "SpellF1 per held-out game and visibility group; source means average visibility-group means equally. Three seed blocks measure training/subset sensitivity, not three independent test sets.",
+  "no_PFF": true,
+  "no_challenge_labels_video": true,
+  "limitations": "Fixed compute, not equal epochs or best achievable score at each size. Unequal source sizes cause rounded realized fractions; held-out training counts differ. Inherited v22 heads remain fixed and saw Metrica/IDSSE; ablation scales new neural/scaler/transition training only. External evaluation was reused. No new model selected or published automatically."
+}

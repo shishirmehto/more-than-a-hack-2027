@@ -1,0 +1,18 @@
+{
+  "checks": [
+    {
+      "world": "pff_m0_native",
+      "half": "HalfId(match='pff_3813', half=1, kickoff=0)",
+      "frames": 88439,
+      "exact_match": true
+    },
+    {
+      "world": "pff_m2_native",
+      "half": "HalfId(match='pff_3813', half=1, kickoff=0)",
+      "frames": 88439,
+      "exact_match": true
+    }
+  ],
+  "no_metrics_calculated": true,
+  "scope": "Two convention cases, same underlying physical half; narrow code parity, not additional generalization evidence"
+}

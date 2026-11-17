@@ -1,0 +1,2402 @@
+[
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1874553",
+    "spell_f1": 0.3948275862068965,
+    "current_neural_spell_f1": 0.3965566714490675,
+    "delta": -0.001729085242170969
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1874553",
+    "spell_f1": 0.38757062146892657,
+    "current_neural_spell_f1": 0.3965566714490675,
+    "delta": -0.008986049980140909
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1874553",
+    "spell_f1": 0.38755304101838756,
+    "current_neural_spell_f1": 0.3965566714490675,
+    "delta": -0.00900363043067992
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1886347",
+    "spell_f1": 0.36081871345029237,
+    "current_neural_spell_f1": 0.35912408759124087,
+    "delta": 0.0016946258590515018
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1886347",
+    "spell_f1": 0.3545977011494253,
+    "current_neural_spell_f1": 0.35912408759124087,
+    "delta": -0.0045263864418155775
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1886347",
+    "spell_f1": 0.35652173913043483,
+    "current_neural_spell_f1": 0.35912408759124087,
+    "delta": -0.0026023484608060365
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1899585",
+    "spell_f1": 0.38552821997105646,
+    "current_neural_spell_f1": 0.38552821997105646,
+    "delta": 0.0
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1899585",
+    "spell_f1": 0.3811158798283262,
+    "current_neural_spell_f1": 0.38552821997105646,
+    "delta": -0.004412340142730287
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1899585",
+    "spell_f1": 0.38446043165467625,
+    "current_neural_spell_f1": 0.38552821997105646,
+    "delta": -0.0010677883163802138
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1925299",
+    "spell_f1": 0.4024132730015083,
+    "current_neural_spell_f1": 0.3887072808320951,
+    "delta": 0.013705992169413206
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1925299",
+    "spell_f1": 0.39761904761904765,
+    "current_neural_spell_f1": 0.3887072808320951,
+    "delta": 0.008911766786952546
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1925299",
+    "spell_f1": 0.40119402985074626,
+    "current_neural_spell_f1": 0.3887072808320951,
+    "delta": 0.012486749018651155
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1927964",
+    "spell_f1": 0.4338129496402877,
+    "current_neural_spell_f1": 0.4336314847942755,
+    "delta": 0.0001814648460122248
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1927964",
+    "spell_f1": 0.4291296625222024,
+    "current_neural_spell_f1": 0.4336314847942755,
+    "delta": -0.004501822272073075
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1927964",
+    "spell_f1": 0.42719141323792487,
+    "current_neural_spell_f1": 0.4336314847942755,
+    "delta": -0.006440071556350624
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1953632",
+    "spell_f1": 0.3551219512195122,
+    "current_neural_spell_f1": 0.3498392282958199,
+    "delta": 0.005282722923692251
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1953632",
+    "spell_f1": 0.35072000000000003,
+    "current_neural_spell_f1": 0.3498392282958199,
+    "delta": 0.0008807717041801055
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1953632",
+    "spell_f1": 0.3502392344497608,
+    "current_neural_spell_f1": 0.3498392282958199,
+    "delta": 0.00040000615394086836
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1959846",
+    "spell_f1": 0.3660056657223796,
+    "current_neural_spell_f1": 0.3606741573033708,
+    "delta": 0.005331508419008757
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1959846",
+    "spell_f1": 0.3602797202797202,
+    "current_neural_spell_f1": 0.3606741573033708,
+    "delta": -0.00039443702365060673
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1959846",
+    "spell_f1": 0.36379066478076383,
+    "current_neural_spell_f1": 0.3606741573033708,
+    "delta": 0.0031165074773930046
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1986691",
+    "spell_f1": 0.3931570762052877,
+    "current_neural_spell_f1": 0.38808777429467084,
+    "delta": 0.005069301910616886
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1986691",
+    "spell_f1": 0.3841221374045801,
+    "current_neural_spell_f1": 0.38808777429467084,
+    "delta": -0.003965636890090718
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1986691",
+    "spell_f1": 0.38284839203675336,
+    "current_neural_spell_f1": 0.38808777429467084,
+    "delta": -0.00523938225791748
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1996435",
+    "spell_f1": 0.35311143270622286,
+    "current_neural_spell_f1": 0.34942528735632183,
+    "delta": 0.0036861453499010266
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1996435",
+    "spell_f1": 0.3495702005730659,
+    "current_neural_spell_f1": 0.34942528735632183,
+    "delta": 0.0001449132167440914
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1996435",
+    "spell_f1": 0.34579172610556347,
+    "current_neural_spell_f1": 0.34942528735632183,
+    "delta": -0.003633561250758366
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1996436",
+    "spell_f1": 0.3254237288135593,
+    "current_neural_spell_f1": 0.3113573407202216,
+    "delta": 0.014066388093337712
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1996436",
+    "spell_f1": 0.31933240611961056,
+    "current_neural_spell_f1": 0.3113573407202216,
+    "delta": 0.00797506539938897
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_1996436",
+    "spell_f1": 0.31845730027548214,
+    "current_neural_spell_f1": 0.3113573407202216,
+    "delta": 0.007099959555260549
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2006229",
+    "spell_f1": 0.3695067264573991,
+    "current_neural_spell_f1": 0.37065868263473056,
+    "delta": -0.0011519561773314368
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2006229",
+    "spell_f1": 0.3653958944281525,
+    "current_neural_spell_f1": 0.37065868263473056,
+    "delta": -0.005262788206578051
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2006229",
+    "spell_f1": 0.361119293078056,
+    "current_neural_spell_f1": 0.37065868263473056,
+    "delta": -0.009539389556674549
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2006363",
+    "spell_f1": 0.36473988439306354,
+    "current_neural_spell_f1": 0.3645714285714286,
+    "delta": 0.00016845582163493855
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2006363",
+    "spell_f1": 0.36321839080459767,
+    "current_neural_spell_f1": 0.3645714285714286,
+    "delta": -0.0013530377668309335
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2006363",
+    "spell_f1": 0.36852646638054365,
+    "current_neural_spell_f1": 0.3645714285714286,
+    "delta": 0.003955037809115047
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2007448",
+    "spell_f1": 0.3562913907284768,
+    "current_neural_spell_f1": 0.36165289256198346,
+    "delta": -0.005361501833506643
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2007448",
+    "spell_f1": 0.3528641571194763,
+    "current_neural_spell_f1": 0.36165289256198346,
+    "delta": -0.00878873544250719
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2007448",
+    "spell_f1": 0.3563636363636363,
+    "current_neural_spell_f1": 0.36165289256198346,
+    "delta": -0.0052892561983471365
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2007721",
+    "spell_f1": 0.4115151515151515,
+    "current_neural_spell_f1": 0.39517345399698345,
+    "delta": 0.016341697518168052
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2007721",
+    "spell_f1": 0.40657698056801195,
+    "current_neural_spell_f1": 0.39517345399698345,
+    "delta": 0.0114035265710285
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2007721",
+    "spell_f1": 0.40478325859491776,
+    "current_neural_spell_f1": 0.39517345399698345,
+    "delta": 0.009609804597934313
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2010085",
+    "spell_f1": 0.3523654159869494,
+    "current_neural_spell_f1": 0.3491961414790997,
+    "delta": 0.0031692745078497064
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2010085",
+    "spell_f1": 0.34726688102893893,
+    "current_neural_spell_f1": 0.3491961414790997,
+    "delta": -0.0019292604501607857
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2010085",
+    "spell_f1": 0.34378029079159933,
+    "current_neural_spell_f1": 0.3491961414790997,
+    "delta": -0.00541585068750039
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2011166",
+    "spell_f1": 0.35607613469985355,
+    "current_neural_spell_f1": 0.3507959479015919,
+    "delta": 0.0052801867982616435
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2011166",
+    "spell_f1": 0.35594202898550725,
+    "current_neural_spell_f1": 0.3507959479015919,
+    "delta": 0.005146081083915344
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2011166",
+    "spell_f1": 0.36011730205278597,
+    "current_neural_spell_f1": 0.3507959479015919,
+    "delta": 0.009321354151194061
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2013725",
+    "spell_f1": 0.3711442786069652,
+    "current_neural_spell_f1": 0.3709001233045623,
+    "delta": 0.0002441553024029042
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2013725",
+    "spell_f1": 0.3654747225647349,
+    "current_neural_spell_f1": 0.3709001233045623,
+    "delta": -0.005425400739827391
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2013725",
+    "spell_f1": 0.3667481662591687,
+    "current_neural_spell_f1": 0.3709001233045623,
+    "delta": -0.004151957045393617
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2015213",
+    "spell_f1": 0.35963777490297544,
+    "current_neural_spell_f1": 0.3528809218950064,
+    "delta": 0.0067568530079690214
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2015213",
+    "spell_f1": 0.35759897828863346,
+    "current_neural_spell_f1": 0.3528809218950064,
+    "delta": 0.004718056393627046
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2015213",
+    "spell_f1": 0.359079283887468,
+    "current_neural_spell_f1": 0.3528809218950064,
+    "delta": 0.0061983619924615985
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2016236",
+    "spell_f1": 0.38998609179415855,
+    "current_neural_spell_f1": 0.385792349726776,
+    "delta": 0.004193742067382544
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2016236",
+    "spell_f1": 0.3851851851851852,
+    "current_neural_spell_f1": 0.385792349726776,
+    "delta": -0.0006071645415908211
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2016236",
+    "spell_f1": 0.38904109589041097,
+    "current_neural_spell_f1": 0.385792349726776,
+    "delta": 0.0032487461636349635
+  },
+  {
+    "model": "seed_mean",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2017461",
+    "spell_f1": 0.3132867132867132,
+    "current_neural_spell_f1": 0.3252808988764045,
+    "delta": -0.011994185589691286
+  },
+  {
+    "model": "seed_geometric",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2017461",
+    "spell_f1": 0.30646492434663,
+    "current_neural_spell_f1": 0.3252808988764045,
+    "delta": -0.018815974529774515
+  },
+  {
+    "model": "seed_median",
+    "world": "skillcorner_m0_native",
+    "group": "skillcorner_m0_native",
+    "source": "skillcorner",
+    "game": "dev_2017461",
+    "spell_f1": 0.31412742382271464,
+    "current_neural_spell_f1": 0.3252808988764045,
+    "delta": -0.011153475053689854
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.5164285714285715,
+    "current_neural_spell_f1": 0.5231316725978646,
+    "delta": -0.00670310116929318
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.5131672597864769,
+    "current_neural_spell_f1": 0.5231316725978646,
+    "delta": -0.009964412811387713
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.5158081705150976,
+    "current_neural_spell_f1": 0.5231316725978646,
+    "delta": -0.007323502082766997
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.610077519379845,
+    "current_neural_spell_f1": 0.6034416826003823,
+    "delta": 0.006635836779462667
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.6026974951830443,
+    "current_neural_spell_f1": 0.6034416826003823,
+    "delta": -0.0007441874173380603
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.6007722007722007,
+    "current_neural_spell_f1": 0.6034416826003823,
+    "delta": -0.002669481828181608
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5607973421926911,
+    "current_neural_spell_f1": 0.5519071310116086,
+    "delta": 0.008890211181082464
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5601328903654486,
+    "current_neural_spell_f1": 0.5519071310116086,
+    "delta": 0.008225759353839956
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r1_s2717",
+    "group": "m0_r1",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5647840531561462,
+    "current_neural_spell_f1": 0.5519071310116086,
+    "delta": 0.012876922144537617
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.5891797556719023,
+    "current_neural_spell_f1": 0.5923344947735193,
+    "delta": -0.00315473910161701
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.5891797556719023,
+    "current_neural_spell_f1": 0.5923344947735193,
+    "delta": -0.00315473910161701
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.5856392294220665,
+    "current_neural_spell_f1": 0.5923344947735193,
+    "delta": -0.006695265351452817
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.6332695984703633,
+    "current_neural_spell_f1": 0.6288973384030419,
+    "delta": 0.004372260067321498
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.633587786259542,
+    "current_neural_spell_f1": 0.6288973384030419,
+    "delta": 0.004690447856500191
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.6279158699808794,
+    "current_neural_spell_f1": 0.6288973384030419,
+    "delta": -0.0009814684221624015
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5808752025931929,
+    "current_neural_spell_f1": 0.571986970684039,
+    "delta": 0.008888231909153887
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5808752025931929,
+    "current_neural_spell_f1": 0.571986970684039,
+    "delta": 0.008888231909153887
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r2.6_s2717",
+    "group": "m0_r2.6",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5795121951219512,
+    "current_neural_spell_f1": 0.571986970684039,
+    "delta": 0.007525224437912148
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.606338028169014,
+    "current_neural_spell_f1": 0.6080560420315236,
+    "delta": -0.001718013862509582
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.6077464788732394,
+    "current_neural_spell_f1": 0.6080560420315236,
+    "delta": -0.00030956315828423175
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.6014035087719298,
+    "current_neural_spell_f1": 0.6080560420315236,
+    "delta": -0.006652533259593807
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.6623574144486692,
+    "current_neural_spell_f1": 0.6676748582230624,
+    "delta": -0.005317443774393138
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.6623574144486692,
+    "current_neural_spell_f1": 0.6676748582230624,
+    "delta": -0.005317443774393138
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.6613333333333333,
+    "current_neural_spell_f1": 0.6676748582230624,
+    "delta": -0.0063415248897290555
+  },
+  {
+    "model": "seed_mean",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5550748752079867,
+    "current_neural_spell_f1": 0.5536423841059603,
+    "delta": 0.0014324911020263675
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5552238805970149,
+    "current_neural_spell_f1": 0.5536423841059603,
+    "delta": 0.001581496491054546
+  },
+  {
+    "model": "seed_median",
+    "world": "m0_r4_s2717",
+    "group": "m0_r4",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.5566666666666668,
+    "current_neural_spell_f1": 0.5536423841059603,
+    "delta": 0.003024282560706415
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.6289308176100629,
+    "current_neural_spell_f1": 0.6405010438413361,
+    "delta": -0.01157022623127324
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.6246346555323591,
+    "current_neural_spell_f1": 0.6405010438413361,
+    "delta": -0.01586638830897702
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.6291666666666667,
+    "current_neural_spell_f1": 0.6405010438413361,
+    "delta": -0.011334377174669452
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7255605381165918,
+    "current_neural_spell_f1": 0.7161147902869757,
+    "delta": 0.009445747829616158
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7162583518930957,
+    "current_neural_spell_f1": 0.7161147902869757,
+    "delta": 0.0001435616061200573
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7133928571428572,
+    "current_neural_spell_f1": 0.7161147902869757,
+    "delta": -0.0027219331441185046
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.6887573964497042,
+    "current_neural_spell_f1": 0.6779527559055119,
+    "delta": 0.01080464054419239
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.6879684418145957,
+    "current_neural_spell_f1": 0.6779527559055119,
+    "delta": 0.01001568590908386
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r1_s2717",
+    "group": "m2_r1",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.6919132149901381,
+    "current_neural_spell_f1": 0.6779527559055119,
+    "delta": 0.013960459084626287
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.7004081632653062,
+    "current_neural_spell_f1": 0.7079429735234216,
+    "delta": -0.007534810258115421
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.7004081632653062,
+    "current_neural_spell_f1": 0.7079429735234216,
+    "delta": -0.007534810258115421
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.6975409836065574,
+    "current_neural_spell_f1": 0.7079429735234216,
+    "delta": -0.010401989916864252
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7540838852097129,
+    "current_neural_spell_f1": 0.7429824561403509,
+    "delta": 0.011101429069362068
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7541850220264317,
+    "current_neural_spell_f1": 0.7429824561403509,
+    "delta": 0.011202565886080817
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7461368653421634,
+    "current_neural_spell_f1": 0.7429824561403509,
+    "delta": 0.003154409201812536
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.7065134099616858,
+    "current_neural_spell_f1": 0.6928709055876686,
+    "delta": 0.01364250437401715
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.70727969348659,
+    "current_neural_spell_f1": 0.6928709055876686,
+    "delta": 0.014408787898921416
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r2.6_s2717",
+    "group": "m2_r2.6",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.7023076923076923,
+    "current_neural_spell_f1": 0.6928709055876686,
+    "delta": 0.009436786720023682
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.7397938144329896,
+    "current_neural_spell_f1": 0.7434426229508196,
+    "delta": -0.0036488085178300045
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.7422680412371133,
+    "current_neural_spell_f1": 0.7434426229508196,
+    "delta": -0.0011745817137063241
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g1",
+    "spell_f1": 0.7383983572895276,
+    "current_neural_spell_f1": 0.7434426229508196,
+    "delta": -0.005044265661292013
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7763157894736843,
+    "current_neural_spell_f1": 0.7782135076252723,
+    "delta": -0.0018977181515880126
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7763157894736843,
+    "current_neural_spell_f1": 0.7782135076252723,
+    "delta": -0.0018977181515880126
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g2",
+    "spell_f1": 0.7806593406593407,
+    "current_neural_spell_f1": 0.7782135076252723,
+    "delta": 0.002445833034068423
+  },
+  {
+    "model": "seed_mean",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.675098814229249,
+    "current_neural_spell_f1": 0.675049115913556,
+    "delta": 4.9698315693014194e-05
+  },
+  {
+    "model": "seed_geometric",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.6748031496062993,
+    "current_neural_spell_f1": 0.675049115913556,
+    "delta": -0.00024596630725670643
+  },
+  {
+    "model": "seed_median",
+    "world": "m2_r4_s2717",
+    "group": "m2_r4",
+    "source": "metrica",
+    "game": "dev_g3",
+    "spell_f1": 0.6772277227722773,
+    "current_neural_spell_f1": 0.675049115913556,
+    "delta": 0.002178606858721288
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.381058495821727,
+    "current_neural_spell_f1": 0.37555555555555553,
+    "delta": 0.0055029402661714855
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.3816411682892907,
+    "current_neural_spell_f1": 0.37555555555555553,
+    "delta": 0.006085612733735146
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.37210599721059967,
+    "current_neural_spell_f1": 0.37555555555555553,
+    "delta": -0.003449558344955861
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.3839779005524862,
+    "current_neural_spell_f1": 0.39175824175824175,
+    "delta": -0.007780341205755548
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.3850828729281768,
+    "current_neural_spell_f1": 0.39175824175824175,
+    "delta": -0.006675368830064976
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.39174690508940857,
+    "current_neural_spell_f1": 0.39175824175824175,
+    "delta": -1.133666883318396e-05
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.46081081081081077,
+    "current_neural_spell_f1": 0.46621621621621623,
+    "delta": -0.005405405405405461
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.4621621621621622,
+    "current_neural_spell_f1": 0.46621621621621623,
+    "delta": -0.004054054054054013
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.46091370558375633,
+    "current_neural_spell_f1": 0.46621621621621623,
+    "delta": -0.0053025106324599
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4443786982248521,
+    "current_neural_spell_f1": 0.43857566765578637,
+    "delta": 0.005803030569065726
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4443786982248521,
+    "current_neural_spell_f1": 0.43857566765578637,
+    "delta": 0.005803030569065726
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4507374631268436,
+    "current_neural_spell_f1": 0.43857566765578637,
+    "delta": 0.012161795471057224
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.48012924071082397,
+    "current_neural_spell_f1": 0.4702093397745572,
+    "delta": 0.009919900936266768
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.48129032258064514,
+    "current_neural_spell_f1": 0.4702093397745572,
+    "delta": 0.011080982806087936
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4845161290322581,
+    "current_neural_spell_f1": 0.4702093397745572,
+    "delta": 0.014306789257700903
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.4967948717948717,
+    "current_neural_spell_f1": 0.5224358974358974,
+    "delta": -0.02564102564102566
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.49615384615384606,
+    "current_neural_spell_f1": 0.5224358974358974,
+    "delta": -0.0262820512820513
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5162939297124601,
+    "current_neural_spell_f1": 0.5224358974358974,
+    "delta": -0.006141967723437225
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.4845070422535211,
+    "current_neural_spell_f1": 0.47317073170731705,
+    "delta": 0.011336310546204043
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.4822495606326889,
+    "current_neural_spell_f1": 0.47317073170731705,
+    "delta": 0.009078828925371873
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r1_s2717",
+    "group": "idsse_m0_r1",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.4814035087719299,
+    "current_neural_spell_f1": 0.47317073170731705,
+    "delta": 0.00823277706461284
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4302197802197802,
+    "current_neural_spell_f1": 0.43265306122448977,
+    "delta": -0.0024332810047095754
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.43392612859097124,
+    "current_neural_spell_f1": 0.43265306122448977,
+    "delta": 0.001273067366481473
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.43939808481532144,
+    "current_neural_spell_f1": 0.43265306122448977,
+    "delta": 0.006745023590831678
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.3988980716253444,
+    "current_neural_spell_f1": 0.41141304347826085,
+    "delta": -0.012514971852916446
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.3988980716253444,
+    "current_neural_spell_f1": 0.41141304347826085,
+    "delta": -0.012514971852916446
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.3989010989010989,
+    "current_neural_spell_f1": 0.41141304347826085,
+    "delta": -0.012511944577161926
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5092105263157894,
+    "current_neural_spell_f1": 0.500990099009901,
+    "delta": 0.008220427305888456
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5110016420361247,
+    "current_neural_spell_f1": 0.500990099009901,
+    "delta": 0.010011543026223757
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5100494233937397,
+    "current_neural_spell_f1": 0.500990099009901,
+    "delta": 0.009059324383838718
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.46579330422125187,
+    "current_neural_spell_f1": 0.4599708879184862,
+    "delta": 0.005822416302765643
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.46579330422125187,
+    "current_neural_spell_f1": 0.4599708879184862,
+    "delta": 0.005822416302765643
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4646288209606987,
+    "current_neural_spell_f1": 0.4599708879184862,
+    "delta": 0.004657933042212459
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4836012861736334,
+    "current_neural_spell_f1": 0.48475120385232745,
+    "delta": -0.0011499176786940457
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4847512038523275,
+    "current_neural_spell_f1": 0.48475120385232745,
+    "delta": 5.551115123125783e-17
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4821829855537721,
+    "current_neural_spell_f1": 0.48475120385232745,
+    "delta": -0.002568218298555358
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5292604501607718,
+    "current_neural_spell_f1": 0.5286173633440515,
+    "delta": 0.0006430868167203174
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5286173633440515,
+    "current_neural_spell_f1": 0.5286173633440515,
+    "delta": 0.0
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5266881028938907,
+    "current_neural_spell_f1": 0.5286173633440515,
+    "delta": -0.0019292604501608412
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5154782608695653,
+    "current_neural_spell_f1": 0.5123050259965338,
+    "delta": 0.0031732348730314497
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5154782608695653,
+    "current_neural_spell_f1": 0.5123050259965338,
+    "delta": 0.0031732348730314497
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r2.6_s2717",
+    "group": "idsse_m0_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5203478260869565,
+    "current_neural_spell_f1": 0.5123050259965338,
+    "delta": 0.008042800090422686
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4370677731673581,
+    "current_neural_spell_f1": 0.4452316076294277,
+    "delta": -0.008163834462069586
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.4370677731673581,
+    "current_neural_spell_f1": 0.4452316076294277,
+    "delta": -0.008163834462069586
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.44204702627939135,
+    "current_neural_spell_f1": 0.4452316076294277,
+    "delta": -0.003184581350036353
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.446195652173913,
+    "current_neural_spell_f1": 0.43695652173913035,
+    "delta": 0.009239130434782639
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.4477611940298507,
+    "current_neural_spell_f1": 0.43695652173913035,
+    "delta": 0.010804672290720352
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.4391304347826087,
+    "current_neural_spell_f1": 0.43695652173913035,
+    "delta": 0.0021739130434783593
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5264900662251656,
+    "current_neural_spell_f1": 0.524297520661157,
+    "delta": 0.002192545564008608
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5264900662251656,
+    "current_neural_spell_f1": 0.524297520661157,
+    "delta": 0.002192545564008608
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5262809917355372,
+    "current_neural_spell_f1": 0.524297520661157,
+    "delta": 0.0019834710743802386
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4703101920236336,
+    "current_neural_spell_f1": 0.48326055312954885,
+    "delta": -0.012950361105915242
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4703101920236336,
+    "current_neural_spell_f1": 0.48326055312954885,
+    "delta": -0.012950361105915242
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.4776470588235294,
+    "current_neural_spell_f1": 0.48326055312954885,
+    "delta": -0.005613494306019429
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4842443729903537,
+    "current_neural_spell_f1": 0.4877419354838709,
+    "delta": -0.003497562493517181
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.4842443729903537,
+    "current_neural_spell_f1": 0.4877419354838709,
+    "delta": -0.003497562493517181
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.484887459807074,
+    "current_neural_spell_f1": 0.4877419354838709,
+    "delta": -0.0028544756767969193
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5456828885400313,
+    "current_neural_spell_f1": 0.5597503900156007,
+    "delta": -0.014067501475569344
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5450549450549451,
+    "current_neural_spell_f1": 0.5597503900156007,
+    "delta": -0.014695444960655557
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5518750000000001,
+    "current_neural_spell_f1": 0.5597503900156007,
+    "delta": -0.007875390015600559
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5225919439579685,
+    "current_neural_spell_f1": 0.5010600706713781,
+    "delta": 0.02153187328659034
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5225919439579685,
+    "current_neural_spell_f1": 0.5010600706713781,
+    "delta": 0.02153187328659034
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m0_r4_s2717",
+    "group": "idsse_m0_r4",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.5211908931698774,
+    "current_neural_spell_f1": 0.5010600706713781,
+    "delta": 0.02013082249849929
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.5694117647058824,
+    "current_neural_spell_f1": 0.5640625,
+    "delta": 0.005349264705882373
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.56986301369863,
+    "current_neural_spell_f1": 0.5640625,
+    "delta": 0.005800513698629994
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.5611001964636542,
+    "current_neural_spell_f1": 0.5640625,
+    "delta": -0.002962303536345856
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.52744014732965,
+    "current_neural_spell_f1": 0.5323583180987204,
+    "delta": -0.004918170769070307
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5281767955801105,
+    "current_neural_spell_f1": 0.5323583180987204,
+    "delta": -0.004181522518609815
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5347985347985348,
+    "current_neural_spell_f1": 0.5323583180987204,
+    "delta": 0.0024402166998144237
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5957805907172996,
+    "current_neural_spell_f1": 0.6033755274261604,
+    "delta": -0.0075949367088608
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5966244725738397,
+    "current_neural_spell_f1": 0.6033755274261604,
+    "delta": -0.006751054852320748
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.5961945031712473,
+    "current_neural_spell_f1": 0.6033755274261604,
+    "delta": -0.007181024254913071
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.5805714285714285,
+    "current_neural_spell_f1": 0.57131931166348,
+    "delta": 0.009252116907948471
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.5805714285714285,
+    "current_neural_spell_f1": 0.57131931166348,
+    "delta": 0.009252116907948471
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.5829222011385199,
+    "current_neural_spell_f1": 0.57131931166348,
+    "delta": 0.011602889475039846
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6526315789473685,
+    "current_neural_spell_f1": 0.6389937106918239,
+    "delta": 0.013637868255544583
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6521008403361345,
+    "current_neural_spell_f1": 0.6389937106918239,
+    "delta": 0.0131071296443106
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6605042016806724,
+    "current_neural_spell_f1": 0.6389937106918239,
+    "delta": 0.021510490988848496
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5988212180746562,
+    "current_neural_spell_f1": 0.6302554027504912,
+    "delta": -0.03143418467583503
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.5988212180746563,
+    "current_neural_spell_f1": 0.6302554027504912,
+    "delta": -0.03143418467583492
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6223091976516634,
+    "current_neural_spell_f1": 0.6302554027504912,
+    "delta": -0.007946205098827819
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6060085836909871,
+    "current_neural_spell_f1": 0.5881355932203389,
+    "delta": 0.017872990470648165
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6029978586723769,
+    "current_neural_spell_f1": 0.5881355932203389,
+    "delta": 0.014862265452037948
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r1_s2717",
+    "group": "idsse_m2_r1",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6008547008547008,
+    "current_neural_spell_f1": 0.5881355932203389,
+    "delta": 0.012719107634361904
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6500000000000001,
+    "current_neural_spell_f1": 0.6436432637571158,
+    "delta": 0.006356736242884353
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6500956022944551,
+    "current_neural_spell_f1": 0.6436432637571158,
+    "delta": 0.006452338537339286
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6592734225621414,
+    "current_neural_spell_f1": 0.6436432637571158,
+    "delta": 0.015630158805025607
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5460550458715596,
+    "current_neural_spell_f1": 0.5592792792792793,
+    "delta": -0.013224233407719721
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5460550458715596,
+    "current_neural_spell_f1": 0.5592792792792793,
+    "delta": -0.013224233407719721
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.5484460694698354,
+    "current_neural_spell_f1": 0.5592792792792793,
+    "delta": -0.010833209809443911
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6522448979591837,
+    "current_neural_spell_f1": 0.6434426229508198,
+    "delta": 0.008802275008363947
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6533604887983706,
+    "current_neural_spell_f1": 0.6434426229508198,
+    "delta": 0.009917865847550833
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.652760736196319,
+    "current_neural_spell_f1": 0.6434426229508198,
+    "delta": 0.009318113245499249
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6208955223880597,
+    "current_neural_spell_f1": 0.6067164179104477,
+    "delta": 0.014179104477611948
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6208955223880597,
+    "current_neural_spell_f1": 0.6067164179104477,
+    "delta": 0.014179104477611948
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.621641791044776,
+    "current_neural_spell_f1": 0.6067164179104477,
+    "delta": 0.01492537313432829
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6719665271966527,
+    "current_neural_spell_f1": 0.6747390396659707,
+    "delta": -0.002772512469317978
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6730688935281837,
+    "current_neural_spell_f1": 0.6747390396659707,
+    "delta": -0.001670146137787043
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6697286012526096,
+    "current_neural_spell_f1": 0.6747390396659707,
+    "delta": -0.005010438413361129
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6335305719921104,
+    "current_neural_spell_f1": 0.6248520710059171,
+    "delta": 0.008678500986193272
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6335305719921104,
+    "current_neural_spell_f1": 0.6248520710059171,
+    "delta": 0.008678500986193272
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.631163708086785,
+    "current_neural_spell_f1": 0.6248520710059171,
+    "delta": 0.0063116370808679045
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6494714587737844,
+    "current_neural_spell_f1": 0.6450526315789473,
+    "delta": 0.004418827194837105
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6494714587737844,
+    "current_neural_spell_f1": 0.6450526315789473,
+    "delta": 0.004418827194837105
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r2.6_s2717",
+    "group": "idsse_m2_r2.6",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6570824524312896,
+    "current_neural_spell_f1": 0.6450526315789473,
+    "delta": 0.012029820852342277
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6601941747572815,
+    "current_neural_spell_f1": 0.6562737642585551,
+    "delta": 0.003920410498726379
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6601941747572815,
+    "current_neural_spell_f1": 0.6562737642585551,
+    "delta": 0.003920410498726379
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WMX",
+    "spell_f1": 0.6633009708737865,
+    "current_neural_spell_f1": 0.6562737642585551,
+    "delta": 0.007027206615231374
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.6126126126126126,
+    "current_neural_spell_f1": 0.6046846846846846,
+    "delta": 0.007927927927927958
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.6136690647482015,
+    "current_neural_spell_f1": 0.6046846846846846,
+    "delta": 0.008984380063516872
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WN1",
+    "spell_f1": 0.6068468468468469,
+    "current_neural_spell_f1": 0.6046846846846846,
+    "delta": 0.002162162162162251
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6732510288065843,
+    "current_neural_spell_f1": 0.6685831622176591,
+    "delta": 0.004667866588925151
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6732510288065843,
+    "current_neural_spell_f1": 0.6685831622176591,
+    "delta": 0.004667866588925151
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WOH",
+    "spell_f1": 0.6726899383983573,
+    "current_neural_spell_f1": 0.6685831622176591,
+    "delta": 0.004106776180698213
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6334600760456274,
+    "current_neural_spell_f1": 0.641044776119403,
+    "delta": -0.007584700073775652
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.6334600760456274,
+    "current_neural_spell_f1": 0.641044776119403,
+    "delta": -0.007584700073775652
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WOY",
+    "spell_f1": 0.640453686200378,
+    "current_neural_spell_f1": 0.641044776119403,
+    "delta": -0.0005910899190250118
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6845188284518828,
+    "current_neural_spell_f1": 0.6882352941176471,
+    "delta": -0.0037164656657642237
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6845188284518828,
+    "current_neural_spell_f1": 0.6882352941176471,
+    "delta": -0.0037164656657642237
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WPY",
+    "spell_f1": 0.6853556485355649,
+    "current_neural_spell_f1": 0.6882352941176471,
+    "delta": -0.002879645582082202
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6452107279693486,
+    "current_neural_spell_f1": 0.6555133079847908,
+    "delta": -0.010302580015442153
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6444444444444445,
+    "current_neural_spell_f1": 0.6555133079847908,
+    "delta": -0.011068863540346308
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WQQ",
+    "spell_f1": 0.6506666666666667,
+    "current_neural_spell_f1": 0.6555133079847908,
+    "delta": -0.0048466413181240675
+  },
+  {
+    "model": "seed_mean",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6652452025586354,
+    "current_neural_spell_f1": 0.6439655172413794,
+    "delta": 0.021279685317255992
+  },
+  {
+    "model": "seed_geometric",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6652452025586354,
+    "current_neural_spell_f1": 0.6439655172413794,
+    "delta": 0.021279685317255992
+  },
+  {
+    "model": "seed_median",
+    "world": "idsse_m2_r4_s2717",
+    "group": "idsse_m2_r4",
+    "source": "idsse",
+    "game": "dev_J03WR9",
+    "spell_f1": 0.6626865671641792,
+    "current_neural_spell_f1": 0.6439655172413794,
+    "delta": 0.01872104992279977
+  }
+]

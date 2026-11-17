@@ -1,0 +1,9 @@
+{
+  "independent_process_rebuilds": 2,
+  "full_bytes_equal": true,
+  "csv_sha256": "c21c56cd76c1da343613c2c5367f60ad6a47d671395b6425dcd5117ec83bac03",
+  "rows": 199319,
+  "v20_unchanged": true,
+  "PR3_candidate_sha256": "a0c7a8d5cf90786e736936ccaac6ebf37e27afae30adea1733123eb62695ca68",
+  "no_submission_replacement": true
+}

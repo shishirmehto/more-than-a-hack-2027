@@ -1,0 +1,18 @@
+{
+  "utc_before_results": "2026-11-17T22:04:22.687634+00:00",
+  "hypothesis": "Data-size first-seed learning curve gains from25to75percent then plateaus, and seed sensitivity is visible. Average three full-data neural models to reduce optimizer variance and unstable possession boundaries without adding PFF training.",
+  "models": [
+    "seed_mean",
+    "seed_geometric",
+    "seed_median"
+  ],
+  "seeds": [
+    98117,
+    98118,
+    98119
+  ],
+  "training": "Reuse the three full-fraction tracker-excluded fits from data-size ablation. For target train full30 external games with the same600steps per seed, source/game balance; no PFF fitting. Same147-64-3 architecture and quality decoder.",
+  "selection": "Incremental to frozen PR3 quality_sequence: each source mean >=0, SkillCorner>=.001, all groups>=-.005; pick greatest equal-source mean improvement. Freeze one before PFF.",
+  "limitation": "Adaptive reused validation, baseline inheritance, synthetic masks, extra compute through ensemble; this is a separate experiment from the fixed-compute data-size ablation. No fresh-test significance claim. ExistingPR unchanged.",
+  "script_sha256": "03d215efc7f503dddf125fe8d456487a1371630eb25370cbdb2f16fb48e9f90b"
+}

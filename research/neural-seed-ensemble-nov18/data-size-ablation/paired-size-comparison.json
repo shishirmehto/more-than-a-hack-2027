@@ -1,0 +1,32 @@
+[
+  {
+    "tracker": "idsse",
+    "independent_eval_games": 7,
+    "mean_full_minus_quarter": 0.024850185606184374,
+    "paired_game_descriptive_interval_95": [
+      0.02253339824307912,
+      0.027294139733654434
+    ],
+    "caveat": "Averages fixed3 seeds and visibility variants per game. Test-game bootstrap only; reused external data, not fresh-test significance or training-subset uncertainty."
+  },
+  {
+    "tracker": "metrica",
+    "independent_eval_games": 3,
+    "mean_full_minus_quarter": 0.01629773053596976,
+    "paired_game_descriptive_interval_95": [
+      0.013296367153667443,
+      0.018150324412519514
+    ],
+    "caveat": "Averages fixed3 seeds and visibility variants per game. Test-game bootstrap only; reused external data, not fresh-test significance or training-subset uncertainty."
+  },
+  {
+    "tracker": "skillcorner",
+    "independent_eval_games": 20,
+    "mean_full_minus_quarter": 0.008870906006788673,
+    "paired_game_descriptive_interval_95": [
+      0.006066426061596756,
+      0.011680933981604342
+    ],
+    "caveat": "Averages fixed3 seeds and visibility variants per game. Test-game bootstrap only; reused external data, not fresh-test significance or training-subset uncertainty."
+  }
+]
