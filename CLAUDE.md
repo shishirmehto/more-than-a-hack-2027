@@ -77,6 +77,16 @@ The scorer writes `evaluation/scoreboard.csv` and `evaluation/reports/`, both gi
   is stdlib-only, `load_homography.py` provides `load()` and `project()`, and `baseline.py` parses
   the raw ATD with numpy alone. The notebooks are `01_` to `03_`.
 - **`evaluation/results/`** is where submissions go. Each CSV is scored under its filename.
+- **`research/neural-seed-ensemble-nov18/`** is the submitted model (PR #4, merged 18 Nov). It holds
+  three frozen networks (`seed98117/98118/98119.npz`: 147 inputs, 64 tanh, 3 outputs, each trained
+  for 600 Adam steps on 30 external games: 3 Metrica, 20 SkillCorner, 7 IDSSE). Their class
+  probabilities are averaged, then passed through PR #3's team-swap averaging, rule fallback for
+  low-quality frames, and sequence decoder. Its inference code is in `experiments/seed-ensemble/`
+  and `experiments/temporal-neural/`. `rebuild.py` checks the hash of every packaged file, so don't
+  edit anything listed in `MANIFEST.json`, including that folder's README: an edit breaks the rebuild.
+- **`possession/` and `params/`** are the rule labeller (HMM decoder plus stoppage rules).
+  `tier0_v20` was the submitted file until 18 Nov. The ensemble inherits its inputs and its
+  tier0_v22 heads, so it is PFF-informed but has no new weights fitted on PFF labels.
 
 ### Frame alignment
 
@@ -132,6 +142,17 @@ There are three deliverables:
   - reproduction steps
 
 `*.pdf` is gitignored. All team members must register under the same team name before Nov 10.
+
+The team is FlickGPT. The submitted `FlickGPT.csv` is the neural ensemble, sha256
+`c21c56cd76c1da343613c2c5367f60ad6a47d671395b6425dcd5117ec83bac03`. `TECHNICAL.md` is the
+technical document. The repo went public on 18 Nov. To rebuild the CSV:
+
+```bash
+.venv/bin/python research/neural-seed-ensemble-nov18/rebuild.py --data "$MTAH_DATA_DIR" --out FlickGPT.csv   # needs an absolute path
+```
+
+The rebuild is byte-for-byte on macOS arm64. Cross-platform exactness is unverified, and the
+ensemble's pins are in `research/neural-seed-ensemble-nov18/requirements.lock`.
 
 ## Git
 
