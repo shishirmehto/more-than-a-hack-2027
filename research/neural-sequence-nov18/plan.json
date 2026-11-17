@@ -1,0 +1,12 @@
+{
+  "utc_before_scores": "2026-11-17T21:20:26.546903+00:00",
+  "mode": "quality_sequence",
+  "weights_sha256": "8b99077c9d9a27643f724deced7ec55fd303587e4b296e4f2fa8e259387c53b1",
+  "script_sha256": "219162eefe5152523d368b37dee90d5c0c60451250d244f5c0620e5ca0350d81",
+  "inference_sha256": "5cc11cd7261592fb3f8bcf95c95e5bdbbef9d17f01d5a33926351df0bc4eee09",
+  "base_sha256": "0966f6ba2c0e59186f464f9356f76bb814b72aaa743b56a228e56ce3f8f00e1d",
+  "network_sha256": "76fa67192b376565b71b29f4b0a3850e7f68204e97842c9e18ed4626813a00f9",
+  "decoding_sha256": "e5a65dd322874295a75731fb589507e762c7907ff13008f297c30ef14cd8ad50",
+  "reason": "Previously defined quality_sequence passed tracker-held-out source gates and substantially outperformed rule blending on Metrica/IDSSE. First blended PFF result improved m2, while m0 missed the significance gate. Test the already-trained alternative without refitting.",
+  "limitation": "Additional reused PFF validation read; no fresh-test significance claim. No PFF-fitted new weights."
+}
