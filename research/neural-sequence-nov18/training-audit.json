@@ -1,0 +1,11 @@
+{
+  "games": 30,
+  "rows": 144000,
+  "features": 147,
+  "sources": [
+    "idsse",
+    "metrica",
+    "skillcorner"
+  ],
+  "data_sha256": "33a37002ad2bd968c2c611108b07cd1f83344f73bc1548662d42f7186aafadf6"
+}

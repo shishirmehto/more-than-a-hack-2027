@@ -1,0 +1,22 @@
+[
+  {
+    "world": "pff_m0_native",
+    "spell_f1": 0.52886406892668,
+    "v20_spell_f1": 0.5126029011937481,
+    "delta": 0.016261167732931986,
+    "paired_bootstrap_lower": 0.004794307023897425,
+    "games_won": 25,
+    "passes_numeric_gate": false,
+    "caveat": "Exploratory paired bound on reused evaluation, not fresh-test significance"
+  },
+  {
+    "world": "pff_m2_native",
+    "spell_f1": 0.5813680133861626,
+    "v20_spell_f1": 0.5553229132146965,
+    "delta": 0.02604510017146604,
+    "paired_bootstrap_lower": 0.014256848633722709,
+    "games_won": 26,
+    "passes_numeric_gate": true,
+    "caveat": "Exploratory paired bound on reused evaluation, not fresh-test significance"
+  }
+]
