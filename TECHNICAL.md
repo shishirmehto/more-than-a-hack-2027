@@ -1,6 +1,6 @@
-# <team_name> technical document, More than a Hack 2027 Phase 1
+# FlickGPT technical document, More than a Hack 2027 Phase 1
 
-This document describes the code that produced `<team_name>.csv`. Every label in the file comes from that code. No person labelled any frame of the provided match, and no AI assistant produced or decided a label. Labels in the published 5-minute window shaped our first decoder on 21 October. "What the provided match informed" lists that and every other use of the match we know of. The section "Technical document detail" in [REPORT.md](experiments/hillclimb-2026-10-24/REPORT.md) keeps the earlier, longer text of every passage this document shortens.
+This document describes the code that produced `FlickGPT.csv`. Every label in the file comes from that code. No person labelled any frame of the provided match, and no AI assistant produced or decided a label. Labels in the published 5-minute window shaped our first decoder on 21 October. "What the provided match informed" lists that and every other use of the match we know of. The section "Technical document detail" in [REPORT.md](experiments/hillclimb-2026-10-24/REPORT.md) keeps the earlier, longer text of every passage this document shortens.
 
 ## Terms
 
@@ -168,9 +168,9 @@ uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -r requirements-submission.txt
 source .venv/bin/activate
 export MTAH_DATA_DIR=/path/to/data            # the folder that holds the Barcelona v Athletic data bundle
-python -m possession make-submission --params params/tier0_v20.json --out <team_name>.csv
-python evaluation/validate_submission.py <team_name>.csv
-shasum -a 256 <team_name>.csv                  # or sha256sum; compare with the hash in "Submitted file"
+python -m possession make-submission --params params/tier0_v20.json --out FlickGPT.csv
+python evaluation/validate_submission.py FlickGPT.csv
+shasum -a 256 FlickGPT.csv                     # or sha256sum; compare with the hash in "Submitted file"
 ```
 
 Run the commands from the repository root. The build uses no random numbers, sums in a fixed order and rounds before each decision. We checked byte-for-byte rebuilds of tier0_v13, tier0_v20 and tier0_v22_pfffree from a fresh clone on macOS and in `python:3.11.14-slim` Linux containers on arm64 and x86_64 (emulated), with only the pinned packages and no network for the build. All three hashes matched on all three platforms. REPORT.md ("Reproduce") gives the selection commands, and `.audit/hillclimb-2026-10-24.tsv` logs every decision.
