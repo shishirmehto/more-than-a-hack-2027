@@ -245,3 +245,8 @@ credited: **tracking and phase data courtesy of [SkillCorner](https://skillcorne
   url    = {https://github.com/metrica-sports/more-than-a-hack-2027}
 }
 ```
+
+
+## Local inspection tool
+
+[Touchline](TOUCHLINE.md) provides read-only video and tracking inspection, prediction comparison, automatic-tag timelines, and missing-ball navigation. Start the synthetic demo with `python3 -m inspector --demo`, or see the guide to load the licensed match bundle and published predictions.

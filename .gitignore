@@ -63,3 +63,7 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# Local Touchline files and transfer bundles
+local/
+*.mov

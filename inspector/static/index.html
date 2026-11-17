@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Touchline · Local possession inspector</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">t.</span><div><strong>touchline</strong><span>MORE THAN A HACK · INSPECTION WORKSPACE</span></div></div>
+    <div class="header-actions"><span class="local-indicator">Local only</span><button id="help-button" class="quiet">Shortcuts <kbd>?</kbd></button></div>
+  </header>
+  <main>
+    <section class="match-bar" aria-label="Dataset">
+      <div><p class="eyebrow">FOLLOW THE EVIDENCE</p><h1 id="match-title">Opening the workspace…</h1></div>
+      <div class="match-meta"><span id="mode-badge" class="pill">Loading</span><span id="dataset-info"></span><select id="jump-half" aria-label="Jump to half" hidden><option value="">Jump to half…</option></select></div>
+    </section>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="viewer-grid">
+      <article class="panel video-panel">
+        <div class="panel-heading"><h2>Tactical view <span id="video-status">No video loaded</span></h2><div class="panel-tools"><label class="switch"><input id="overlay-toggle" type="checkbox" checked> Tracking overlay</label><button id="load-video" class="small">Open video</button><input id="video-file" type="file" accept="video/*,.mp4" hidden></div></div>
+        <div class="video-stage" id="video-stage">
+          <video id="video" preload="metadata" playsinline></video>
+          <canvas id="overlay" width="1920" height="1080" aria-label="Tracking projected onto tactical video"></canvas>
+          <div id="video-placeholder" class="video-placeholder"><div class="viewfinder" aria-hidden="true">＋</div><h3>Your tactical view goes here</h3><p>Open the matching local video to inspect it alongside the tracking.</p><button id="load-video-empty">Open local video <span>↗</span></button><small>The file stays in your browser.</small></div>
+          <div class="stage-corner"><span class="live-dot"></span><span id="stage-label">TACTICAL · 25 FPS</span></div>
+          <span id="video-frame" class="frame-stamp">FRAME 000000</span>
+        </div>
+      </article>
+      <article class="panel pitch-panel">
+        <div class="panel-heading"><h2>Pitch view <span id="player-count">— tracks</span></h2><label class="switch"><input id="slots-toggle" type="checkbox"> Slot IDs</label></div>
+        <div class="pitch-wrap"><canvas id="pitch" width="840" height="590" aria-label="Player and ball positions on the pitch"></canvas></div>
+        <div class="pitch-legend"><span><i class="dot home"></i><span id="home-name">Home</span></span><span><i class="dot away"></i><span id="away-name">Away</span></span><span><i class="dot ball"></i>Ball</span></div>
+        <div class="evidence-row"><div><span>Ball observation</span><strong id="ball-status">—</strong></div><div><span>Nearest track</span><strong id="nearest-status">—</strong></div><div><span>Projection error</span><strong id="projection-status">—</strong></div></div>
+      </article>
+    </section>
+    <section class="panel transport" aria-label="Playback controls">
+      <div class="play-controls"><button id="prev-frame" aria-label="Previous frame" title="Previous frame (←)">‹</button><button id="play" class="play-button" aria-label="Play" title="Play / pause (Space)">▶</button><button id="next-frame" aria-label="Next frame" title="Next frame (→)">›</button><select id="rate" aria-label="Playback speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+      <div class="time-readout"><strong id="time">00:00.000</strong><span id="total-time">/ —</span></div>
+      <div class="frame-jump"><label for="frame-input">Frame</label><input id="frame-input" type="number" min="0" value="0" step="1"><button id="go-frame" class="quiet">Go ↵</button></div>
+      <span id="loading" class="loading" role="status">Loading tracking…</span><button id="retry-tracking" class="small" hidden>Retry tracking</button>
+    </section>
+    <section class="panel timeline-panel" aria-label="Evidence timeline">
+      <div class="panel-heading"><div><h2>Evidence timeline <span>Click anywhere to seek</span></h2></div><div class="panel-tools"><div class="state-legend"><span><i class="home"></i>H</span><span><i class="away"></i>A</span><span><i class="dead"></i>D</span><span><i class="unknown"></i>X</span></div><select id="zoom" aria-label="Timeline window"><option value="0">Full recording</option><option value="60">60 seconds</option><option value="20">20 seconds</option><option value="5">5 seconds</option></select></div></div>
+      <div class="timeline-wrap"><canvas id="timeline" height="150" aria-label="Prediction, ball visibility, and automatic tagging timelines"></canvas></div>
+      <input id="scrubber" class="scrubber" aria-label="Seek to video frame" type="range" min="0" max="1799" value="0" step="1">
+      <div class="timeline-footer"><span id="window-label">—</span><span><i class="mini-mixed"></i> Mixed states · zoom in</span><span><i class="mini-gap"></i> Ball missing <span class="subtle">≠ dead ball</span></span></div>
+    </section>
+    <section class="details-grid">
+      <article class="panel predictions-panel"><div class="panel-heading"><h2>Predictions <span>Read-only comparison</span></h2></div><div id="prediction-list" class="prediction-list"></div><div class="transition-controls"><label for="transition-source">Navigate changes in</label><select id="transition-source" aria-label="Prediction for transition navigation"></select><button id="prev-transition" title="Previous prediction change ([)" aria-label="Previous prediction change">←</button><button id="next-transition" title="Next prediction change (])" aria-label="Next prediction change">→</button></div></article>
+      <article class="panel tags-panel"><div class="panel-heading"><h2>Automatic tags <span id="tag-count">— active</span></h2><select id="tag-filter" aria-label="Filter automatic tags"><option value="">All phases</option></select></div><div id="tag-list" class="tag-list"></div></article>
+      <article class="panel gaps-panel"><div class="panel-heading"><h2>Tracking gaps <span id="visibility-summary">—</span></h2><button id="next-gap" class="small">Next gap ↗</button></div><p id="gap-note" class="panel-note">Longest gaps in ball observations. Select one to inspect its onset.</p><div id="gap-list" class="gap-list"></div></article>
+    </section>
+    <footer><span>Inspect observations. Question transitions.</span><span id="footer-info">Video frame 0 = tracking frame 1 · All processing is local</span></footer>
+  </main>
+  <dialog id="help"><form method="dialog"><button class="dialog-close" aria-label="Close keyboard shortcuts">×</button></form><p class="eyebrow">MOVE THROUGH THE MATCH</p><h2>Keyboard shortcuts</h2><dl><dt><kbd>Space</kbd></dt><dd>Play / pause</dd><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Step one frame</dd><dt><kbd>Shift</kbd> + arrows</dt><dd>Step one second</dd><dt><kbd>[</kbd> <kbd>]</kbd></dt><dd>Previous / next prediction change</dd><dt><kbd>?</kbd></dt><dd>Open this guide</dd></dl><p>Tracking slots are temporary IDs, not player identities. Tags and predictions are evidence, not ground truth.</p><p>Load match files and CSVs with the launch command in README.md. This viewer has no annotation or label-editing controls.</p></dialog>
+</body>
+</html>
